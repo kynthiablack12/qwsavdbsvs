@@ -7,6 +7,10 @@ const cards = new Map();
 
 async function api(url, opts = {}) {
   const r = await fetch(url, opts);
+  if (r.status === 401) {
+    window.location.href = '/login';
+    throw new Error('Требуется вход в админку');
+  }
   const ct = r.headers.get('content-type') || '';
   const data = ct.includes('json') ? await r.json() : await r.text();
   if (!r.ok) throw new Error((data && data.error) || data || `HTTP ${r.status}`);

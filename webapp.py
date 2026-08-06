@@ -1,11 +1,51 @@
-import sys, os, json, threading
+import sys, os, json, threading, hashlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
 import pickup
-from flask import Flask, jsonify, request, render_template, Response
+from flask import Flask, jsonify, request, render_template, Response, session, redirect, url_for
 import time
 
 app = Flask(__name__)
+
+# Админка закрывается паролем из env ADMIN_PASSWORD.
+# Если переменная не задана (локальная разработка) — админка открыта.
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')
+app.secret_key = hashlib.sha256((ADMIN_PASSWORD or 'local-dev').encode()).hexdigest()
+
+
+@app.before_request
+def guard():
+    """Пользователь (pickup-клиент /p/... и купоны /c/...) не имеет доступа
+    к админке. Админ-роуты защищены паролем, если ADMIN_PASSWORD задан."""
+    if not ADMIN_PASSWORD:
+        return None
+    p = request.path
+    if (p.startswith('/static') or p.startswith('/p/') or
+            p.startswith('/api/pickup/') or p.startswith('/c/') or p == '/login'):
+        return None
+    if session.get('admin'):
+        return None
+    if p.startswith('/api/'):
+        return jsonify({'error': 'Требуется вход в админку'}), 401
+    return redirect(url_for('login_page'))
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login_page():
+    if not ADMIN_PASSWORD:
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        if request.form.get('password', '') == ADMIN_PASSWORD:
+            session['admin'] = True
+            return redirect(url_for('index'))
+        return render_template('login.html', error='Неверный пароль')
+    return render_template('login.html', error=None)
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login_page'))
 
 
 @app.after_request

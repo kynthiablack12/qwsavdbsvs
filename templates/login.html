@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="magnit">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Вход — Магнит Плюс</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root, :root[data-theme="magnit"] {
+  --bg: #f3f4f7; --surface: #ffffff; --surface-2: #f6f7f9; --surface-3: #eceef2;
+  --text: #1a1a1a; --muted: #7b7f89; --line: #e7e8ed; --line-2: #d5d7df;
+  --brand: #e4002b; --brand-2: #ff2447; --on-brand: #ffffff; --brand-soft: rgba(228,0,43,.08);
+  --shadow: 0 8px 24px rgba(20,20,25,.08);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scrollbar-color: var(--line-2) transparent; }
+body {
+  font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+  background: var(--bg); color: var(--text);
+  min-height: 100vh; -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 620px; margin: 0 auto; padding: 0 16px 40px; position: relative; z-index: 1; }
+.hero {
+  background: linear-gradient(180deg, #ff7a1a 0%, #ff3d68 78%, #ff1f5d 100%);
+  border-radius: 0 0 26px 26px;
+  color: #fff; padding: 14px 16px 18px; margin-bottom: 18px;
+}
+.hero-logo { display: flex; align-items: center; gap: 11px; }
+.m-badge {
+  width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+  background: #fff; color: #ff1f5d;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 21px; font-weight: 800;
+}
+.hero-brand { font-size: 16px; font-weight: 800; letter-spacing: -.01em; }
+.hero-sub { color: rgba(255,255,255,.85); font-size: 12px; margin-top: 1px; }
+.card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 20px;
+  box-shadow: var(--shadow); padding: 26px 22px 24px;
+}
+.card h1 { font-size: 19px; font-weight: 800; letter-spacing: -.01em; margin-bottom: 4px; }
+.card .hint { color: var(--muted); font-size: 13px; margin-bottom: 20px; line-height: 1.5; }
+.field { margin-bottom: 16px; }
+.field label { display: block; font-size: 12px; font-weight: 800; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .05em; margin-bottom: 7px; }
+.field input {
+  width: 100%; border: 1px solid var(--line-2); border-radius: 12px;
+  padding: 13px 14px; font-family: inherit; font-size: 15px; background: var(--surface-2);
+  color: var(--text); outline: none; transition: border-color .15s;
+}
+.field input:focus { border-color: var(--brand); background: var(--surface); }
+.btn {
+  width: 100%; border: none; cursor: pointer;
+  background: linear-gradient(135deg, #e4002b, #ff2d4f); color: #fff;
+  border-radius: 12px; padding: 13px; font-family: inherit; font-weight: 800;
+  font-size: 14px; letter-spacing: .01em; transition: transform .12s, opacity .15s;
+}
+.btn:active { transform: scale(.98); }
+.btn:hover { opacity: .92; }
+.error {
+  background: rgba(228,0,43,.08); border: 1px solid rgba(228,0,43,.3);
+  color: var(--brand); border-radius: 12px; padding: 11px 13px;
+  font-size: 13px; font-weight: 700; margin-bottom: 16px;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div class="hero-logo">
+      <div class="m-badge">М</div>
+      <div>
+        <div class="hero-brand">Магнит Плюс</div>
+        <div class="hero-sub">Панель управления</div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <h1>Вход в панель</h1>
+    <div class="hint">Доступ к панели управления ограничен. Введите пароль администратора.</div>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="POST" action="/login">
+      <div class="field">
+        <label for="password">Пароль</label>
+        <input type="password" id="password" name="password" autocomplete="current-password"
+               autofocus required>
+      </div>
+      <button class="btn" type="submit">Войти</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>
