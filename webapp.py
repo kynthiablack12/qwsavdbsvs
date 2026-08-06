@@ -21,7 +21,8 @@ def guard():
         return None
     p = request.path
     if (p.startswith('/static') or p.startswith('/p/') or
-            p.startswith('/api/pickup/') or p.startswith('/c/') or p == '/login'):
+            p.startswith('/api/pickup/') or p.startswith('/c/') or p == '/login' or
+            (p.startswith('/api/coupons/shares/') and p.endswith('/data'))):
         return None
     if session.get('admin'):
         return None
