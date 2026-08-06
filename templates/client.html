@@ -480,6 +480,13 @@ body {
         <span class="city-name" id="cityName">…</span>
         <button class="city-redetect hidden" id="btnRedetect">Определить заново</button>
       </div>
+      <div id="cityPicker" class="hidden">
+        <div class="search-box" style="margin-bottom:12px">
+          <span class="search-ico">⌕</span>
+          <input type="text" id="cityQuery" placeholder="Введите название города…">
+        </div>
+        <div id="cityList" class="store-list"><div class="hint">Начните вводить название города</div></div>
+      </div>
       <div class="search-box">
         <span class="search-ico">⌕</span>
         <input type="text" id="storeQuery" placeholder="Поиск по адресу или названию…">
@@ -730,6 +737,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function detectCity() {
     $('cityLine').textContent = 'Определяем город…';
     $('cityName').textContent = '…';
+    $('cityPicker').classList.add('hidden');
     try {
       const r = await api(`/api/pickup/${TOKEN}/city`);
       state.city = r.city;
@@ -737,8 +745,56 @@ document.addEventListener('DOMContentLoaded', async () => {
       $('cityLine').textContent = [r.city.city, r.city.area, r.city.region].filter(Boolean).join(', ') || 'Город определён';
       $('btnRedetect').classList.remove('hidden');
     } catch (e) {
-      $('cityLine').textContent = 'Не удалось определить город';
+      state.city = null;
+      $('cityName').textContent = 'Город не определён';
+      $('cityLine').textContent = 'Не удалось определить город автоматически. Выберите город вручную:';
+      $('btnRedetect').classList.add('hidden');
+      $('cityPicker').classList.remove('hidden');
+      $('cityQuery').value = '';
+      $('cityList').innerHTML = '<div class="hint">Начните вводить название города</div>';
     }
+  }
+
+  let cityTimer = null;
+  $('cityQuery').addEventListener('input', () => {
+    clearTimeout(cityTimer);
+    cityTimer = setTimeout(searchCities, 350);
+  });
+
+  async function searchCities() {
+    const q = $('cityQuery').value.trim();
+    const box = $('cityList');
+    if (q.length < 2) { box.innerHTML = '<div class="hint">Введите минимум 2 буквы</div>'; return; }
+    box.innerHTML = '<div class="hint">Поиск…</div>';
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/cities?query=${encodeURIComponent(q)}`);
+      const list = (r.cities || []);
+      if (!list.length) { box.innerHTML = '<div class="hint">Город не найден</div>'; return; }
+      box.innerHTML = '';
+      list.forEach(c => {
+        const el = document.createElement('div');
+        el.className = 'store-card';
+        el.innerHTML = `
+          <div class="store-info">
+            <div class="store-name">${esc(c.city || '')}</div>
+            <div class="store-addr">${esc(c.region || '')}</div>
+          </div>
+          <button class="btn-choose">Выбрать</button>`;
+        el.addEventListener('click', () => pickCity(c));
+        box.appendChild(el);
+      });
+    } catch (e) {
+      box.innerHTML = errBox(e.message);
+    }
+  }
+
+  function pickCity(c) {
+    state.city = { city: c.city, cityFiasId: c.cityFiasId, region: c.region, area: c.area };
+    $('cityPicker').classList.add('hidden');
+    $('cityName').textContent = c.city || 'Город';
+    $('cityLine').textContent = [c.city, c.area, c.region].filter(Boolean).join(', ') || 'Город выбран';
+    $('btnRedetect').classList.remove('hidden');
+    loadStores();
   }
 
   async function loadStores() {

@@ -1,4 +1,4 @@
-import sys, json, os
+import sys, json, os, time
 sys.stdout.reconfigure(encoding='utf-8')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
@@ -48,6 +48,35 @@ def current_city(account):
 
 def city_by_fias(account, fias_id):
     return _call(account, 'GET', f'/v1/cities/getbyfiasid?fiasId={fias_id}')
+
+
+_CITIES_CACHE = {'t': 0, 'data': []}
+
+
+def all_cities(account):
+    if time.time() - _CITIES_CACHE['t'] > 3600:
+        try:
+            j = _call(account, 'GET', '/v2/cities')
+            _CITIES_CACHE['data'] = j.get('cities') or []
+            _CITIES_CACHE['t'] = time.time()
+        except Exception:
+            pass
+    return _CITIES_CACHE['data']
+
+
+def search_cities(account, query='', limit=30):
+    q = (query or '').strip().lower()
+    cities = all_cities(account)
+    if not q:
+        out = cities
+    else:
+        out = [c for c in cities
+               if q in (c.get('city') or '').lower()
+               or q in (c.get('region') or '').lower()]
+        out.sort(key=lambda c: (0 if (c.get('city') or '').lower().startswith(q) else 1))
+    return [{'city': c.get('city'), 'cityFiasId': c.get('cityFiasId'),
+             'region': c.get('region'), 'area': c.get('area'),
+             'isMagnitAvailable': c.get('isMagnitAvailable')} for c in out[:limit]]
 
 
 # ---------- stores ----------

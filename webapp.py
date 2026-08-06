@@ -481,6 +481,19 @@ def api_pickup_city(token):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/pickup/<token>/cities')
+def api_pickup_cities(token):
+    try:
+        s = pickup_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'cities': pickup.search_cities(
+            s['account'], query=request.args.get('query', ''))})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/pickup/<token>/cart')
 def api_pickup_cart(token):
     try:
