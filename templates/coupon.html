@@ -105,6 +105,7 @@ body {
 .desc ul li { position: relative; padding-left: 12px; margin-bottom: 5px; }
 .desc ul li::before { content: ''; position: absolute; left: 0; top: 9px; width: 5px; height: 5px; border-radius: 50%; background: var(--brand); }
 .desc a { color: var(--brand); }
+.desc .md-img { width: 18px; height: 18px; vertical-align: -3px; margin-right: 3px; }
 .desc p { margin: 4px 0; }
 
 .state-invalid {
@@ -201,21 +202,32 @@ document.getElementById('heroSub').textContent = 'Купон недоступе�
   }
   function mdLite(src) {
     if (!src) return '';
-    var lines = String(src).replace(/\r/g, '').split('\n');
+    var imgs = [];
+    var text = String(src).replace(/\r/g, '');
+    text = text.replace(/<img[^>]*src=["']([^"']+)["'][^>]*>/gi, function(m, u) {
+      var idx = imgs.length;
+      imgs.push(/^https?:/i.test(u) ? '<img src="' + esc(u) + '" alt="" class="md-img">' : '');
+      return 'ZZIMG' + idx + 'ZZ';
+    });
+    function inline(s) {
+      var out = esc(s);
+      out = out.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+      out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      out = out.replace(/ZZIMG(\d+)ZZ/g, function(m, i) { return imgs[+i] || ''; });
+      return out;
+    }
+    var lines = text.split('\n');
     var html = '', inUl = false;
     lines.forEach(function(ln) {
       var t = ln.trim();
       if (t === '') { if (inUl) { html += '</ul>'; inUl = false; } return; }
       if (/^[*•-]\s+/.test(t)) {
         if (!inUl) { html += '<ul>'; inUl = true; }
-        var item = t.replace(/^[*•-]\s+/, '');
-        item = item.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-        html += '<li>' + esc(item) + '</li>';
+        html += '<li>' + inline(t.replace(/^[*•-]\s+/, '')) + '</li>';
         return;
       }
       if (inUl) { html += '</ul>'; inUl = false; }
-      t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-      html += '<p>' + esc(t) + '</p>';
+      html += '<p>' + inline(t) + '</p>';
     });
     if (inUl) html += '</ul>';
     return html;
