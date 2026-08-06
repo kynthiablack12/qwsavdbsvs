@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+
+# Secrets / runtime data
+accounts.json
+sessions.json
+coupon_shares.json
+prizes.db
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+_server.log
+_server_out.log
+_server_err.log
+
+# Reverse-engineering artifacts (mitm / dumps / app backups)
+flows.mitm
+flows_pay.mitm
+*.tar
+extracted.txt
+dump_all.txt
+dump_pickup.txt
+full_payloads.txt
+headers_dump.txt
+goals_main.json
+databases/
+files/
+no_backup/
+shared_prefs/
+404

@@ -1,0 +1,1473 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="magnit">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Магнит — Самовывоз</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root, :root[data-theme="magnit"] {
+  --bg: #f3f4f7; --surface: #ffffff; --surface-2: #f6f7f9; --surface-3: #eceef2;
+  --text: #1a1a1a; --muted: #7b7f89; --line: #e7e8ed; --line-2: #d5d7df;
+  --brand: #e4002b; --brand-2: #ff2447; --on-brand: #ffffff; --brand-soft: rgba(228,0,43,.08);
+  --good: #2fd17c; --good-soft: rgba(47,209,124,.1); --warn: #e08a00;
+  --plate: linear-gradient(135deg, #e4002b, #ff2d4f);
+  --shadow: 0 8px 24px rgba(20,20,25,.08);
+  --overlay: rgba(25,25,30,.4);
+}
+:root[data-theme="light"] {
+  --bg: #f2f3f6; --surface: #ffffff; --surface-2: #f6f7fa; --surface-3: #eceef3;
+  --text: #1c1f26; --muted: #7a8296; --line: #e4e7ee; --line-2: #cdd3df;
+  --brand: #e4002b; --brand-2: #ff5c77; --on-brand: #ffffff; --brand-soft: rgba(228,0,43,.08);
+  --good: #12b76a; --good-soft: rgba(18,183,106,.1); --warn: #e08a00;
+  --plate: linear-gradient(135deg, #e4002b, #ff5c77);
+  --shadow: 0 12px 30px rgba(28,31,38,.12);
+  --overlay: rgba(28,31,38,.42);
+}
+:root[data-theme="ocean"] {
+  --bg: #f2f6fb; --surface: #ffffff; --surface-2: #f3f8fd; --surface-3: #e7eef8;
+  --text: #14233c; --muted: #6c7a94; --line: #dce6f2; --line-2: #c0d1e7;
+  --brand: #0b7cff; --brand-2: #4aa3ff; --on-brand: #ffffff; --brand-soft: rgba(11,124,255,.1);
+  --good: #12b76a; --good-soft: rgba(18,183,106,.1); --warn: #e08a00;
+  --plate: linear-gradient(135deg, #0b7cff, #38a1ff);
+  --shadow: 0 12px 30px rgba(20,35,60,.12);
+  --overlay: rgba(20,35,60,.42);
+}
+:root[data-theme="night"] {
+  --bg: #0c120f; --surface: #141d19; --surface-2: #1b2722; --surface-3: #223229;
+  --text: #edf6f1; --muted: #8fa99c; --line: #223229; --line-2: #30453a;
+  --brand: #2fd17c; --brand-2: #6fe2a4; --on-brand: #08301c; --brand-soft: rgba(47,209,124,.12);
+  --good: #2fd17c; --good-soft: rgba(47,209,124,.12); --warn: #f5b301;
+  --plate: linear-gradient(135deg, #1e9e5c, #3fd08a);
+  --shadow: 0 14px 34px rgba(0,0,0,.42);
+  --overlay: rgba(3,8,6,.62);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scrollbar-color: var(--line-2) transparent; }
+body {
+  font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+  background: var(--bg); color: var(--text);
+  min-height: 100vh; -webkit-font-smoothing: antialiased;
+  transition: background .3s, color .3s;
+}
+.bg-decoration { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.orb { position: absolute; border-radius: 50%; filter: blur(130px); opacity: .55; }
+.orb-1 { width: 480px; height: 480px; background: rgba(228,0,43,.06); top: -220px; right: -140px; }
+.orb-2 { width: 420px; height: 420px; background: rgba(255,255,255,.5); bottom: -200px; left: -160px; }
+
+.wrap { max-width: 780px; margin: 0 auto; padding: 0 16px 210px; position: relative; z-index: 1; }
+
+/* ---------- hero header (orange -> fuchsia) ---------- */
+.hero {
+  background: linear-gradient(180deg, #ff7a1a 0%, #ff3d68 78%, #ff1f5d 100%);
+  border-radius: 0 0 26px 26px;
+  color: #fff; padding: 14px 16px 18px; margin-bottom: 18px;
+}
+.hero-top { display: flex; align-items: center; gap: 10px; }
+.hero-logo { display: flex; align-items: center; gap: 11px; min-width: 0; flex: 1; }
+.m-badge {
+  width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+  background: #fff; color: #ff1f5d;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 21px; font-weight: 800;
+}
+.hero-brand { font-size: 16px; font-weight: 800; letter-spacing: -.01em; white-space: nowrap; }
+.hero-sub { color: rgba(255,255,255,.85); font-size: 12px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hero-actions { display: flex; align-items: center; gap: 8px; }
+.hero .icon-btn { background: rgba(255,255,255,.2); border: none; color: #fff; }
+.hero .icon-btn:hover { background: rgba(255,255,255,.3); }
+.hero .icon-btn:active { transform: scale(.93); }
+
+.icon-btn {
+  width: 40px; height: 40px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--text); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 18px; line-height: 1; transition: transform .12s, border-color .15s, background .15s;
+}
+.icon-btn:hover { border-color: var(--line-2); }
+.icon-btn:active { transform: scale(.93); }
+.icon-btn.sm { width: 32px; height: 32px; border-radius: 10px; font-size: 15px; }
+
+/* ---------- theme popover ---------- */
+.theme-pop {
+  position: fixed; top: 66px; right: 16px; z-index: 70;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px;
+  padding: 12px; width: 176px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.theme-pop-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 2px; }
+.theme-opt {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px;
+  cursor: pointer; border: 1px solid transparent; font-size: 13px; font-weight: 700;
+  color: var(--text); background: none; font-family: inherit; text-align: left;
+}
+.theme-opt:hover { background: var(--surface-2); }
+.theme-opt.on { border-color: var(--line-2); background: var(--surface-2); }
+.theme-swatch { width: 26px; height: 26px; border-radius: 8px; flex-shrink: 0; border: 1px solid rgba(128,128,128,.25); display: flex; align-items: center; justify-content: center; font-size: 12px; }
+
+/* ---------- bottom tabbar ---------- */
+.tabbar {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 0; z-index: 55;
+  width: 100%; max-width: 780px;
+  background: var(--surface); border-top: 1px solid var(--line);
+  border-radius: 22px 22px 0 0;
+  padding: 6px 8px calc(8px + env(safe-area-inset-bottom));
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+}
+.tab {
+  border: none; background: none; cursor: pointer; font-family: inherit;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 7px 4px 4px; border-radius: 14px; color: var(--muted); position: relative;
+  transition: color .15s, background .15s;
+}
+.tab .t-ico { font-size: 21px; line-height: 1; }
+.tab .t-txt { font-size: 10.5px; font-weight: 800; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--brand); background: var(--brand-soft); }
+.tab .t-dot {
+  position: absolute; top: 4px; right: calc(50% - 26px); min-width: 16px; height: 16px;
+  background: var(--brand); color: #fff; border-radius: 20px;
+  font-size: 9.5px; font-weight: 800; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ---------- views ---------- */
+.view-head h2 { font-size: 21px; font-weight: 800; letter-spacing: -.01em; margin-bottom: 4px; }
+.view-head p { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+
+.search-box {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px;
+  padding: 10px 14px; margin-bottom: 16px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.search-box:focus-within { border-color: var(--brand-2); box-shadow: 0 0 0 3px var(--brand-soft); }
+.search-ico { color: var(--muted); font-size: 17px; line-height: 1; }
+.search-box input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--text); font-size: 14.5px; font-family: inherit; }
+.search-box input::placeholder { color: var(--muted); }
+.search-clear {
+  background: none; border: none; cursor: pointer; color: var(--muted); font-size: 17px; line-height: 1;
+  width: 24px; height: 24px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+}
+.search-clear:hover { color: var(--text); background: var(--surface-3); }
+
+/* ---------- active orders ---------- */
+.order-chip {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  padding: 11px 14px; cursor: pointer; text-decoration: none; color: var(--text);
+  transition: border-color .15s, transform .12s;
+}
+.order-chip:hover { border-color: var(--line-2); }
+.order-chip:active { transform: scale(.995); }
+.order-chip-badge {
+  width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+  background: var(--good-soft); border: 1px solid var(--good);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 19px;
+}
+.order-chip-body { flex: 1; min-width: 0; }
+.order-chip-top { display: flex; align-items: center; gap: 8px; }
+.order-chip-id { font-weight: 800; font-size: 13px; letter-spacing: -.01em; }
+.order-chip-status {
+  background: var(--good-soft); color: var(--good); font-size: 9.5px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .04em; border-radius: 20px; padding: 2px 8px;
+  border: 1px solid var(--good); flex-shrink: 0;
+}
+.order-chip-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.order-chip-arrow { color: var(--muted); font-size: 16px; flex-shrink: 0; }
+.order-card {
+  display: block; background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+  padding: 13px 15px; margin-bottom: 10px; text-decoration: none; color: var(--text);
+  transition: border-color .15s, transform .12s;
+}
+.order-card:hover { border-color: var(--line-2); }
+.order-card:active { transform: scale(.995); }
+.order-card-top { display: flex; align-items: center; gap: 12px; }
+.order-card-bottom { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.order-card-total { font-weight: 800; font-size: 14.5px; letter-spacing: -.01em; }
+.order-card-items { color: var(--muted); font-size: 12px; font-weight: 600; }
+.order-card-bottom .order-chip-arrow { margin-left: auto; font-size: 18px; }
+.orders-empty { padding: 40px 0; }
+
+/* ---------- stores ---------- */
+.store-list { display: flex; flex-direction: column; gap: 10px; }
+.store-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+  padding: 14px 16px; transition: border-color .15s, transform .12s;
+  cursor: pointer;
+}
+.store-card:hover { border-color: var(--line-2); }
+.store-card:active { transform: scale(.995); }
+.store-card.on { border-color: var(--brand); background: var(--brand-soft); }
+.store-info { min-width: 0; }
+.store-name { font-weight: 800; font-size: 14.5px; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.store-type {
+  font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+  background: var(--brand-soft); color: var(--brand); border-radius: 20px; padding: 2px 8px;
+}
+.store-addr { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+.store-meta { color: var(--muted); font-size: 11.5px; margin-top: 5px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.dot { opacity: .4; }
+.btn-choose {
+  flex-shrink: 0; border: none; cursor: pointer; border-radius: 12px; font-family: inherit;
+  font-weight: 800; font-size: 12.5px; padding: 10px 18px;
+  background: var(--plate); color: var(--on-brand); box-shadow: 0 6px 16px var(--brand-soft);
+  transition: transform .12s, opacity .15s;
+}
+.btn-choose:active { transform: scale(.95); }
+.btn-choose.chosen { background: var(--good-soft); color: var(--good); box-shadow: none; border: 1px solid var(--good); }
+.city-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 8px; }
+.city-name { font-weight: 800; font-size: 14px; }
+.city-redetect { background: none; border: none; color: var(--brand); cursor: pointer; font-size: 12.5px; font-weight: 700; font-family: inherit; }
+
+/* ---------- store topbar (products) ---------- */
+.store-topbar {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 10px 12px;
+}
+.store-mini { flex: 1; min-width: 0; }
+.store-mini-name { font-weight: 800; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.store-mini-addr { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.btn-change { flex-shrink: 0; border: none; background: none; color: var(--brand); cursor: pointer; font-size: 12.5px; font-weight: 800; font-family: inherit; }
+
+/* ---------- category chips ---------- */
+.cats-scroll { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 10px; margin-bottom: 6px; scrollbar-width: none; }
+.cats-scroll::-webkit-scrollbar { display: none; }
+.cat-chip {
+  flex-shrink: 0; border: 1px solid var(--line); border-radius: 20px; cursor: pointer;
+  background: var(--surface); color: var(--muted); font-family: inherit;
+  font-size: 12.5px; font-weight: 700; padding: 8px 15px; white-space: nowrap;
+  transition: background .15s, color .15s, border-color .15s, transform .12s;
+}
+.cat-chip:hover { border-color: var(--line-2); color: var(--text); }
+.cat-chip:active { transform: scale(.96); }
+.cat-chip.on { background: var(--plate); color: var(--on-brand); border-color: transparent; box-shadow: 0 6px 16px var(--brand-soft); }
+.cat-note-res { color: var(--muted); font-size: 12px; margin: 2px 0 12px; }
+.sort-scroll { margin-top: -2px; }
+.sort-chip.on { background: var(--brand-soft); color: var(--brand); border-color: var(--brand); box-shadow: none; }
+
+/* ---------- product grid ---------- */
+.product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 12px; }
+.p-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+  padding: 10px; display: flex; flex-direction: column; gap: 8px;
+  transition: border-color .15s, transform .12s, box-shadow .15s;
+}
+.p-card:hover { border-color: var(--line-2); transform: translateY(-1px); box-shadow: var(--shadow); }
+.p-img {
+  position: relative; width: 100%; height: 116px; border-radius: 12px; overflow: hidden;
+  background: var(--surface-2); display: flex; align-items: center; justify-content: center;
+}
+.p-img img { width: 100%; height: 100%; object-fit: contain; }
+.p-disc {
+  position: absolute; top: 6px; left: 6px; background: var(--plate); color: var(--on-brand);
+  font-size: 10.5px; font-weight: 800; border-radius: 8px; padding: 2px 7px;
+}
+.p-badges {
+  position: absolute; top: 6px; left: 6px; display: flex; flex-direction: column; align-items: flex-start;
+  gap: 4px; max-width: calc(100% - 12px);
+}
+.p-disc + .p-badges { top: 30px; }
+.p-badge {
+  font-size: 10px; font-weight: 800; line-height: 1.1; border-radius: 7px; padding: 3px 7px;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.p-name { font-weight: 700; font-size: 12.5px; line-height: 1.35; min-height: 34px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.p-price { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+.p-plate {
+  background: var(--brand); color: var(--on-brand); font-weight: 800; font-size: 14.5px;
+  padding: 4px 10px; border-radius: 8px; letter-spacing: -.01em;
+}
+.p-plain { font-weight: 800; font-size: 14.5px; letter-spacing: -.01em; }
+.p-old { color: var(--muted); font-size: 11.5px; text-decoration: line-through; }
+.p-sub { color: var(--muted); font-size: 10.5px; }
+.p-add {
+  width: 100%; border: none; cursor: pointer; border-radius: 11px; font-family: inherit;
+  font-weight: 800; font-size: 12.5px; padding: 11px 0; background: var(--brand); color: var(--on-brand);
+  box-shadow: 0 6px 14px var(--brand-soft); transition: background .15s, transform .12s, opacity .15s;
+}
+.p-add:hover { background: var(--brand-2); }
+.p-add:active { transform: scale(.97); }
+.p-add.added { background: var(--good); }
+.p-add:disabled { opacity: .5; cursor: default; box-shadow: none; }
+.p-weight {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 11px; padding: 3px;
+}
+.pw-btn {
+  border: none; background: none; cursor: pointer; color: var(--text); font-family: inherit;
+  font-size: 15px; font-weight: 800; width: 28px; height: 28px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; transition: background .15s;
+}
+.pw-btn:hover { background: var(--line); }
+.pw-val { font-weight: 800; font-size: 12.5px; }
+.pw-val i { font-style: normal; color: var(--muted); font-weight: 600; font-size: 10.5px; }
+.cart-item-kg { display: block; color: var(--muted); font-size: 10.5px; font-weight: 700; margin-top: 2px; }
+.more-wrap { text-align: center; margin-top: 16px; }
+.btn-more {
+  border: 1px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer;
+  border-radius: 12px; font-family: inherit; font-weight: 800; font-size: 13px; padding: 11px 28px;
+  transition: border-color .15s, transform .12s;
+}
+.btn-more:hover { border-color: var(--line-2); }
+.btn-more:active { transform: scale(.97); }
+
+/* ---------- checkout ---------- */
+.chk-store { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin-bottom: 14px; }
+.chk-store-ico { width: 38px; height: 38px; border-radius: 11px; background: var(--brand-soft); display: flex; align-items: center; justify-content: center; font-size: 18px; }
+.chk-store-name { font-weight: 800; font-size: 13.5px; }
+.chk-store-addr { color: var(--muted); font-size: 11.5px; margin-top: 1px; }
+.chk-block { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-bottom: 14px; }
+.chk-block-title { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 10px; }
+.row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: 13px; }
+.row.total { border-top: 1px solid var(--line-2); margin-top: 6px; padding-top: 10px; font-weight: 800; font-size: 15px; }
+.slot {
+  display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 12px; margin-bottom: 8px; cursor: pointer; background: var(--surface-2); font-size: 13px; font-weight: 600;
+  transition: border-color .15s;
+}
+.slot.on { border-color: var(--brand); background: var(--brand-soft); }
+.slot input { accent-color: var(--brand); }
+
+.pay-opt {
+  display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 12px; margin-bottom: 8px; cursor: pointer; background: var(--surface-2); font-size: 13px; font-weight: 600;
+  transition: border-color .15s;
+}
+.pay-opt.on { border-color: var(--brand); background: var(--brand-soft); }
+.pay-opt input { accent-color: var(--brand); }
+.pay-opt small { color: var(--muted); font-weight: 400; font-size: 11.5px; display: block; margin-top: 2px; }
+.field { margin-bottom: 12px; }
+.field label { display: block; color: var(--muted); font-size: 11.5px; font-weight: 700; margin-bottom: 6px; }
+.field input, .field select {
+  width: 100%; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 13px; color: var(--text); font-size: 14px; font-family: inherit; outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.field input:focus, .field select:focus { border-color: var(--brand-2); box-shadow: 0 0 0 3px var(--brand-soft); }
+.two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.promo-row { display: flex; gap: 8px; }
+.promo-row input { flex: 1; min-width: 0; }
+.btn-apply {
+  flex-shrink: 0; border: none; cursor: pointer; border-radius: 12px; font-family: inherit;
+  font-weight: 800; font-size: 13px; padding: 0 20px; background: var(--plate); color: var(--on-brand);
+  box-shadow: 0 6px 16px var(--brand-soft); transition: transform .12s, opacity .15s;
+}
+.btn-apply:active { transform: scale(.96); }
+.btn-apply:disabled { opacity: .5; cursor: default; }
+.promo-result { border-radius: 12px; padding: 10px 12px; font-size: 12.5px; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.promo-ok { background: var(--good-soft); color: var(--good); border: 1px solid var(--good); }
+.promo-err { background: #ffe9ec; color: #c1123a; border: 1px solid #ffb3c0; }
+.promo-warn { background: rgba(255,176,32,.12); color: var(--warn); border: 1px solid var(--warn); }
+.promo-remove { margin-left: auto; background: none; border: none; cursor: pointer; font-size: 14px; line-height: 1; color: inherit; padding: 2px; }
+.promo-remove:hover { opacity: .7; }
+.promo-card { border: 1px dashed var(--line-2); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; background: var(--surface-2); }
+.promo-code { font-weight: 800; color: var(--brand); letter-spacing: .5px; }
+.promo-cond { color: var(--muted); font-size: 11.5px; margin-top: 3px; }
+.promo-actions { display: flex; gap: 8px; margin-top: 8px; }
+.mini-btn {
+  border: 1px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer;
+  border-radius: 9px; font-family: inherit; font-weight: 700; font-size: 11.5px; padding: 6px 12px;
+}
+.mini-btn:hover { border-color: var(--line-2); }
+
+/* ---------- big button ---------- */
+.btn-primary-big {
+  width: 100%; border: none; cursor: pointer; border-radius: 14px; font-family: inherit;
+  font-weight: 800; font-size: 15px; padding: 15px 0; background: var(--plate); color: var(--on-brand);
+  box-shadow: 0 10px 26px var(--brand-soft); transition: transform .12s, opacity .15s;
+}
+.btn-primary-big:active { transform: scale(.985); }
+.btn-primary-big:disabled { opacity: .5; cursor: default; }
+
+/* ---------- cart view ---------- */
+.cart-item { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.cart-item-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.3; }
+.cart-item-price { font-weight: 800; font-size: 13.5px; flex-shrink: 0; }
+.qty-step { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.qty-btn {
+  width: 28px; height: 28px; border-radius: 9px; border: 1px solid var(--line); cursor: pointer;
+  background: var(--surface-2); color: var(--text); font-size: 15px; font-weight: 800; line-height: 1;
+  display: flex; align-items: center; justify-content: center; font-family: inherit;
+  transition: border-color .15s, transform .12s;
+}
+.qty-btn:hover { border-color: var(--line-2); }
+.qty-btn:active { transform: scale(.9); }
+.qty-num { font-weight: 800; font-size: 14px; min-width: 18px; text-align: center; }
+.cart-foot {
+  position: sticky; bottom: 74px; z-index: 20; margin-top: 16px;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: 18px;
+  box-shadow: var(--shadow); padding: 14px;
+}
+.cart-foot-total { display: flex; justify-content: space-between; align-items: baseline; font-size: 15px; font-weight: 800; margin-bottom: 12px; }
+.cart-empty { text-align: center; color: var(--muted); font-size: 14px; padding: 50px 0; }
+.cart-empty .big { font-size: 46px; margin-bottom: 12px; }
+.cart-store-chip {
+  display: flex; align-items: center; gap: 10px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 14px; padding: 11px 13px; margin-bottom: 6px;
+}
+.cart-store-chip .ico { width: 34px; height: 34px; border-radius: 10px; background: var(--brand-soft); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.cart-store-chip b { font-size: 13px; display: block; }
+.cart-store-chip span { font-size: 11.5px; color: var(--muted); }
+
+/* ---------- order ok ---------- */
+.order-ok { background: var(--good-soft); border: 1px solid var(--good); border-radius: 16px; padding: 16px; }
+.order-ok b { font-size: 16px; }
+
+/* ---------- toast / alerts ---------- */
+.toast-wrap { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 90; width: 100%; max-width: 560px; padding: 0 16px; pointer-events: none; }
+.toast { border-radius: 13px; padding: 12px 16px; font-size: 13px; font-weight: 600; margin-bottom: 8px; box-shadow: var(--shadow); animation: slideDown .2s ease; pointer-events: auto; }
+.toast.err { background: #ffe9ec; color: #c1123a; border: 1px solid #ffb3c0; }
+.toast.ok { background: var(--good-soft); color: var(--good); border: 1px solid var(--good); }
+.toast.info { background: var(--surface); color: var(--text); border: 1px solid var(--line-2); }
+.badge-err { background: #ffe9ec; color: #c1123a; border: 1px solid #ffb3c0; border-radius: 14px; padding: 14px 16px; font-size: 13.5px; }
+.hint { color: var(--muted); font-size: 13px; line-height: 1.6; }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+@keyframes slideDown { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: none; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner { width: 15px; height: 15px; border: 2px solid rgba(255,255,255,.35); border-top-color: currentColor; border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; }
+
+.hidden { display: none !important; }
+@media (max-width: 520px) {
+  .product-grid { grid-template-columns: repeat(2, 1fr); }
+  .two-cols { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="bg-decoration" aria-hidden="true"><div class="orb orb-1"></div><div class="orb orb-2"></div></div>
+
+<div class="hero">
+  <div class="hero-top">
+    <div class="hero-logo">
+      <div class="m-badge">М</div>
+      <div>
+        <div class="hero-brand">магнит плюс</div>
+        <div class="hero-sub" id="appSub">Выберите магазин</div>
+      </div>
+    </div>
+    <div class="hero-actions">
+      <button class="icon-btn" id="btnTheme" title="Оформление">🎨</button>
+    </div>
+  </div>
+</div>
+
+<div class="theme-pop hidden" id="themePop">
+  <div class="theme-pop-title">Вариант оформления</div>
+  <button class="theme-opt" data-theme="magnit"><span class="theme-swatch" style="background:#e4002b;color:#fff">М</span>Магнит</button>
+  <button class="theme-opt" data-theme="light"><span class="theme-swatch" style="background:#fff;color:#e4002b;border-color:#e4e7ee">М</span>Светлый</button>
+  <button class="theme-opt" data-theme="ocean"><span class="theme-swatch" style="background:#0b7cff;color:#fff">М</span>Океан</button>
+  <button class="theme-opt" data-theme="night"><span class="theme-swatch" style="background:#2fd17c;color:#08301c">М</span>Тёмный</button>
+</div>
+
+<div class="wrap">
+  <div id="blocked" class="badge-err hidden" style="margin-bottom:14px">Ссылка недействительна: сессия не найдена, истекла или отозвана.</div>
+
+  <div id="clientBody">
+
+    <section id="view-stores">
+      <div class="view-head">
+        <h2>Выберите магазин</h2>
+        <p id="cityLine">Определяем город…</p>
+      </div>
+      <div class="city-row">
+        <span class="city-name" id="cityName">…</span>
+        <button class="city-redetect hidden" id="btnRedetect">Определить заново</button>
+      </div>
+      <div class="search-box">
+        <span class="search-ico">⌕</span>
+        <input type="text" id="storeQuery" placeholder="Поиск по адресу или названию…">
+        <button class="search-clear hidden" id="storeClear">×</button>
+      </div>
+      <div id="storesList" class="store-list"><div class="hint">Загрузка…</div></div>
+    </section>
+
+    <section id="view-products" class="hidden">
+      <div class="store-topbar">
+        <button class="icon-btn sm" id="btnBack" title="Магазины">←</button>
+        <div class="store-mini">
+          <div class="store-mini-name" id="miniStoreName">…</div>
+          <div class="store-mini-addr" id="miniStoreAddr"></div>
+        </div>
+        <button class="btn-change" id="btnChangeStore">Сменить</button>
+      </div>
+      <div class="search-box">
+        <span class="search-ico">⌕</span>
+        <input type="text" id="termInput" placeholder="Поиск по товарам…">
+        <button class="search-clear hidden" id="termClear">×</button>
+      </div>
+      <div class="cats-scroll" id="catChips"></div>
+      <div class="cats-scroll sort-scroll" id="sortChips"></div>
+      <div class="cat-note-res" id="catNote"></div>
+      <div id="productsList" class="product-grid"></div>
+      <div class="more-wrap"><button class="btn-more hidden" id="btnMore">Показать ещё</button></div>
+    </section>
+
+    <section id="view-checkout" class="hidden">
+      <div class="store-topbar">
+        <button class="icon-btn sm" id="btnBackCheckout" title="Назад к товарам">←</button>
+        <div class="store-mini">
+          <div class="store-mini-name">Оформление заказа</div>
+          <div class="store-mini-addr" id="miniCheckoutStore">…</div>
+        </div>
+      </div>
+      <div id="checkoutBody"><div class="hint">Загрузка…</div></div>
+    </section>
+
+    <section id="view-orders" class="hidden">
+      <div class="view-head">
+        <h2>Активные заказы</h2>
+        <p>Самовывоз из магазинов. Статусы обновляются автоматически.</p>
+      </div>
+      <div id="ordersList"><div class="hint">Загрузка…</div></div>
+    </section>
+
+    <section id="view-cart" class="hidden">
+      <div class="view-head">
+        <h2>Корзина</h2>
+        <p id="cartStoreLine">Выберите магазин для составления заказа</p>
+      </div>
+      <div id="cartItems"></div>
+      <div class="cart-foot" id="cartFoot">
+        <div class="cart-foot-total"><span>Итого</span><span id="cartViewTotal">0 ₽</span></div>
+        <button class="btn-primary-big" id="btnCheckoutView">Перейти к оформлению</button>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<div class="tabbar" id="tabbar">
+  <button class="tab active" data-tab="pickup"><span class="t-ico">🛍️</span><span class="t-txt">Самовывоз</span></button>
+  <button class="tab" data-tab="orders"><span class="t-ico">📦</span><span class="t-txt">Заказы</span></button>
+  <button class="tab" data-tab="cart"><span class="t-ico">🛒</span><span class="t-txt">Корзина</span></button>
+</div>
+
+<script>
+const TOKEN = location.pathname.split('/').pop();
+const $ = (id) => document.getElementById(id);
+let state = { city: null, store: null, cart: null, goods: [], offset: 0, has_more: false,
+              term: '', catKey: '', catIds: null, allStores: [], cats: [], checkout: null,
+              sortKey: 'popularity', sortOrder: 'desc',
+              slot: null, payment: '', promos: [], promoCode: '', promoApplied: false, promoEstimate: null,
+              payMethods: {available: [], selected_id: null}, binding: null };
+const CAT_DEFAULT = 'all';
+const SORTS = [
+  { key: 'popularity', order: 'desc', label: 'Популярные' },
+  { key: 'discount',   order: 'desc', label: 'Скидки' },
+  { key: 'price',      order: 'asc',  label: 'Дешевле' },
+  { key: 'price',      order: 'desc', label: 'Дороже' },
+  { key: 'rating',     order: 'desc', label: 'По рейтингу' },
+];
+const THEMES = ['magnit', 'light', 'ocean', 'night'];
+
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('pickup_theme', t); } catch (e) {}
+  document.querySelectorAll('.theme-opt').forEach(b => b.classList.toggle('on', b.dataset.theme === t));
+}
+
+async function api(url, opts = {}) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 25000);
+  try {
+    const r = await fetch(url, { ...opts, signal: ctrl.signal });
+    const ct = r.headers.get('content-type') || '';
+    const data = ct.includes('json') ? await r.json() : await r.text();
+    if (!r.ok) throw new Error((data && data.error) || data || `HTTP ${r.status}`);
+    return data;
+  } finally { clearTimeout(t); }
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+function copyText(text, btn) {
+  const done = () => { if (btn) { const old = btn.textContent; btn.textContent = '✓'; setTimeout(() => btn.textContent = old, 1200); } };
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(done).catch(done); else done();
+}
+function fmtRub(v) { return (v / 100).toLocaleString('ru-RU') + ' ₽'; }
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) + ', ' +
+         d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+function toast(msg, kind = 'info') {
+  const w = $('toastWrap');
+  const el = document.createElement('div');
+  el.className = 'toast ' + kind;
+  el.textContent = msg;
+  w.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 350); }, 5000);
+}
+function errBox(msg) { return `<div class="badge-err">${esc(msg)}</div>`; }
+function showView(name) {
+  ['view-stores', 'view-products', 'view-checkout', 'view-orders', 'view-cart'].forEach(v => $(v).classList.toggle('hidden', v !== name));
+  const subs = { 'view-stores': 'Выберите магазин', 'view-products': 'Составьте заказ', 'view-checkout': 'Оформление', 'view-orders': 'Активные заказы', 'view-cart': 'Корзина' };
+  $('appSub').textContent = subs[name];
+  document.querySelectorAll('.tab').forEach(b => {
+    const t = { 'view-stores': 'pickup', 'view-products': 'pickup', 'view-checkout': 'pickup', 'view-orders': 'orders', 'view-cart': 'cart' }[name];
+    if (t) b.classList.toggle('active', b.dataset.tab === t);
+  });
+}
+function saveStore() {
+  if (!state.store) return;
+  try {
+    localStorage.setItem('pickup_store_' + TOKEN, JSON.stringify({
+      store: state.store, fias: state.city ? state.city.cityFiasId : null
+    }));
+  } catch (e) {}
+}
+function restoreStore() {
+  try {
+    const raw = localStorage.getItem('pickup_store_' + TOKEN);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (!data || !data.store || !data.store.code) return false;
+    if (state.city && data.fias && state.city.cityFiasId !== data.fias) {
+      localStorage.removeItem('pickup_store_' + TOKEN);
+      return false;
+    }
+    state.store = data.store;
+    state.goods = []; state.term = ''; state.catKey = ''; state.catIds = null; state.offset = 0;
+    return true;
+  } catch (e) { return false; }
+}
+
+{% if invalid %}
+document.body.dataset.invalid = '1';
+document.addEventListener('DOMContentLoaded', () => {
+  $('clientBody').classList.add('hidden');
+  $('blocked').classList.remove('hidden');
+});
+{% else %}
+document.addEventListener('DOMContentLoaded', async () => {
+  let theme = 'magnit';
+  try { theme = localStorage.getItem('pickup_theme') || 'magnit'; } catch (e) {}
+  applyTheme(theme);
+
+  $('btnTheme').addEventListener('click', () => $('themePop').classList.toggle('hidden'));
+  document.querySelectorAll('.theme-opt').forEach(b =>
+    b.addEventListener('click', () => { applyTheme(b.dataset.theme); $('themePop').classList.add('hidden'); toast('Оформление: ' + (b.textContent.trim()), 'ok'); }));
+  document.addEventListener('click', (e) => {
+    if (!$('themePop').classList.contains('hidden') && !e.target.closest('#btnTheme') && !e.target.closest('#themePop'))
+      $('themePop').classList.add('hidden');
+  });
+
+  try {
+    const info = await api(`/api/pickup/${TOKEN}/info`);
+  } catch (e) {
+    document.body.dataset.invalid = '1';
+    $('clientBody').classList.add('hidden');
+    $('blocked').classList.remove('hidden');
+    return;
+  }
+
+  await detectCity();
+  refreshCart();
+
+  if (restoreStore()) {
+    showView('view-products');
+    renderStoreBar();
+    await loadCategories();
+  } else {
+    showView('view-stores');
+    await loadStores();
+  }
+
+  $('btnRedetect').addEventListener('click', detectCity);
+  $('btnBack').addEventListener('click', () => { showView('view-stores'); loadStores(); });
+  $('btnChangeStore').addEventListener('click', () => { showView('view-stores'); loadStores(); });
+  $('btnBackCheckout').addEventListener('click', () => { showView('view-products'); refreshCart(); });
+  $('btnCheckoutView').addEventListener('click', () => openCheckout());
+  $('btnMore').addEventListener('click', () => loadGoods(true));
+  $('storeClear').addEventListener('click', () => { $('storeQuery').value = ''; renderStores(); });
+  $('termClear').addEventListener('click', () => { $('termInput').value = ''; state.term = ''; state.catKey = ''; state.catIds = null; applyCats(); });
+
+  function openTab(tab) {
+    if (tab === 'pickup') {
+      if (state.store) { showView('view-products'); } else { showView('view-stores'); }
+    } else if (tab === 'orders') {
+      showView('view-orders');
+      loadOrdersView();
+    } else if (tab === 'cart') {
+      showView('view-cart');
+      if (!state.cart) {
+        $('cartItems').innerHTML = '<div class="cart-empty"><div class="big">🕐</div>Загрузка корзины…</div>';
+        $('cartViewTotal').textContent = '…';
+        $('cartFoot').classList.add('hidden');
+      } else {
+        renderCartView();
+      }
+      refreshCart();
+    }
+  }
+  document.querySelectorAll('#tabbar .tab').forEach(b => b.addEventListener('click', () => openTab(b.dataset.tab)));
+  window.addEventListener('hashchange', () => {
+    const h = location.hash.replace('#', '');
+    if (['pickup', 'orders', 'cart'].includes(h)) openTab(h);
+  });
+  const hashTab = location.hash.replace('#', '');
+  if (['orders', 'cart'].includes(hashTab)) openTab(hashTab);
+
+  $('storeQuery').addEventListener('input', () => {
+    $('storeClear').classList.toggle('hidden', !$('storeQuery').value);
+    renderStores();
+  });
+
+  let termTimer = null;
+  $('termInput').addEventListener('input', () => {
+    $('termClear').classList.toggle('hidden', !$('termInput').value);
+    clearTimeout(termTimer);
+    termTimer = setTimeout(searchGoods, 400);
+  });
+
+  async function detectCity() {
+    $('cityLine').textContent = 'Определяем город…';
+    $('cityName').textContent = '…';
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/city`);
+      state.city = r.city;
+      $('cityName').textContent = r.city.city || 'Город';
+      $('cityLine').textContent = [r.city.city, r.city.area, r.city.region].filter(Boolean).join(', ') || 'Город определён';
+      $('btnRedetect').classList.remove('hidden');
+    } catch (e) {
+      $('cityLine').textContent = 'Не удалось определить город';
+    }
+  }
+
+  async function loadStores() {
+    if (!state.city) return;
+    $('storesList').innerHTML = '<div class="hint">Загрузка магазинов…</div>';
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/stores?query=&city_fias_id=${encodeURIComponent(state.city.cityFiasId)}`);
+      state.allStores = (r.stores && r.stores.data) || [];
+      $('cityName').textContent = state.city.city || 'Город';
+      renderStores();
+    } catch (e) {
+      $('storesList').innerHTML = errBox(e.message);
+    }
+  }
+
+  function renderStores() {
+    const q = $('storeQuery').value.trim().toLowerCase();
+    const list = q
+      ? state.allStores.filter(s => ((s.name || '') + ' ' + (s.address || '') + ' ' + (s.code || '')).toLowerCase().includes(q))
+      : state.allStores;
+    const box = $('storesList');
+    if (!list.length) { box.innerHTML = q ? '<div class="hint">Ничего не найдено. Попробуйте другой адрес.</div>' : '<div class="hint">Магазинов не найдено</div>'; return; }
+    box.innerHTML = '';
+    list.forEach(st => {
+      const el = document.createElement('div');
+      el.className = 'store-card' + (state.store && state.store.code === st.code ? ' on' : '');
+      const typeLabel = st.store_type || '';
+      const meta = [st.hours && ('до ' + st.hours), 'Самовывоз'].filter(Boolean).join(' · ');
+      el.innerHTML = `
+        <div class="store-info">
+          <div class="store-name">${esc(st.name || '')}${typeLabel ? ` <span class="store-type">${esc(typeLabel)}</span>` : ''}</div>
+          <div class="store-addr">${esc(st.address || '')}</div>
+          <div class="store-meta">${esc(meta)}</div>
+        </div>
+        <button class="btn-choose ${state.store && state.store.code === st.code ? 'chosen' : ''}">${state.store && state.store.code === st.code ? '✓ Выбран' : 'Выбрать'}</button>`;
+      el.addEventListener('click', () => selectStore(st));
+      box.appendChild(el);
+    });
+  }
+
+  function selectStore(st) {
+    state.store = st;
+    state.goods = []; state.term = ''; state.catKey = ''; state.catIds = null; state.offset = 0;
+    $('storeQuery').value = '';
+    $('storeClear').classList.add('hidden');
+    saveStore();
+    showView('view-products');
+    renderStoreBar();
+    loadCategories();
+  }
+
+  function renderStoreBar() {
+    const st = state.store;
+    $('miniStoreName').textContent = st.name || '';
+    $('miniStoreAddr').textContent = [(st.address || ''), st.hours && ('до ' + st.hours)].filter(Boolean).join(' · ');
+  }
+
+  async function loadCategories() {
+    const chipBox = $('catChips');
+    chipBox.innerHTML = '';
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/categories?store_code=${encodeURIComponent(state.store.code)}`);
+      const cats = r.categories || [];
+      const groups = {};
+      cats.forEach(c => {
+        const seg = (c.path || c.name || '').split(' / ')[0] || 'Прочее';
+        (groups[seg] = groups[seg] || []).push(c);
+      });
+      state.cats = Object.keys(groups).sort().map(seg => ({ seg, ids: groups[seg].map(c => c.id) }));
+      chipBox.innerHTML = '';
+      chipBox.appendChild(chipEl(CAT_DEFAULT, 'Все товары', null));
+      state.cats.forEach(g => chipBox.appendChild(chipEl(g.seg, g.seg, g.ids)));
+      selectChip(CAT_DEFAULT, null);
+      renderSortChips();
+    } catch (e) {
+      $('productsList').innerHTML = errBox('Не удалось загрузить категории: ' + e.message);
+    }
+  }
+
+  async function loadOrdersView() {
+    const box = $('ordersList');
+    box.innerHTML = '<div class="hint">Загрузка…</div>';
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/orders/active`);
+      const orders = r.orders || [];
+      if (!orders.length) {
+        box.innerHTML = '<div class="orders-empty"><div style="font-size:42px;margin-bottom:10px">📦</div><div class="hint" style="text-align:center">Активных заказов нет</div></div>';
+        return;
+      }
+      box.innerHTML = orders.map(o => `
+        <a class="order-card" href="/p/${TOKEN}/order/${encodeURIComponent(o.order_id)}">
+          <div class="order-card-top">
+            <div class="order-chip-badge">📦</div>
+            <div>
+              <div class="order-chip-id">${esc(o.order_id)}</div>
+              <div class="order-chip-meta">${esc([o.store_name, o.shop_format].filter(Boolean).join(' · '))}</div>
+            </div>
+            <span class="order-chip-status">${esc(o.status_name)}</span>
+          </div>
+          <div class="order-card-bottom">
+            <span class="order-card-total">${esc(o.total || '')}</span>
+            <span class="order-card-items">${esc(o.items_count + ' товаров')}</span>
+            <span class="order-chip-arrow">›</span>
+          </div>
+        </a>`).join('');
+    } catch (e) {
+      box.innerHTML = errBox('Не удалось загрузить заказы: ' + e.message);
+    }
+  }
+
+  function chipEl(key, label, ids) {
+    const b = document.createElement('button');
+    b.className = 'cat-chip';
+    b.textContent = label;
+    b.dataset.key = key;
+    b.addEventListener('click', () => selectChip(key, ids));
+    return b;
+  }
+
+  function renderSortChips() {
+    const box = $('sortChips');
+    box.innerHTML = '';
+    SORTS.forEach((s, i) => {
+      const b = document.createElement('button');
+      b.className = 'cat-chip sort-chip';
+      b.textContent = s.label;
+      b.dataset.i = i;
+      b.classList.toggle('on', s.key === state.sortKey && s.order === state.sortOrder);
+      b.addEventListener('click', () => {
+        state.sortKey = s.key; state.sortOrder = s.order;
+        box.querySelectorAll('.sort-chip').forEach(x => x.classList.toggle('on', x === b));
+        loadGoods();
+      });
+      box.appendChild(b);
+    });
+  }
+
+  function selectChip(key, ids) {
+    state.catKey = key; state.catIds = ids;
+    document.querySelectorAll('.cat-chip').forEach(b => b.classList.toggle('on', b.dataset.key === key));
+    $('catNote').textContent = ids ? `Категория: ${esc(key)}` : '';
+    $('termInput').value = ''; state.term = '';
+    $('termClear').classList.add('hidden');
+    loadGoods();
+  }
+
+  function searchGoods() {
+    const v = $('termInput').value.trim();
+    if (v === state.term && state.catKey === 'search') return;
+    state.term = v;
+    state.catKey = v ? 'search' : '';
+    state.catIds = null;
+    document.querySelectorAll('.cat-chip').forEach(b => b.classList.toggle('on', b.dataset.key === CAT_DEFAULT && !v));
+    $('catNote').textContent = v ? `Поиск: «${esc(v)}»` : '';
+    loadGoods();
+  }
+
+  function applyCats() {
+    document.querySelectorAll('.cat-chip').forEach(b => b.classList.toggle('on', b.dataset.key === (state.term ? 'search' : state.catKey)));
+    loadGoods();
+  }
+
+  async function loadGoods(more) {
+    const box = $('productsList');
+    if (!more) { state.offset = 0; state.goods = []; box.innerHTML = '<div class="hint">Загрузка…</div>'; }
+    const qs = new URLSearchParams({ store_code: state.store.code });
+    if (state.catIds && state.catIds.length) qs.set('category_ids', state.catIds.join(','));
+    if (state.term) qs.set('term', state.term);
+    qs.set('sort', state.sortKey);
+    qs.set('order', state.sortOrder);
+    if (state.offset) qs.set('offset', state.offset);
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/catalog?${qs}`);
+      const cat = r.catalog;
+      state.goods = state.goods.concat(cat.items || []);
+      state.offset = cat.next_offset || (state.offset + (cat.items || []).length);
+      state.has_more = !!cat.has_more;
+      renderGoods();
+      $('btnMore').classList.toggle('hidden', !state.has_more);
+    } catch (e) {
+      box.innerHTML = errBox(e.message);
+    }
+  }
+
+  function renderGoods() {
+    const box = $('productsList');
+    if (!state.goods.length) { box.innerHTML = '<div class="hint">Ничего не найдено</div>'; return; }
+    box.innerHTML = '';
+    state.goods.forEach(it => {
+      const el = document.createElement('div');
+      el.className = 'p-card';
+      const disc = it.discount ? `<span class="p-disc">−${it.discount}%</span>` : '';
+      const badges = (it.badges || []).map(b =>
+        `<span class="p-badge" style="background:${esc(b.backgroundColor || '#ff5858')};color:${esc(b.textColor || '#fff')}">${esc(b.text || '')}</span>`
+      ).join('');
+      const badgesHtml = badges ? `<div class="p-badges">${badges}</div>` : '';
+      const priceHtml = it.discount
+        ? `<div class="p-price"><span class="p-plate">${it.price != null ? fmtRub(it.price) : '—'}</span><span class="p-old">${fmtRub(it.old_price)}</span></div>`
+        : `<div class="p-price"><span class="p-plain">${it.price != null ? fmtRub(it.price) : '—'}</span></div>`;
+      const sub = it.weighted ? '<div class="p-sub">по весу</div>' : '';
+      const weightCtrl = it.weighted
+        ? `<div class="p-weight" data-wc>
+             <button class="pw-btn" data-act="dec">−</button>
+             <span class="pw-val" data-kg="1">1 <i>кг</i></span>
+             <button class="pw-btn" data-act="inc">+</button>
+           </div>`
+        : '';
+      el.innerHTML = `
+        <div class="p-img">
+          ${disc}
+          ${badgesHtml}
+          ${it.image ? `<img src="${esc(it.image)}" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
+        </div>
+        <div class="p-name">${esc(it.name || '')}</div>
+        ${priceHtml}
+        ${sub}
+        ${weightCtrl}
+        <button class="p-add">${it.weighted ? 'В корзину' : 'В корзину'}</button>`;
+      let wkg = 1;
+      const stepKg = it.weight_step ? it.weight_step / 1000 : 1;
+      const wc = el.querySelector('[data-wc]');
+      const kgEl = el.querySelector('[data-kg]');
+      const setW = (kg) => {
+        wkg = Math.max(stepKg, Math.round(kg / stepKg) * stepKg);
+        kgEl.innerHTML = `${wkg % 1 === 0 ? wkg : wkg.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')} <i>кг</i>`;
+      };
+      if (wc) {
+        wc.querySelector('[data-act=dec]').addEventListener('click', () => setW(wkg - stepKg));
+        wc.querySelector('[data-act=inc]').addEventListener('click', () => setW(wkg + stepKg));
+      }
+      el.querySelector('.p-add').addEventListener('click', async (e) => {
+        const b = e.currentTarget;
+        if (b.disabled) return;
+        b.disabled = true;
+        b.textContent = '…';
+        const ok = await addItems([it], it.weighted ? Math.round(wkg / stepKg) : 1);
+        b.disabled = false;
+        b.textContent = ok ? '✓ Добавлено' : 'В корзину';
+        if (ok) { b.classList.add('added'); setTimeout(() => { b.classList.remove('added'); b.textContent = 'В корзину'; }, 1200); }
+      });
+      box.appendChild(el);
+    });
+  }
+
+  async function addItems(list, qnty = 1) {
+    const items = list.map(it => ({
+      good_id: it.id, qnty, catalog_price: it.price, name: it.name || null,
+      weight_step: it.weighted ? it.weight_step : null
+    }));
+    try {
+      await api(`/api/pickup/${TOKEN}/cart`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ store_code: state.store.code, items })
+      });
+      await refreshCart();
+      return true;
+    } catch (e) {
+      toast('Не удалось добавить в корзину: ' + e.message, 'err');
+      return false;
+    }
+  }
+
+  let cartBusy = false;
+  async function refreshCart() {
+    if (cartBusy) return;
+    cartBusy = true;
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/cart`);
+      const carts = (r.cart && r.cart.carts) || [];
+      state.cart = carts[0] || null;
+      renderCartBar();
+      if (!$('view-cart').classList.contains('hidden')) renderCartView();
+    } catch (e) {} finally { cartBusy = false; }
+  }
+
+  function cartItems(c) { return ((c && c.items) || []).filter(i => i.qnty); }
+
+  function renderCartBar() {
+    const c = state.cart;
+    const items = cartItems(c);
+    const cartTab = document.querySelector('.tab[data-tab=cart]');
+    let dot = cartTab.querySelector('.t-dot');
+    if (items.length) {
+      const n = items.reduce((s, i) => s + i.qnty, 0);
+      if (!dot) { dot = document.createElement('span'); dot.className = 't-dot'; cartTab.appendChild(dot); }
+      dot.textContent = n > 99 ? '99+' : n;
+    } else if (dot) {
+      dot.remove();
+    }
+  }
+
+  function renderCartView() {
+    const box = $('cartItems');
+    const c = state.cart;
+    const items = cartItems(c);
+    $('cartStoreLine').textContent = (state.store && (state.store.name || state.store.address))
+      ? 'Самовывоз · ' + (state.store.name || '')
+      : 'Выберите магазин для составления заказа';
+    const foot = $('cartFoot');
+    if (!items.length) {
+      box.innerHTML = '<div class="cart-empty"><div class="big">🛒</div>Корзина пуста.<br><span class="hint">Добавьте товары в разделе «Самовывоз»</span></div>';
+      $('cartViewTotal').textContent = '0 ₽';
+      $('btnCheckoutView').disabled = true;
+      foot.classList.add('hidden');
+      return;
+    }
+    foot.classList.remove('hidden');
+    box.innerHTML = '';
+    items.forEach(it => {
+      const row = document.createElement('div');
+      row.className = 'cart-item';
+      const name = it.goodName || it.goodId;
+      const stepKg = it.weight_step ? it.weight_step / 1000 : 1;
+      const kg = it.weighted && stepKg ? (it.qnty * stepKg) : null;
+      const kgHtml = kg != null ? `<span class="cart-item-kg">${kg % 1 === 0 ? kg : kg.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')} кг</span>` : '';
+      row.innerHTML = `
+        <span class="cart-item-name">${esc(name)}${kgHtml}</span>
+        <div class="qty-step">
+          <button class="qty-btn" data-act="dec">−</button>
+          <span class="qty-num">${it.qnty}</span>
+          <button class="qty-btn" data-act="inc">+</button>
+        </div>
+        <span class="cart-item-price">${it.catalogPrice != null ? fmtRub(it.catalogPrice * it.qnty) : '—'}</span>`;
+      row.querySelector('[data-act=dec]').addEventListener('click', () => setQty(it, Math.max(0, it.qnty - 1)));
+      row.querySelector('[data-act=inc]').addEventListener('click', () => setQty(it, it.qnty + 1));
+      box.appendChild(row);
+    });
+    $('cartViewTotal').textContent = fmtRub(c.totalFinalPrice || 0);
+    $('btnCheckoutView').disabled = false;
+  }
+
+  async function setQty(it, qnty) {
+    const storeCode = (state.cart && state.cart.storeCode) || (state.store && state.store.code) || null;
+    const cur = it.qnty || 0;
+    try {
+      if (qnty <= 0) {
+        await api(`/api/pickup/${TOKEN}/cart/item`, {
+          method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ store_code: storeCode, good_id: it.goodId, catalog_price: it.catalogPrice, weight_step: it.weight_step || null })
+        });
+      } else if (qnty > cur) {
+        await api(`/api/pickup/${TOKEN}/cart`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ store_code: storeCode, items: [{ good_id: it.goodId, qnty, catalog_price: it.catalogPrice, weight_step: it.weight_step || null }] })
+        });
+      } else {
+        await api(`/api/pickup/${TOKEN}/cart/item`, {
+          method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ store_code: storeCode, good_id: it.goodId, catalog_price: it.catalogPrice, qnty, weight_step: it.weight_step || null })
+        });
+      }
+      await refreshCart();
+    } catch (e) {
+      toast('Не удалось обновить количество: ' + e.message, 'err');
+    }
+  }
+
+  setInterval(() => { if (document.visibilityState === 'visible') refreshCart(); }, 6000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshCart(); });
+
+  async function openCheckout() {
+    if (!state.cart || !cartItems(state.cart).length) { toast('Корзина пуста', 'err'); return; }
+    showView('view-checkout');
+    $('miniCheckoutStore').textContent = (state.store && (state.store.name || state.store.address)) || '';
+    const body = $('checkoutBody');
+    body.innerHTML = '<div class="hint">Загрузка…</div>';
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/checkout?cart_id=${encodeURIComponent(state.cart.id)}&store_code=${encodeURIComponent(state.cart.storeCode || state.store.code)}`);
+      state.checkout = r.checkout;
+      state.slot = (r.checkout.orderTimeslot && r.checkout.orderTimeslot.available && r.checkout.orderTimeslot.available[0]) || null;
+      try {
+        const pr = await api(`/api/pickup/${TOKEN}/promos`);
+        state.promos = pr.promocodes || [];
+      } catch (e) { state.promos = []; }
+      try {
+        const pm = await api(`/api/pickup/${TOKEN}/payment/methods`);
+        state.payMethods = pm.methods || {available: [], selected_id: null};
+      } catch (e) { state.payMethods = {available: [], selected_id: null}; }
+      renderCheckout();
+    } catch (e) {
+      const msg = e.message.includes('STORE_NOT_FOUND')
+        ? 'Выбранный магазин не принимает заказы на самовывоз (ассортимент мог измениться). Нажмите «Сменить магазин» и выберите другой.'
+        : e.message;
+      body.innerHTML = errBox(msg) + '<div style="margin-top:12px"><button class="btn-primary-big" onclick="showView(\'view-products\')">← Назад к товарам</button></div>';
+    }
+  }
+
+  function renderCheckout() {
+    const ch = state.checkout;
+    const body = $('checkoutBody');
+    const di = ch.deliveryInfo || {};
+    const sum = ch.summary || {};
+    const avail = (ch.orderTimeslot && ch.orderTimeslot.available) || [];
+    const pay = (ch.paymentMethods && ch.paymentMethods.available) || [];
+    const cust = ch.customer || {};
+    state.payment = pay.some(p => p.id === 'StoreOffline') ? 'StoreOffline' : (pay[0] && pay[0].id) || 'StoreOffline';
+
+    const slotsHtml = avail.map(s => {
+      const on = state.slot && state.slot.interval.from === s.interval.from ? 'on' : '';
+      return `<label class="slot ${on}"><input type="radio" name="slot" data-i="${esc(s.interval.from)}" ${on ? 'checked' : ''}>
+        <span>${esc(fmtDate(s.interval.from))} – ${esc(fmtDate(s.interval.to))}</span></label>`;
+    }).join('');
+
+    const payHtml = pay.map(p =>
+      `<option value="${esc(p.id)}" ${p.id === state.payment ? 'selected' : ''}>${esc(p.title)}</option>`).join('') ||
+      '<option value="StoreOffline">На кассе</option>';
+
+    const promos = state.promos || [];
+
+    function renderPayOptionsHtml() {
+      const methods = (state.payMethods.available || []);
+      const opts = [{id: 'StoreOffline', title: 'На кассе (при получении)', hint: 'Оплата наличными или картой в магазине'}];
+      for (const m of methods) {
+        if (m.is_hidden) continue;
+        if (m.type === 'BankCard' && m.payment_mode === 'binding') {
+          opts.push({id: m.id, title: m.title, hint: 'Банковская карта'});
+        } else if (m.type === 'GrocerySBP') {
+          opts.push({id: m.id, title: m.title, hint: 'СБП'});
+        } else if (m.type === 'SBOL') {
+          opts.push({id: m.id, title: m.title, hint: 'SberPay'});
+        }
+      }
+      state.payment = state.payment || 'StoreOffline';
+      return opts.map(o =>
+        `<label class="pay-opt ${o.id === state.payment ? 'on' : ''}"><input type="radio" name="pay" value="${esc(o.id)}" ${o.id === state.payment ? 'checked' : ''}>
+         <span><b>${esc(o.title)}</b><small>${esc(o.hint)}</small></span></label>`
+      ).join('');
+    }
+
+    const promosHtml = promos.length
+      ? promos.map(p => `
+          <div class="promo-card">
+            <div><span class="promo-code">${esc(p.value)}</span> · ${esc(p.title || '')}</div>
+            <div class="promo-cond">${esc(p.condition || '')}</div>
+            <div class="promo-actions">
+              <button class="mini-btn" data-use="${esc(p.value)}">Использовать</button>
+              <button class="mini-btn" data-copy="${esc(p.value)}">Копировать</button>
+            </div>
+          </div>`).join('')
+      : '<div class="hint">Доступных промокодов нет</div>';
+
+    body.innerHTML = `
+      <div class="chk-store">
+        <div class="chk-store-ico">📍</div>
+        <div>
+          <div class="chk-store-name">${esc(state.store.name || '')}</div>
+          <div class="chk-store-addr">${esc(state.store.address || '')}${di.pickupInfo && di.pickupInfo.description ? ' · ' + esc(di.pickupInfo.description) : ''}</div>
+        </div>
+      </div>
+
+      <div class="chk-block">
+        <div class="chk-block-title">Состав заказа</div>
+        <div id="chkRows"></div>
+        <div class="row total"><span>Итого</span><span id="chkTotal"></span></div>
+      </div>
+
+      <div class="chk-block">
+        <div class="chk-block-title">Время получения (${avail.length} доступно)</div>
+        ${slotsHtml || '<p class="hint">Нет доступных слотов</p>'}
+      </div>
+
+      <div class="chk-block">
+        <div class="chk-block-title">Контактные данные</div>
+        <div class="two-cols">
+          <div class="field"><label>Email</label><input id="custEmail" value="${esc(cust.email || '')}"></div>
+          <div class="field"><label>Телефон</label><input id="custPhone" value="${esc(cust.phone || '')}"></div>
+        </div>
+        <div class="field"><label>Промокод</label>
+          <div class="promo-row">
+            <input id="promoInput" placeholder="Например: САМ10" value="${esc(state.promoCode || '')}">
+            <button class="btn-apply" id="btnApplyPromo">Применить</button>
+          </div>
+        </div>
+        <div id="promoResult"></div>
+        ${promosHtml}
+        <div class="field" style="margin-bottom:0"><label>Оплата</label>
+          <div id="payOptions">${renderPayOptionsHtml()}</div>
+          <button class="mini-btn" id="btnAddCard" style="margin-top:8px">＋ Добавить карту</button>
+          <div id="bindStatus"></div>
+        </div>
+        ${ch.paymentMethods && ch.paymentMethods.description ? `<div class="hint" style="margin-top:10px">${esc(ch.paymentMethods.description)}</div>` : ''}
+      </div>
+
+      <button class="btn-primary-big" id="btnPlaceOrder">Оформить заказ</button>`;
+
+    updateSummary();
+
+    body.querySelectorAll('input[name=slot]').forEach(r => {
+      r.addEventListener('change', () => {
+        body.querySelectorAll('.slot').forEach(s => s.classList.remove('on'));
+        r.closest('.slot').classList.add('on');
+        state.slot = avail.find(s => s.interval.from === r.dataset.i) || state.slot;
+      });
+    });
+    body.querySelectorAll('input[name=pay]').forEach(r => {
+      r.addEventListener('change', () => {
+        body.querySelectorAll('.pay-opt').forEach(x => x.classList.remove('on'));
+        r.closest('.pay-opt').classList.add('on');
+        state.payment = r.value;
+      });
+    });
+    $('btnAddCard').addEventListener('click', addCard);
+    $('promoInput').addEventListener('input', e => {
+      state.promoCode = e.target.value.trim();
+      if (state.promoApplied) {
+        state.promoApplied = false;
+        state.promoEstimate = null;
+        renderPromoResult('', '');
+        updateSummary();
+      }
+    });
+    $('promoInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyPromo(); } });
+    $('btnApplyPromo').addEventListener('click', applyPromo);
+    body.querySelectorAll('[data-use]').forEach(b => b.addEventListener('click', () => {
+      $('promoInput').value = b.dataset.use;
+      state.promoCode = b.dataset.use;
+      applyPromo();
+    }));
+    body.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy, b)));
+    $('btnPlaceOrder').addEventListener('click', placeOrder);
+  }
+
+  function updateSummary() {
+    const ch = state.checkout;
+    const sum = (ch && ch.summary) || {};
+    const rows = [
+      ['Товары', fmtRub(sum.itemsTotalSalePrice)],
+      ...(sum.discounts || []).map(d => ['Скидка', '−' + fmtRub(d.value)]),
+      ...(state.promoApplied && state.promoEstimate ? [['Промокод', '−' + fmtRub(state.promoEstimate.discount)]] : []),
+      ...(sum.prices || []).map(p => [p.title, fmtRub(p.value)]),
+    ];
+    const total = (state.promoApplied && state.promoEstimate && state.promoEstimate.total_after > 0)
+      ? state.promoEstimate.total_after : (sum.totalFinalPrice || 0);
+    const el = $('chkRows');
+    if (el) el.innerHTML = rows.map(([t, v]) => `<div class="row"><span>${esc(t)}</span><span>${esc(v)}</span></div>`).join('');
+    const te = $('chkTotal');
+    if (te) te.innerHTML = fmtRub(total) + (state.promoApplied && state.promoEstimate ? ' <span class="hint">предварительно</span>' : '');
+  }
+
+  function renderPromoResult(kind, msg) {
+    const box = $('promoResult');
+    if (!box) return;
+    if (!msg) { box.innerHTML = ''; return; }
+    const removeBtn = kind === 'ok' ? '<button class="promo-remove" title="Убрать промокод">✕</button>' : '';
+    box.className = 'promo-result promo-' + kind;
+    box.innerHTML = esc(msg) + removeBtn;
+    if (kind === 'ok') {
+      box.querySelector('.promo-remove').addEventListener('click', () => {
+        state.promoApplied = false;
+        state.promoEstimate = null;
+        state.promoCode = '';
+        $('promoInput').value = '';
+        renderPromoResult('', '');
+        updateSummary();
+      });
+    }
+  }
+
+  async function applyPromo() {
+    const inp = $('promoInput');
+    const code = (inp.value || '').trim();
+    if (!code) { toast('Введите промокод', 'err'); return; }
+    const btn = $('btnApplyPromo');
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = '…';
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/checkout/promo`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cart_id: state.checkout.id,
+          store_code: state.cart.storeCode || state.store.code,
+          promo_code: code
+        })
+      });
+      const res = r.result || {};
+      if (res.applied) {
+        state.promoApplied = true;
+        state.promoCode = code;
+        state.promoEstimate = res.estimate || null;
+        renderPromoResult('ok', res.message || ('Промокод ' + code + ' применён'));
+        updateSummary();
+        toast('Промокод применён', 'ok');
+      } else {
+        state.promoApplied = false;
+        state.promoEstimate = null;
+        renderPromoResult(res.reason === 'not_found' || res.reason === 'empty' ? 'err' : 'warn', res.message || 'Промокод не применим');
+        updateSummary();
+      }
+    } catch (e) {
+      renderPromoResult('err', 'Не удалось проверить промокод: ' + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = old;
+    }
+  }
+
+  function stopBind() {
+    if (state.binding && state.binding.timer) {
+      clearInterval(state.binding.timer);
+      state.binding = null;
+    }
+  }
+
+  async function addCard() {
+    if (state.binding) return;
+    const btn = $('btnAddCard');
+    const bs = $('bindStatus');
+    if (!btn || !bs) return;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/payment/bind`, { method: 'POST' });
+      const b = r.bind;
+      state.binding = { orderId: b.orderID, paymentMethodId: b.paymentMethodId, tries: 0 };
+      const win = window.open(b.formURL, '_blank');
+      if (!win) {
+        bs.innerHTML = `<div class="promo-result promo-warn">Разрешите всплывающие окна, чтобы открыть страницу оплаты, либо перейдите по ссылке: <a href="${esc(b.formURL)}" target="_blank">открыть оплату</a></div>`;
+      } else {
+        bs.innerHTML = '<div class="promo-result promo-warn">Открыли страницу оплаты в новой вкладке. Введите данные карты и пройдите 3-D Secure. Ожидаем подтверждения…</div>';
+      }
+      state.binding.timer = setInterval(checkBind, 3000);
+    } catch (e) {
+      bs.innerHTML = `<div class="promo-result promo-err">Не удалось начать привязку: ${esc(e.message)}</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '＋ Добавить карту';
+    }
+  }
+
+  async function checkBind() {
+    const b = state.binding;
+    if (!b) return;
+    b.tries++;
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/payment/methods`);
+      state.payMethods = r.methods || {available: [], selected_id: null};
+      const found = (state.payMethods.available || []).find(m => m.id === b.paymentMethodId);
+      const bs = $('bindStatus');
+      if (found) {
+        stopBind();
+        state.payment = found.id;
+        const po = $('payOptions');
+        if (po) po.innerHTML = renderPayOptionsHtml();
+        body.querySelectorAll('input[name=pay]').forEach(r => {
+          r.addEventListener('change', () => {
+            body.querySelectorAll('.pay-opt').forEach(x => x.classList.remove('on'));
+            r.closest('.pay-opt').classList.add('on');
+            state.payment = r.value;
+          });
+        });
+        if (bs) bs.innerHTML = `<div class="promo-result promo-ok">Карта ${esc(found.title)} привязана</div>`;
+        toast('Карта привязана', 'ok');
+      } else if (b.tries > 90) {
+        stopBind();
+        if (bs) bs.innerHTML = `<div class="promo-result promo-warn">Не дождались привязки. Если вы завершили оплату, нажмите «Проверить ещё раз»:
+          <button class="mini-btn" onclick="checkBindNow()">Проверить ещё раз</button></div>`;
+      }
+    } catch (e) {
+      if (b.tries > 90) { stopBind(); }
+    }
+  }
+
+  window.checkBindNow = function() {
+    if (!state.binding) return;
+    checkBind();
+  };
+
+  async function placeOrder() {
+    if (!state.slot) { toast('Выберите время получения', 'err'); return; }
+    const btn = $('btnPlaceOrder');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Оформляем…';
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/order`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cart_id: state.checkout.id,
+          store_code: state.cart.storeCode || state.store.code,
+          from: state.slot.interval.from,
+          to: state.slot.interval.to,
+          customer: { email: $('custEmail').value.trim(), phone: $('custPhone').value.trim() },
+          payment: state.payment,
+          replacement: 'REPLACE_GOODS',
+          promo_code: state.promoCode || null
+        })
+      });
+      const num = (r.order && (r.order.orderNumber || (r.order.createdOrdersInfo || [{}])[0].orderNumber)) || '';
+      state.orderNumber = num;
+      const body = $('checkoutBody');
+      body.innerHTML = `
+        <div class="order-ok">Заказ <b>${esc(num)}</b> оформлен.<br><span class="hint">Оплата: ${esc(state.payment)}. Получение: ${esc(fmtDate(state.slot.interval.from))} – ${esc(fmtDate(state.slot.interval.to))}.</span></div>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <a class="btn-more" href="/p/${TOKEN}/order/${encodeURIComponent(num)}" style="text-align:center">Открыть заказ</a>
+          <button class="btn-more" id="btnOrderStatus">Обновить статус</button>
+        </div>
+        <div id="orderStatus" style="margin-top:10px"></div>`;
+      $('btnOrderStatus').addEventListener('click', async () => {
+        try {
+          const o = await api(`/api/pickup/${TOKEN}/order/${encodeURIComponent(num)}`);
+          const st = o.order && o.order.status;
+          $('orderStatus').innerHTML = st
+            ? `<div class="hint">Статус: <b>${esc(st.name || '')}</b> — ${esc(st.text || '')}</div>`
+            : '<div class="hint">Нет данных о статусе</div>';
+        } catch (e) { $('orderStatus').innerHTML = errBox(e.message); }
+      });
+      await refreshCart();
+      if (!$('view-orders').classList.contains('hidden')) loadOrdersView();
+      toast('Заказ оформлен', 'ok');
+    } catch (e) {
+      const msg = e.message;
+      let text;
+      if (msg.includes('WRONG_CART_PRICE') || msg.includes('изменились')) {
+        text = 'Цены на сервере изменились (возможно, истекло промо). Заказ не создан. Проверьте корзину.';
+      } else if (state.promoCode && /промокод|promo|promocode|купон/i.test(msg)) {
+        text = 'Не удалось применить промокод: ' + msg;
+      } else if (/другой способ оплаты|another payment/i.test(msg)) {
+        text = 'Этот способ оплаты недоступен. Добавьте карту через «＋ Добавить карту» или выберите «На кассе».';
+      } else {
+        text = 'Не удалось оформить заказ: ' + msg;
+      }
+      toast(text, 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Оформить заказ';
+    }
+  }
+});
+{% endif %}
+</script>
+</body>
+</html>

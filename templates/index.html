@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Магнит Призолето — панель</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="bg-decoration" aria-hidden="true">
+  <div class="bg-grid"></div>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+</div>
+
+<div class="container">
+  <header class="header">
+    <div class="logo">
+      <div class="logo-badge">П</div>
+      <div>
+        <h1>Призолето <span class="tag">автопилот</span></h1>
+        <p class="subtitle">Играйте за все аккаунты Магнит автоматически</p>
+      </div>
+    </div>
+    <div class="header-btns">
+      <button class="btn btn-ghost" id="btnPrizes">🏆 Все призы</button>
+      <button class="btn btn-ghost" id="btnCoupons">🎟️ Купоны</button>
+      <button class="btn btn-ghost" id="btnAccess">🔑 Доступ</button>
+      <button class="btn btn-primary" id="btnAdd">+ Добавить аккаунт</button>
+    </div>
+  </header>
+
+  <section class="stats-row">
+    <div class="stat-card">
+      <div class="stat-icon">👤</div>
+      <div>
+        <div class="stat-num" id="statTotal">–</div>
+        <div class="stat-label">аккаунтов</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon green">▶</div>
+      <div>
+        <div class="stat-num" id="statActive">–</div>
+        <div class="stat-label">играют сейчас</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon blue">🎁</div>
+      <div>
+        <div class="stat-num" id="statPrizes">–</div>
+        <div class="stat-label">всего призов</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="section-title">
+    <h2>Аккаунты</h2>
+  </div>
+
+  <main class="accounts" id="accounts"></main>
+
+  <div id="empty" class="empty hidden">
+    <div class="empty-icon">🎁</div>
+    <p>Пока нет аккаунтов</p>
+    <p class="muted">Добавьте первый аккаунт, чтобы начать</p>
+  </div>
+</div>
+
+<!-- Add account modal -->
+<div class="modal-overlay hidden" id="modalAdd">
+  <div class="modal">
+    <button class="modal-close" id="modalClose">×</button>
+    <h2 id="modalTitle">Добавить аккаунт</h2>
+    <div class="add-tabs">
+      <button class="tab active" id="tabRegister">Новый аккаунт</button>
+      <button class="tab" id="tabToken">По токену</button>
+      <button class="tab" id="tabLogin">Вход (есть аккаунт)</button>
+    </div>
+    <p class="muted">Пришлём SMS-код на номер телефона</p>
+    <form id="formAdd">
+      <label>Номер телефона
+        <input type="text" id="addPhone" placeholder="7 912 345-67-89" autocomplete="off">
+      </label>
+      <div id="fieldsRegister">
+        <label>Имя аккаунта
+          <input type="text" id="addName" placeholder="например: vasya" autocomplete="off">
+        </label>
+        <label>Имя пользователя
+          <input type="text" id="addFirstName" placeholder="Иван" autocomplete="off">
+        </label>
+        <label>Дата рождения
+          <input type="date" id="addBirth" value="2000-01-01">
+        </label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Отправить SMS</button>
+    </form>
+    <form id="formToken" class="hidden">
+      <label>Имя аккаунта
+        <input type="text" id="tokName" placeholder="например: vasya" autocomplete="off">
+      </label>
+      <label>Refresh-токен Магнита
+        <input type="password" id="tokRefresh" placeholder="вставьте refresh token из приложения Магнит" autocomplete="off">
+      </label>
+      <p class="muted" style="margin:4px 0 14px">Вход по SMS для существующих аккаунтов сервер Магнита блокирует (<code>untrustedDevice</code>), поэтому нужен refresh-токен. Он есть в приложении: Логин в Магнит → запросы <code>/v1/auth/token/refresh</code> → поле <code>refreshToken</code>.</p>
+      <button type="submit" class="btn btn-primary btn-block">Добавить аккаунт</button>
+    </form>
+    <div class="modal-step hidden" id="stepConfirm">
+      <p class="muted">Введите код из SMS</p>
+      <form id="formConfirm">
+        <label>Код
+          <input type="text" id="confirmCode" placeholder="0000" autocomplete="one-time-code" inputmode="numeric" maxlength="6">
+        </label>
+        <button type="submit" class="btn btn-primary btn-block">Подтвердить</button>
+      </form>
+    </div>
+    <div class="modal-error hidden" id="modalError"></div>
+  </div>
+</div>
+
+<!-- Log modal -->
+<div class="modal-overlay hidden" id="modalLogs">
+  <div class="modal modal-wide">
+    <button class="modal-close" id="logsClose">×</button>
+    <h2 id="logsTitle">Логи</h2>
+    <pre class="logs" id="logsBody"></pre>
+  </div>
+</div>
+
+<!-- Prizes modal -->
+<div class="modal-overlay hidden" id="modalPrizes">
+  <div class="modal modal-wide">
+    <button class="modal-close" id="prizesClose">×</button>
+    <div class="prizes-head">
+      <h2 id="prizesTitle">Призы</h2>
+      <button class="btn btn-ghost btn-sm" id="prizesSync">↻ Синхронизировать</button>
+    </div>
+    <div class="prizes-stats" id="prizesStats"></div>
+    <div class="prizes-list" id="prizesList"></div>
+  </div>
+</div>
+
+<!-- Access modal -->
+<div class="modal-overlay hidden" id="modalAccess">
+  <div class="modal modal-wide">
+    <button class="modal-close" id="accessClose">×</button>
+    <h2>Доступ для сторонних</h2>
+    <p class="muted">Сессия даёт человеку доступ <b>только к разделу «Самовывоз»</b> одного аккаунта по ссылке. Токены наружу не выдаются, отзыв в один клик.</p>
+    <div class="access-form">
+      <label>Имя человека
+        <input type="text" id="accName" placeholder="например: Вася">
+      </label>
+      <label>Аккаунт Магнита
+        <select id="accAccount"></select>
+      </label>
+      <label>Срок действия, часов
+        <input type="number" id="accHours" value="24" min="1">
+      </label>
+      <button class="btn btn-primary" id="accCreate">Создать сессию</button>
+    </div>
+    <div class="sessions-list" id="sessionsList"></div>
+  </div>
+</div>
+
+<!-- Coupon shares modal -->
+<div class="modal-overlay hidden" id="modalCoupons">
+  <div class="modal modal-wide">
+    <button class="modal-close" id="couponsClose">×</button>
+    <h2>🎟️ Ссылки на купоны</h2>
+    <p class="muted">Создайте отдельную ссылку на купон аккаунта. Страница купона выглядит как в приложении Магнит — со штрих-кодом и описанием. Ссылка действует заданное число часов.</p>
+    <div class="access-form">
+      <label>Аккаунт Магнита
+        <select id="cpnAccount"></select>
+      </label>
+      <label>Срок действия ссылки, часов
+        <input type="number" id="cpnHours" value="24" min="1">
+      </label>
+    </div>
+    <div class="coupons-list" id="cpnCoupons"><p class="muted">Выберите аккаунт…</p></div>
+    <div class="sd-section" style="margin-top:20px"><h3>Созданные ссылки</h3>
+      <div id="cpnShares"><p class="muted">Загрузка…</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- Session detail modal -->
+<div class="modal-overlay hidden" id="modalSess">
+  <div class="modal session-detail">
+    <button class="modal-close" id="sessClose">×</button>
+    <div id="sessBody"><div class="muted">Загрузка…</div></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

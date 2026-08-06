@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="magnit">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Заказ {{ order_id }} — Магнит</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root, :root[data-theme="magnit"] {
+  --bg: #f3f4f7; --surface: #ffffff; --surface-2: #f6f7f9; --surface-3: #eceef2;
+  --text: #1a1a1a; --muted: #7b7f89; --line: #e7e8ed; --line-2: #d5d7df;
+  --brand: #e4002b; --brand-2: #ff2447; --on-brand: #ffffff; --brand-soft: rgba(228,0,43,.08);
+  --good: #2fd17c; --good-soft: rgba(47,209,124,.1); --warn: #e08a00;
+  --plate: linear-gradient(135deg, #e4002b, #ff2d4f);
+  --shadow: 0 8px 24px rgba(20,20,25,.08);
+  --overlay: rgba(25,25,30,.4);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scrollbar-color: var(--line-2) transparent; }
+body {
+  font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+  background: var(--bg); color: var(--text);
+  min-height: 100vh; -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 780px; margin: 0 auto; padding: 0 16px 220px; position: relative; z-index: 1; }
+
+/* ---------- hero header ---------- */
+.hero {
+  background: linear-gradient(180deg, #ff7a1a 0%, #ff3d68 78%, #ff1f5d 100%);
+  border-radius: 0 0 26px 26px;
+  color: #fff; padding: 14px 16px 18px; margin-bottom: 18px;
+}
+.hero-top { display: flex; align-items: center; gap: 10px; }
+.hero-logo { display: flex; align-items: center; gap: 11px; min-width: 0; flex: 1; }
+.m-badge {
+  width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+  background: #fff; color: #ff1f5d;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 21px; font-weight: 800;
+}
+.hero-brand { font-size: 16px; font-weight: 800; letter-spacing: -.01em; white-space: nowrap; }
+.hero-sub { color: rgba(255,255,255,.85); font-size: 12px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon-btn {
+  width: 40px; height: 40px; border-radius: 12px; border: none; cursor: pointer;
+  background: rgba(255,255,255,.2); color: #fff; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 18px; line-height: 1; text-decoration: none;
+  transition: background .15s, transform .12s;
+}
+.icon-btn:hover { background: rgba(255,255,255,.3); }
+.icon-btn:active { transform: scale(.93); }
+
+/* ---------- bottom tabbar ---------- */
+.tabbar {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 0; z-index: 55;
+  width: 100%; max-width: 780px;
+  background: var(--surface); border-top: 1px solid var(--line);
+  border-radius: 22px 22px 0 0;
+  padding: 6px 8px calc(8px + env(safe-area-inset-bottom));
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+}
+.tab {
+  border: none; background: none; cursor: pointer; font-family: inherit; text-decoration: none;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 7px 4px 4px; border-radius: 14px; color: var(--muted); position: relative;
+  transition: color .15s, background .15s;
+}
+.tab .t-ico { font-size: 21px; line-height: 1; }
+.tab .t-txt { font-size: 10.5px; font-weight: 800; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--brand); background: var(--brand-soft); }
+
+.order-head {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+  padding: 13px 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 12px;
+  box-shadow: var(--shadow);
+}
+.order-head-ico {
+  width: 44px; height: 44px; border-radius: 13px; flex-shrink: 0;
+  background: var(--brand-soft); display: flex; align-items: center; justify-content: center;
+  font-size: 21px;
+}
+.order-head-info { flex: 1; min-width: 0; }
+.order-head-id { font-weight: 800; font-size: 14px; letter-spacing: -.01em; }
+.order-head-date { color: var(--muted); font-size: 12px; margin-top: 1px; }
+.order-head-status {
+  flex-shrink: 0; background: var(--good-soft); color: var(--good);
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+  border-radius: 20px; padding: 4px 10px; border: 1px solid var(--good);
+}
+.tracker-barcode {
+  margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line-2);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.tracker-barcode .bc-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.tracker-barcode .bc-code {
+  font-size: 18px; font-weight: 800; letter-spacing: 3px;
+  font-family: 'Manrope', monospace; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 10px; padding: 8px 16px; margin-top: 3px;
+}
+
+.progress-tracker { padding: 0 0 10px; }
+.tracker {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+  padding: 12px 10px; box-shadow: var(--shadow);
+}
+.tracker-stages { display: flex; flex-direction: row; justify-content: space-between; gap: 0; }
+.tracker-stage {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  flex: 1; text-align: center; position: relative;
+}
+.tracker-stage:not(:last-child)::after {
+  content: ''; position: absolute; left: calc(50% + 16px); top: 14px;
+  width: calc(100% - 32px); height: 2px; background: var(--line); z-index: 0;
+}
+.tracker-stage.done:not(:last-child)::after { background: var(--line); }
+.tracker-stage.active:not(:last-child)::after { background: var(--good); }
+.tracker-dot {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; z-index: 1;
+  border: 3px solid var(--surface);
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  font-size: 12px; font-weight: 800;
+  transition: all .3s ease;
+}
+.tracker-stage.done .tracker-dot { background: var(--surface-2); border-color: var(--line-2); color: var(--muted); }
+.tracker-stage.active .tracker-dot { background: var(--good); border-color: var(--good); color: #fff; animation: pulse 2s infinite; }
+.tracker-stage.pending .tracker-dot { background: var(--surface-2); border-color: var(--line-2); color: var(--muted); }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(47,209,124,.4); }
+  50% { box-shadow: 0 0 0 8px rgba(47,209,124,0); }
+}
+.tracker-body { min-width: 0; }
+.tracker-title { font-weight: 700; font-size: 11px; line-height: 1.2; }
+.tracker-stage.pending .tracker-title { color: var(--muted); }
+.tracker-time { font-size: 10px; color: var(--muted); margin-top: 1px; }
+.tracker-stage.active .tracker-time { color: var(--good); font-weight: 600; }
+.tracker-desc { display: none; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+  margin-bottom: 10px; overflow: hidden; box-shadow: var(--shadow);
+}
+.card-head {
+  padding: 11px 15px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 10px;
+  font-weight: 800; font-size: 13px;
+}
+.card-head .ico { font-size: 16px; }
+.card-body { padding: 11px 15px; }
+
+.store-row { display: flex; flex-direction: column; gap: 4px; }
+.store-name { font-size: 14px; font-weight: 800; }
+.store-addr { font-size: 12.5px; color: var(--muted); }
+.store-meta { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 3px; flex-wrap: wrap; }
+.store-meta span { display: flex; align-items: center; gap: 4px; }
+
+.slot-time { font-size: 22px; font-weight: 800; letter-spacing: -.02em; color: var(--brand); }
+.slot-date { font-size: 12.5px; color: var(--muted); margin-top: -3px; }
+.slot-warn { font-size: 11.5px; color: var(--warn); margin-top: 5px; display: flex; align-items: center; gap: 5px; }
+.slot-divider { height: 1px; background: var(--line); margin: 10px 0; }
+
+.item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.item:last-child { border-bottom: none; }
+.item-body { flex: 1; min-width: 0; }
+.item-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item-meta { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.item-price { font-weight: 700; font-size: 13px; text-align: right; white-space: nowrap; }
+
+.sum-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; }
+.sum-row.total { border-top: 1px solid var(--line); margin-top: 5px; padding-top: 10px; font-size: 16px; font-weight: 800; }
+.sum-row.discount { color: var(--good); }
+
+.pay-row { display: flex; align-items: center; gap: 10px; padding: 2px 0; }
+.pay-badge {
+  width: 40px; height: 26px; border-radius: 7px; flex-shrink: 0;
+  background: var(--brand-soft);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px;
+}
+.pay-label { font-weight: 800; font-size: 13px; }
+.pay-ok { font-size: 11.5px; color: var(--good); font-weight: 700; }
+
+.btn-cancel {
+  display: block; width: 100%; margin-bottom: 10px;
+  background: #fff0f2; color: #c1123a;
+  border: 1px solid #ffb3c0; border-radius: 14px;
+  padding: 13px 16px; font-size: 14px; font-weight: 800; font-family: inherit;
+  cursor: pointer; transition: background .15s, transform .1s;
+}
+.btn-cancel:hover { background: #ffe4e8; }
+.btn-cancel:active { transform: scale(.98); }
+.btn-cancel:disabled { opacity: .55; cursor: default; }
+
+.toast-wrap { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 90; width: 100%; max-width: 560px; padding: 0 16px; pointer-events: none; }
+.toast { border-radius: 13px; padding: 12px 16px; font-size: 13px; font-weight: 600; margin-bottom: 8px; box-shadow: var(--shadow); pointer-events: auto; }
+.toast.err { background: #ffe9ec; color: #c1123a; border: 1px solid #ffb3c0; }
+.toast.ok { background: var(--good-soft); color: var(--good); border: 1px solid var(--good); }
+.toast.info { background: var(--surface); color: var(--text); border: 1px solid var(--line-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tracker-stage.active .tracker-dot { animation: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-top">
+    <div class="hero-logo">
+      <div class="m-badge">М</div>
+      <div>
+        <div class="hero-brand">магнит плюс</div>
+        <div class="hero-sub">Заказ {{ order_id }}</div>
+      </div>
+    </div>
+    <a class="icon-btn" href="/p/{{ token }}" title="К покупкам">🛍️</a>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="order-head">
+    <div class="order-head-ico">📦</div>
+    <div class="order-head-info">
+      <div class="order-head-id">{{ order_id }}</div>
+      <div class="order-head-date">Оформлен {{ created_at }}</div>
+    </div>
+    <div class="order-head-status">{{ status_badge }}</div>
+  </div>
+  {% if can_cancel %}
+  <button class="btn-cancel" id="btnCancelOrder">Отменить заказ</button>
+  {% endif %}
+  <section class="progress-tracker">
+    <div class="tracker">
+      <div class="tracker-stages">
+        {% for stage in stages %}
+        <div class="tracker-stage {{ stage.state }}">
+          <div class="tracker-dot">{{ stage.dot }}</div>
+          <div class="tracker-body">
+            <div class="tracker-title">{{ stage.title }}</div>
+            <div class="tracker-time">{{ stage.time }}</div>
+            <div class="tracker-desc">{{ stage.desc }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% if barcode %}
+      <div class="tracker-barcode">
+        <span class="bc-label">Код для выдачи</span>
+        <span class="bc-code">{{ barcode }}</span>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">Магазин и слот</div>
+    <div class="card-body">
+      <div class="store-row">
+        <span class="store-name">{{ shop_name }}</span>
+        <span class="store-addr">{{ shop_address }}</span>
+        <div class="store-meta">
+          <span>📍 {{ shop_distance }}</span>
+          <span>🕐 {{ shop_hours }}</span>
+        </div>
+      </div>
+      <div class="slot-divider"></div>
+      <div class="slot-time">{{ slot_time }}</div>
+      <div class="slot-date">{{ slot_date }}</div>
+      <div class="slot-warn">⚠ Заказ хранится 30 минут после начала слота</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">Состав заказа — {{ items_count }} товаров</div>
+    <div class="card-body" style="padding-top:8px;padding-bottom:8px;">
+      {% for item in items %}
+      <div class="item">
+        <div class="item-body">
+          <div class="item-name">{{ item.name }}</div>
+          <div class="item-meta">{{ item.formattedQuantity }} × {{ item.formattedPrice }}</div>
+        </div>
+        <div class="item-price">{{ item.formattedPricePosition }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="card-body" style="border-top:1px solid var(--line);">
+      <div class="sum-row"><span>Товары ({{ items_count }} шт)</span><span>{{ formatted_old_total }}</span></div>
+      {% if discount_total > 0 %}
+      <div class="sum-row discount"><span>Скидка</span><span>− {{ formatted_discount }}</span></div>
+      {% endif %}
+      <div class="sum-row total"><span>ИТОГО</span><span>{{ formatted_total }}</span></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">Оплата</div>
+    <div class="card-body">
+      <div class="pay-row">
+        <div class="pay-badge">💳</div>
+        <div>
+          <div class="pay-label">{{ pay_method_label }}</div>
+          <div class="pay-ok">✅ {{ pay_status }}</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  </main>
+
+<nav class="tabbar">
+  <a class="tab" href="/p/{{ token }}">
+    <span class="t-ico">🏪</span>
+    <span class="t-txt">Самовывоз</span>
+  </a>
+  <a class="tab active" href="/p/{{ token }}#orders">
+    <span class="t-ico">📦</span>
+    <span class="t-txt">Заказы</span>
+  </a>
+  <a class="tab" href="/p/{{ token }}#cart">
+    <span class="t-ico">🛒</span>
+    <span class="t-txt">Корзина</span>
+  </a>
+</nav>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+function toast(msg, type) {
+  const w = document.getElementById('toastWrap');
+  if (!w) return;
+  const t = document.createElement('div');
+  t.className = 'toast ' + (type || 'info');
+  t.textContent = msg;
+  w.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; }, 2600);
+  setTimeout(() => t.remove(), 3000);
+}
+{% if can_cancel %}
+document.getElementById('btnCancelOrder').addEventListener('click', async () => {
+  if (!confirm('Отменить заказ {{ order_id }}?')) return;
+  const btn = document.getElementById('btnCancelOrder');
+  btn.disabled = true; btn.textContent = 'Отменяем…';
+  try {
+    const r = await fetch('/api/pickup/{{ token }}/order/{{ order_id }}/cancel', { method: 'POST' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error(j.error || ('Ошибка ' + r.status));
+    btn.textContent = '✓ Отменён';
+    toast('Заказ отменён', 'ok');
+    setTimeout(() => location.reload(), 1200);
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Отменить заказ';
+    toast(e.message, 'err');
+  }
+});
+{% endif %}
+</script>
+
+</body>
+</html>
