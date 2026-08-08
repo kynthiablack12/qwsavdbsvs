@@ -135,6 +135,60 @@ body {
   display: flex; align-items: center; justify-content: center;
 }
 
+/* ---------- active order sheet ---------- */
+.shtorka {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(64px + env(safe-area-inset-bottom));
+  width: calc(100% - 24px); max-width: 756px; z-index: 60;
+  animation: shtorkaIn .3s ease-out;
+}
+@keyframes shtorkaIn { from { transform: translate(-50%, 24px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+.shtorka.hidden { display: none; }
+.shtorka-card {
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px;
+  padding: 12px 14px; box-shadow: 0 10px 30px rgba(20,20,30,.18);
+}
+.shtorka-top { display: flex; align-items: center; gap: 10px; }
+.shtorka-ico {
+  width: 36px; height: 36px; border-radius: 11px; background: var(--brand);
+  color: var(--on-brand); display: flex; align-items: center; justify-content: center;
+  font-size: 17px; flex-shrink: 0;
+}
+.shtorka-ico.anim { animation: shtIco 1.6s ease-in-out infinite; }
+@keyframes shtIco { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+.shtorka-titles { flex: 1; min-width: 0; }
+.shtorka-name { font-size: 13px; font-weight: 800; }
+.shtorka-numb { font-size: 11px; color: var(--muted); }
+.shtorka-close {
+  flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--muted);
+  font-size: 14px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.shtorka-close:hover { border-color: var(--line-2); color: var(--text); }
+.shtorka-steps { display: flex; align-items: flex-start; margin-top: 12px; }
+.sht-step { flex: 1; text-align: center; position: relative; }
+.sht-step:not(:last-child)::after {
+  content: ''; position: absolute; top: 9px; left: 50%; width: 100%; height: 3px;
+  background: var(--line-2); transition: background .3s;
+}
+.sht-step.done:not(:last-child)::after { background: var(--green, #1e9e57); }
+.sht-step .dot {
+  width: 18px; height: 18px; border-radius: 50%; background: var(--line-2);
+  margin: 0 auto 5px; position: relative; z-index: 1; border: 3px solid var(--surface);
+  transition: background .3s;
+}
+.sht-step.done .dot { background: var(--green, #1e9e57); }
+.sht-step.done .dot::after {
+  content: '✓'; position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; color: #fff; font-size: 9px; font-weight: 800;
+}
+.sht-step.cur .dot { background: var(--brand); box-shadow: 0 0 0 4px var(--brand-soft); animation: shtPulse 1.4s ease-out infinite; }
+@keyframes shtPulse { 0% { box-shadow: 0 0 0 0 var(--brand-soft); } 70% { box-shadow: 0 0 0 10px rgba(228,0,43,0); } 100% { box-shadow: 0 0 0 0 rgba(228,0,43,0); } }
+.sht-step .t { font-size: 10px; color: var(--muted); font-weight: 700; }
+.sht-step.done .t { color: var(--green, #1e9e57); }
+.sht-step.cur .t { color: var(--brand); font-weight: 800; }
+.shtorka-sub { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; }
+
+
 /* ---------- views ---------- */
 .view-head h2 { font-size: 21px; font-weight: 800; letter-spacing: -.01em; margin-bottom: 4px; }
 .view-head p { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
@@ -588,6 +642,21 @@ body {
   <button class="tab" data-tab="cart"><span class="t-ico">🛒</span><span class="t-txt">Корзина</span></button>
 </div>
 
+<div class="shtorka hidden" id="activeSheet">
+  <div class="shtorka-card">
+    <div class="shtorka-top">
+      <div class="shtorka-ico" id="activeIco">🛍️</div>
+      <div class="shtorka-titles">
+        <div class="shtorka-name" id="activeName">Заказ оформляется</div>
+        <div class="shtorka-numb" id="activeNumb">—</div>
+      </div>
+      <button class="shtorka-close" id="activeClose" title="Скрыть">×</button>
+    </div>
+    <div class="shtorka-steps" id="activeSteps"></div>
+    <div class="shtorka-sub" id="activeSub"></div>
+  </div>
+</div>
+
 <script>
 const TOKEN = location.pathname.split('/').pop();
 const $ = (id) => document.getElementById(id);
@@ -595,7 +664,8 @@ let state = { city: null, store: null, cart: null, goods: [], offset: 0, has_mor
               term: '', catKey: '', catIds: null, allStores: [], cats: [], checkout: null,
               sortKey: 'popularity', sortOrder: 'desc',
               slot: null, payment: '', promos: [], promoCode: '', promoApplied: false, promoEstimate: null,
-              payMethods: {available: [], selected_id: null}, binding: null };
+              payMethods: {available: [], selected_id: null}, binding: null,
+              activeSheet: null, sheetTimer: null, sheetHidden: false };
 const CAT_DEFAULT = 'all';
 const SORTS = [
   { key: 'popularity', order: 'desc', label: 'Популярные' },
@@ -722,6 +792,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('btnChangeStore').addEventListener('click', () => { showView('view-stores'); loadStores(); });
   $('btnBackCheckout').addEventListener('click', () => { showView('view-products'); refreshCart(); });
   $('btnCheckoutView').addEventListener('click', () => openCheckout());
+  $('activeClose').addEventListener('click', (e) => { e.stopPropagation(); state.sheetHidden = true; $('activeSheet').classList.add('hidden'); });
+  $('activeSheet').addEventListener('click', () => {
+    const sh = state.activeSheet;
+    if (sh && sh.order_id) location.href = `/p/${TOKEN}/order/${encodeURIComponent(sh.order_id)}`;
+  });
   $('btnMore').addEventListener('click', () => loadGoods(true));
   $('storeClear').addEventListener('click', () => { $('storeQuery').value = ''; $('storeClear').classList.add('hidden'); renderStores(); });
   $('termClear').addEventListener('click', () => { $('termInput').value = ''; state.term = ''; state.catKey = ''; state.catIds = null; applyCats(); });
@@ -1555,6 +1630,71 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkBind();
   };
 
+  const SHEET_STEPS = ['Принят', 'Собирается', 'Готов', 'Выдан'];
+  function sheetStepIndex(status) {
+    const code = ((status || {}).code || '').toUpperCase();
+    const name = ((status || {}).name || '').toLowerCase();
+    if (/(^|\b)NEW(\b|$)|принят|оформлен|создан/.test(code + ' ' + name)) return 0;
+    if (/ASSEMBL|собир/.test(code + ' ' + name)) return 1;
+    if (/READY|выдач|готов/.test(code + ' ' + name)) return 2;
+    if (/DONE|COMPLETE|выдан|заверш/.test(code + ' ' + name)) return 3;
+    return -1;
+  }
+  function renderActiveSheet() {
+    const sh = state.activeSheet;
+    const sheet = $('activeSheet');
+    if (!sh || state.sheetHidden) { sheet.classList.add('hidden'); return; }
+    const idx = sheetStepIndex(sh.status);
+    $('activeName').textContent = (sh.status && sh.status.name) || 'Заказ в работе';
+    $('activeNumb').textContent = 'Заказ ' + (sh.order_id || '');
+    $('activeIco').className = 'shtorka-ico' + (idx >= 0 && idx < 3 ? ' anim' : '');
+    const box = $('activeSteps');
+    box.innerHTML = '';
+    SHEET_STEPS.forEach((label, i) => {
+      const el = document.createElement('div');
+      el.className = 'sht-step' + (i < idx ? ' done' : '') + (i === idx ? ' cur' : '');
+      el.innerHTML = `<div class="dot"></div><div class="t">${label}</div>`;
+      box.appendChild(el);
+    });
+    const sub = $('activeSub');
+    if (idx < 0) {
+      sub.textContent = (sh.status && (sh.status.subtitle || sh.status.name)) || '';
+    } else if (idx === 2) {
+      sub.textContent = 'Заказ готов к выдаче — можно забирать';
+    } else if (idx === 3) {
+      sub.textContent = 'Заказ выдан. Приятных покупок!';
+    } else {
+      sub.textContent = (sh.status && sh.status.subtitle) || '';
+    }
+    sheet.classList.remove('hidden');
+  }
+  async function pollActiveSheet() {
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/orders/active`);
+      const orders = r.orders || [];
+      if (!orders.length) {
+        if (state.activeSheet) {
+          toast('Заказ завершён', 'ok');
+          state.activeSheet = null;
+        }
+        $('activeSheet').classList.add('hidden');
+        return;
+      }
+      const cur = orders[0];
+      const prevCode = state.activeSheet && state.activeSheet.status && state.activeSheet.status.code;
+      const newCode = cur.status && cur.status.code;
+      state.activeSheet = cur;
+      renderActiveSheet();
+      if (prevCode && newCode && prevCode !== newCode) {
+        toast('Статус заказа: ' + ((cur.status && cur.status.name) || ''), 'ok');
+      }
+    } catch (e) {}
+  }
+  function startSheetPolling() {
+    if (state.sheetTimer) clearInterval(state.sheetTimer);
+    state.sheetTimer = setInterval(pollActiveSheet, 20000);
+  }
+
   async function placeOrder() {
     if (!state.slot) { toast('Выберите время получения', 'err'); return; }
     const btn = $('btnPlaceOrder');
@@ -1596,6 +1736,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       await refreshCart();
       if (!$('view-orders').classList.contains('hidden')) loadOrdersView();
       toast('Заказ оформлен', 'ok');
+      state.sheetHidden = false;
+      state.activeSheet = { order_id: num, status: { code: 'NEW', name: 'Принят' } };
+      renderActiveSheet();
+      pollActiveSheet();
+      startSheetPolling();
     } catch (e) {
       const msg = e.message;
       let text;
