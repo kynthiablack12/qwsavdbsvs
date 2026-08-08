@@ -706,6 +706,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   try { theme = localStorage.getItem('pickup_theme') || 'magnit'; } catch (e) {}
   applyTheme(theme);
 
+  $('chkNoFinalPrice').addEventListener('change', () => {
+    state.noFinalPrice = $('chkNoFinalPrice').checked;
+    renderGoods();
+  });
+
   $('btnTheme').addEventListener('click', () => $('themePop').classList.toggle('hidden'));
   document.querySelectorAll('.theme-opt').forEach(b =>
     b.addEventListener('click', () => { applyTheme(b.dataset.theme); $('themePop').classList.add('hidden'); toast('Оформление: ' + (b.textContent.trim()), 'ok'); }));
@@ -743,10 +748,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('btnMore').addEventListener('click', () => loadGoods(true));
   $('storeClear').addEventListener('click', () => { $('storeQuery').value = ''; $('storeClear').classList.add('hidden'); renderStores(); });
   $('termClear').addEventListener('click', () => { $('termInput').value = ''; state.term = ''; state.catKey = ''; state.catIds = null; applyCats(); });
-  $('chkNoFinalPrice').addEventListener('change', () => {
-    state.noFinalPrice = $('chkNoFinalPrice').checked;
-    renderGoods();
-  });
   $('btnMapToggle').addEventListener('click', () => {
     $('storeMap').classList.toggle('hidden');
     $('btnMapToggle').classList.toggle('hidden', !$('storeMap').classList.contains('hidden'));
