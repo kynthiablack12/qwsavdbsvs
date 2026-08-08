@@ -174,6 +174,11 @@ def add_eda_account(name, cookies_raw, token=None, yandexuid='', session_id=''):
         m = bearer.split('.')
         if len(m) >= 2 and m[1].isdigit():
             acc['yandexuid'] = m[1]
+    # подтянем настоящее имя профиля (подтверждает, что токен рабочий)
+    try:
+        acc['profile_name'] = profile_name(acc)
+    except Exception:
+        pass
     accs = load_eda_accounts()
     if any(a.get('name') == name for a in accs):
         raise RuntimeError(f'аккаунт "{name}" уже существует')
@@ -187,6 +192,17 @@ def delete_eda_account(name):
     accs = load_eda_accounts()
     accs = [a for a in accs if a.get('name') != name]
     save_eda_accounts(accs)
+
+
+def refresh_eda_account(name):
+    """Обновить сохранённое имя профиля у существующего аккаунта."""
+    accs = load_eda_accounts()
+    for a in accs:
+        if a.get('name') == name:
+            a['profile_name'] = profile_name(a)
+            save_eda_accounts(accs)
+            return a['profile_name']
+    raise RuntimeError(f'аккаунт "{name}" не найден')
 
 
 def get_eda_account(name):
@@ -304,6 +320,22 @@ def profile(account, lat=None, lon=None):
     """Профиль пользователя."""
     acc = get_eda_account(account) if isinstance(account, str) else account
     return _eda_call(acc, 'GET', '/api/v1/user/profile', lat, lon)
+
+
+def profile_name(account, lat=None, lon=None):
+    """Настоящее имя владельца аккаунта (first_name, либо email/телефон)."""
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    d = _eda_call(acc, 'GET', '/api/v1/user/profile', lat, lon)
+    if not isinstance(d, dict):
+        return ''
+    fn = (d.get('first_name') or '').strip()
+    if fn:
+        return fn
+    for k in ('email', 'phone_number'):
+        v = (d.get(k) or '').strip()
+        if v:
+            return v
+    return str(d.get('passport_uid') or '')
 
 
 def addresses(account, lat=None, lon=None):

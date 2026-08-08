@@ -410,7 +410,8 @@ def api_eda_accounts():
     return jsonify([{'name': a.get('name'),
                      'added': a.get('added'),
                      'has_token': bool(eda._extract_bearer(a)),
-                     'uid': a.get('yandexuid', '')}
+                     'uid': a.get('yandexuid', ''),
+                     'profile_name': a.get('profile_name', '')}
                     for a in eda.load_eda_accounts()])
 
 
@@ -429,7 +430,15 @@ def api_eda_accounts_add():
 @app.route('/api/eda/accounts/<name>', methods=['DELETE'])
 def api_eda_accounts_delete(name):
     eda.delete_eda_account(name)
-    return jsonify({'ok': True})
+
+
+@app.route('/api/eda/accounts/<name>/refresh', methods=['POST'])
+def api_eda_accounts_refresh(name):
+    try:
+        pn = eda.refresh_eda_account(name)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'profile_name': pn})
 
 
 @app.route('/api/eda/sessions', methods=['GET'])
