@@ -690,6 +690,12 @@ def _promo_items(acc, lat, lon):
                 res['places'][slug] = sorted(set(vals))
         except Exception:
             continue
+    # уникальный набор промокодов на аккаунте (без привязки к ресторану)
+    all_codes = set(res['banners'])
+    all_codes.update(p.get('value') or '' for p in res['list'] if isinstance(p, dict))
+    for codes in res['places'].values():
+        all_codes.update(codes)
+    res['codes'] = sorted(c for c in all_codes if c)
     return res
 
 
@@ -699,6 +705,7 @@ def find_promocodes(account, lat=None, lon=None):
     Возвращает dict: {banners: [коды из баннеров главного экрана],
     list: [промокоды из личного списка],
     places: {slug: [коды из маленьких баннеров внутри ресторана]},
+    codes: [уникальные промокоды аккаунта],
     error: str|None}.
     """
     acc = get_eda_account(account) if isinstance(account, str) else account

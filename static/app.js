@@ -973,7 +973,7 @@ async function runEdaPromos() {
   const btn = $('edaPromoRun');
   const tb = $('edaPromoTable').querySelector('tbody');
   btn.disabled = true;
-  tb.innerHTML = '<tr><td colspan="5" class="db-empty">Проверяю все аккаунты Я.Еды…</td></tr>';
+  tb.innerHTML = '<tr><td colspan="3" class="db-empty">Проверяю все аккаунты Я.Еды…</td></tr>';
   $('edaPromoCount').textContent = '';
   try {
     const rows = await api('/api/eda/promos', {
@@ -983,18 +983,12 @@ async function runEdaPromos() {
     tb.innerHTML = rows.map(r => `
       <tr>
         <td><b>${esc(r.name)}</b></td>
-        <td>${promoBadges(r.banners)}</td>
-        <td>${r.list && r.list.length
-          ? r.list.map(p => `<span class="sd-badge ok">${esc(p.value || '—')}</span>${p.title ? ` <span class="db-mut">${esc(p.title)}</span>` : ''}`).join(' ')
-          : '<span class="db-mut">—</span>'}</td>
-        <td>${Object.keys(r.places || {}).length
-          ? Object.entries(r.places).map(([slug, codes]) => `${esc(slug)}: ${promoBadges(codes)}`).join('<br>')
-          : '<span class="db-mut">—</span>'}</td>
+        <td>${promoBadges(r.codes || [])}</td>
         <td class="db-mut">${esc(r.error || '')}</td>
-      </tr>`).join('') || '<tr><td colspan="5" class="db-empty">Аккаунтов Я.Еды нет</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="3" class="db-empty">Аккаунтов Я.Еды нет</td></tr>';
     $('edaPromoCount').textContent = `аккаунтов: ${rows.length}`;
   } catch (e) {
-    tb.innerHTML = `<tr><td colspan="5" class="db-empty">${esc(e.message)}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="3" class="db-empty">${esc(e.message)}</td></tr>`;
   } finally {
     btn.disabled = false;
   }
