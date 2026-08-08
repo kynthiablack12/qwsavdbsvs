@@ -197,6 +197,21 @@ def api_play(name):
     return jsonify({'ok': True})
 
 
+@app.route('/api/accounts/<name>/game', methods=['POST'])
+def api_account_set_game(name):
+    d = request.get_json(force=True, silent=True) or {}
+    event_id = str(d.get('event_id', '')).strip()
+    if event_id not in core.GAME_EVENTS.values():
+        return jsonify({'error': 'unknown event_id'}), 400
+    accs = core.load_accounts()
+    acc = next((a for a in accs if a.get('name') == name), None)
+    if not acc:
+        return jsonify({'error': 'not found'}), 404
+    acc['event_id'] = event_id
+    core.save_accounts(accs)
+    return jsonify({'ok': True, 'event_id': event_id})
+
+
 @app.route('/api/accounts/<name>/logs')
 def api_logs(name):
     logs = get_logs(name)

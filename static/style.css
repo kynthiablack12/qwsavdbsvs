@@ -161,6 +161,13 @@ body {
 .account-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .account-actions .btn-primary { grid-column: 1 / -1; }
 
+.game-pick { margin: 8px 0; }
+.game-select {
+  width: 100%; border: 1px solid #e2e2ea; border-radius: 10px;
+  background: #fff; color: #1a1a1f; font: inherit; font-size: 13px;
+  padding: 7px 10px; cursor: pointer; appearance: auto;
+}
+
 /* ---------- buttons ---------- */
 .btn {
   border: none; cursor: pointer; border-radius: 11px;

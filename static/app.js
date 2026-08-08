@@ -71,6 +71,8 @@ function createAccountCard(a) {
 
   const initials = (a.name || '?').slice(0, 2).toUpperCase();
   const gameName = a.event_id === 'At99RuZXsCpnFRhpmEZCK' ? 'Монстро-планетяне' : 'Призолето';
+  const selOpts = Object.entries({ 'wX8CoYBu0OQzsA6DBwqlU': 'Призолето', 'At99RuZXsCpnFRhpmEZCK': 'Монстро-планетяне' })
+    .map(([v, label]) => `<option value="${v}"${v === a.event_id ? ' selected' : ''}>${label}</option>`).join('');
   card.innerHTML = `
       <div class="account-head">
         <div class="avatar">${initials}</div>
@@ -83,6 +85,9 @@ function createAccountCard(a) {
         <div class="mini-stat"><b>—</b><span>попыток</span></div>
         <div class="mini-stat"><b>—</b><span>уровень</span></div>
         <div class="mini-stat"><b>—</b><span>бонусов</span></div>
+      </div>
+      <div class="game-pick">
+        <select class="game-select" data-game-select>${selOpts}</select>
       </div>
       <div class="offers">
         <div class="offers-title">Персональные предложения</div>
@@ -101,6 +106,22 @@ function createAccountCard(a) {
   card.querySelector('[data-act="logs"]').addEventListener('click', () => openLogs(a.name));
   card.querySelector('[data-act="prizes"]').addEventListener('click', () => openPrizes(a.name));
   card.querySelector('[data-act="del"]').addEventListener('click', () => deleteAccount(a.name, card));
+  card.querySelector('[data-game-select]').addEventListener('change', async (e) => {
+    const v = e.target.value;
+    try {
+      await api(`/api/accounts/${encodeURIComponent(a.name)}/game`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: v }),
+      });
+      a.event_id = v;
+      const dev = card.querySelector('.account-device');
+      dev.textContent = (v === 'At99RuZXsCpnFRhpmEZCK' ? 'Монстро-планетяне' : 'Призолето') + ' · ' + esc(a.device_id || '');
+      refreshStatus(a.name, card);
+    } catch (err) {
+      showModalError(err.message);
+      e.target.value = a.event_id;
+    }
+  });
   return card;
 }
 
