@@ -90,11 +90,12 @@ def _extract_bearer(acc):
 
 
 # Client-id для обмена Session_id -> OAuth (mobileproxy passport).
-# У Яндекс.Еды app используется дефолтный мобильный client_id Яндекс Паспорта.
-PASSPORT_CLIENT_ID = '23cabbbdc6cd41889efd28061dcdb21d'
+# Пара из AlexxIT/YandexStation (рабочая для яндекс-сервисов).
+PASSPORT_CLIENT_ID = 'c0ebe342af7d48fbbbfcf2d2eedb8f9e'
+PASSPORT_CLIENT_SECRET = 'ad0a908f0aa341a182a37ecd75bc319e'
 
 
-def exchange_sessionid(session_id, client_id=None):
+def exchange_sessionid(session_id, client_id=None, client_secret=None):
     """Обменять passport Session_id на OAuth Bearer-токен.
 
     Эндпоинт mobileproxy passport (token_by_sessionid) — тот же, что
@@ -104,17 +105,20 @@ def exchange_sessionid(session_id, client_id=None):
     sid = (session_id or '').strip()
     if not sid:
         raise RuntimeError('Session_id пустой')
-    url = 'https://mobileproxy.passport.yandex.net/1/bundle/oauth/token_by_sessionid/'
+    url = 'https://mobileproxy.passport.yandex.net/1/bundle/oauth/token_by_sessionid'
     hdrs = {
         'User-Agent': 'android (9)',
         'Accept-Language': 'ru',
         'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
-        'X-Ya-Client-Cookie': f'Session_id={sid}',
-        'X-Ya-Client-User-Agent': 'Yandex/3.19.0.0 Android/9',
-        'X-Client-Id': client_id or PASSPORT_CLIENT_ID,
+        'Ya-Client-Host': 'passport.yandex.ru',
+        'Ya-Client-Cookie': f'Session_id={sid}',
+    }
+    data = {
+        'client_id': client_id or PASSPORT_CLIENT_ID,
+        'client_secret': client_secret or PASSPORT_CLIENT_SECRET,
     }
     try:
-        r = requests.post(url, headers=hdrs, data='', timeout=25)
+        r = requests.post(url, headers=hdrs, data=data, timeout=25)
     except requests.RequestException as e:
         raise RuntimeError(f'Паспорт: сеть (token_by_sessionid): {e}')
     if r.status_code >= 400:
@@ -179,6 +183,13 @@ def add_eda_account(name, cookies_raw, token=None, yandexuid='', session_id=''):
         acc['profile_name'] = profile_name(acc)
     except Exception:
         pass
+    # подтянем баллы Я.Плюс
+    try:
+        pb = plus_balance(acc)
+        acc['plus_balance'] = pb.get('balance')
+        acc['plus_status'] = pb.get('status')
+    except Exception:
+        pass
     accs = load_eda_accounts()
     if any(a.get('name') == name for a in accs):
         raise RuntimeError(f'аккаунт "{name}" уже существует')
@@ -195,13 +206,21 @@ def delete_eda_account(name):
 
 
 def refresh_eda_account(name):
-    """Обновить сохранённое имя профиля у существующего аккаунта."""
+    """Обновить имя профиля и баллы Плюса у существующего аккаунта."""
     accs = load_eda_accounts()
     for a in accs:
         if a.get('name') == name:
             a['profile_name'] = profile_name(a)
+            try:
+                pb = plus_balance(a)
+                a['plus_balance'] = pb.get('balance')
+                a['plus_status'] = pb.get('status')
+            except Exception:
+                pass
             save_eda_accounts(accs)
-            return a['profile_name']
+            return {'profile_name': a.get('profile_name', ''),
+                    'plus_balance': a.get('plus_balance'),
+                    'plus_status': a.get('plus_status', '')}
     raise RuntimeError(f'аккаунт "{name}" не найден')
 
 
@@ -320,6 +339,65 @@ def profile(account, lat=None, lon=None):
     """Профиль пользователя."""
     acc = get_eda_account(account) if isinstance(account, str) else account
     return _eda_call(acc, 'GET', '/api/v1/user/profile', lat, lon)
+
+
+def plus_balance(account, lat=None, lon=None):
+    """Баллы и статус Я.Плюс через GraphQL api.plus.yandex.net (PlusState).
+
+    Запрос — копия из перехвата flows_eda.mitm. Возвращает dict:
+    {balance: float|None, currency: str, status: str}.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    lat, lon = _coords(acc, lat, lon)
+    bearer = _extract_bearer(acc)
+    if not bearer:
+        raise RuntimeError('нет Bearer-токена')
+    uid = str(acc.get('yandexuid') or '')
+    body = {
+        "operationName": "PlusState",
+        "variables": {
+            "uid": uid,
+            "locationInput": {"geoPinPosition": {"accuracy": 0.0, "latitude": lat, "longitude": lon}},
+        },
+        "query": "query PlusState($uid: ID, $locationInput: LocationInput) { user(id: $uid) { __typename "
+                 "loyaltyInfo(location: $locationInput) { __typename amount currency } status } }",
+    }
+    hdrs = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json; charset=utf-8',
+        'Authorization': f'OAuth {bearer}',
+        'X-Yandex-Plus-AppId': 'ru.foodfox.client',
+        'X-Yandex-Plus-HostAppVersion': APP['x-app-version'],
+        'X-Yandex-DeviceID': APP['x-device-id'],
+        'X-Yandex-Plus-Platform': 'Android',
+        'X-Yandex-PUID': uid,
+        'X-Yandex-Plus-SdkVersion': '52.0.0',
+        'X-Yandex-Plus-Service': 'eda',
+        'X-Yandex-Plus-Source': 'PlusSdk',
+        'X-Yandex-UUID': APP['x-appmetrica-uuid'],
+        'User-Agent': 'okhttp/4.11.0',
+    }
+    try:
+        r = requests.post('https://api.plus.yandex.net/graphql', headers=hdrs,
+                          json=body, timeout=25)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Я.Плюс: сеть (graphql PlusState): {e}')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Я.Плюс: HTTP {r.status_code} (PlusState): {r.text[:300]}')
+    try:
+        d = r.json()
+    except Exception:
+        raise RuntimeError(f'Я.Плюс: ответ не JSON: {r.text[:200]}')
+    user = ((d.get('data') or {}).get('user') or {})
+    li = user.get('loyaltyInfo') or []
+    if isinstance(li, dict):
+        li = [li]
+    item = li[0] if li else {}
+    return {
+        'balance': item.get('amount'),
+        'currency': item.get('currency') or '',
+        'status': user.get('status') or '',
+    }
 
 
 def profile_name(account, lat=None, lon=None):
