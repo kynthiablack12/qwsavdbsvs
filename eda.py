@@ -689,9 +689,9 @@ def _promo_items(acc, lat, lon, progress=None):
             res['error'] += '; ' + str(e)
         else:
             res['error'] = str(e)
-    # маленькие баннеры внутри ресторанов (первые N из главного экрана)
+    # маленький баннер внутри первого ресторана с главного экрана
     slugs = _places_from_layout(layout_data)
-    n = min(len(slugs), 15)
+    n = min(len(slugs), 1)
     for i, slug in enumerate(slugs[:n]):
         try:
             if progress:
