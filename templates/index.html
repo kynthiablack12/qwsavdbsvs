@@ -68,6 +68,7 @@
     <button class="db-tab" data-tab="prizes">🏆 Призы</button>
     <button class="db-tab" data-tab="sessions">🔑 Сессии</button>
     <button class="db-tab" data-tab="eda">🚚 ЕДА</button>
+    <button class="db-tab" data-tab="edaPromo">🎁 Промокоды</button>
   </nav>
 
   <!-- ================= Аккаунты ================= -->
@@ -259,6 +260,20 @@
           <tbody></tbody>
         </table>
       </div>
+    </div>
+  </section>
+
+  <!-- ================= Чекер промокодов ================= -->
+  <section class="db-pane" id="pane-edaPromo">
+    <div class="db-toolbar">
+      <button class="btn btn-primary btn-sm" id="edaPromoRun">🔍 Проверить все аккаунты</button>
+      <span class="db-count" id="edaPromoCount"></span>
+    </div>
+    <div class="table-wrap" style="margin-top:16px">
+      <table class="data-table" id="edaPromoTable">
+        <thead><tr><th>Аккаунт</th><th>Баннеры</th><th>Личный список</th><th>Внутри ресторанов</th><th>Ошибка</th></tr></thead>
+        <tbody></tbody>
+      </table>
     </div>
   </section>
 </div>

@@ -443,6 +443,23 @@ def api_eda_accounts_refresh(name):
     return jsonify({'ok': True, **res})
 
 
+@app.route('/api/eda/promos', methods=['POST'])
+def api_eda_promos():
+    """Чекер промокодов: по всем аккаунтам Я.Еды."""
+    data = request.get_json(silent=True) or {}
+    names = data.get('names') or None
+    result = []
+    for a in eda.load_eda_accounts():
+        if names and a.get('name') not in names:
+            continue
+        try:
+            r = eda.find_promocodes(a)
+        except Exception as e:
+            r = {'banners': [], 'list': [], 'places': {}, 'error': str(e)}
+        result.append({'name': a.get('name'), **r})
+    return jsonify(result)
+
+
 @app.route('/api/eda/sessions', methods=['GET'])
 def api_eda_sessions_list():
     return jsonify(eda.load_eda_sessions())

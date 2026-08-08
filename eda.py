@@ -1,4 +1,4 @@
-import sys, os, json, uuid, time
+import sys, os, json, uuid, time, re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
 import requests
@@ -614,3 +614,93 @@ def cancel_order(account, order_id):
     """Отмена заказа. Требует досъёмки."""
     raise NotImplementedError(
         'отмена заказа Я.Еды: нужен досъём из приложения')
+
+
+# ---------- promo codes ----------
+
+def _find_promo_values(obj, out):
+    """Рекурсивно собрать промокоды из полей app_link/url вида promocode?value=XXX."""
+    if isinstance(obj, dict):
+        for v in obj.values():
+            _find_promo_values(v, out)
+    elif isinstance(obj, list):
+        for v in obj:
+            _find_promo_values(v, out)
+    elif isinstance(obj, str):
+        for m in re.finditer(r'promocode\?value=([A-Z0-9_\-]+)', obj, re.IGNORECASE):
+            out.append(m.group(1).upper())
+        # «...по коду CHICK» — маленькие баннеры-информеры внутри ресторанов
+        for m in re.finditer(r'по коду ([A-Z0-9_\-]{2,})', obj, re.IGNORECASE):
+            out.append(m.group(1).upper())
+
+
+def _places_from_layout(d):
+    """Слаги ресторанов/магазинов из главного layout."""
+    slugs = []
+    if not isinstance(d, dict):
+        return slugs
+    data = d.get('data') or {}
+    for key in ('places_v2_lists', 'places_v2_medium_carousels', 'mini_places_carousel'):
+        for blk in data.get(key) or []:
+            for p in (blk.get('payload') or {}).get('places') or []:
+                slug = p.get('slug') or ''
+                if slug:
+                    slugs.append(slug)
+    return slugs
+
+
+def _promo_items(acc, lat, lon):
+    """Промокоды аккаунта: баннеры главного экрана, личный список,
+    маленькие баннеры внутри ресторанов (menu informers)."""
+    res = {'banners': [], 'list': [], 'places': {}, 'error': None}
+    layout_data = None
+    try:
+        layout_data = layout(acc, lat=lat, lon=lon)
+        vals = []
+        _find_promo_values(layout_data, vals)
+        res['banners'] = sorted(set(vals))
+    except Exception as e:
+        res['error'] = str(e)
+    try:
+        d = _eda_call(acc, 'GET', '/api/v1/user/promocodes', lat, lon)
+        codes = d.get('promocodes') or [] if isinstance(d, dict) else []
+        items = []
+        for c in codes:
+            if isinstance(c, dict):
+                items.append({'value': c.get('value') or c.get('promocode') or '',
+                              'title': c.get('title') or c.get('name') or '',
+                              'description': c.get('description') or c.get('hint') or '',
+                              'active': c.get('active', True)})
+            elif isinstance(c, str):
+                items.append({'value': c, 'title': '', 'description': '', 'active': True})
+        res['list'] = items
+    except Exception as e:
+        if res['error']:
+            res['error'] += '; ' + str(e)
+        else:
+            res['error'] = str(e)
+    # маленькие баннеры внутри ресторанов (первые N из главного экрана)
+    slugs = _places_from_layout(layout_data)
+    for slug in slugs[:15]:
+        try:
+            m = restaurant_menu(acc, slug, lat=lat, lon=lon)
+            vals = []
+            _find_promo_values(m, vals)
+            if vals:
+                res['places'][slug] = sorted(set(vals))
+        except Exception:
+            continue
+    return res
+
+
+def find_promocodes(account, lat=None, lon=None):
+    """Найти промокоды на аккаунте Я.Еды.
+
+    Возвращает dict: {banners: [коды из баннеров главного экрана],
+    list: [промокоды из личного списка],
+    places: {slug: [коды из маленьких баннеров внутри ресторана]},
+    error: str|None}.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    lat, lon = _coords(acc, lat, lon)
+    return _promo_items(acc, lat, lon)
