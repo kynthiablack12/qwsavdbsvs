@@ -318,16 +318,6 @@ body {
 .btn-more:hover { border-color: var(--line-2); }
 .btn-more:active { transform: scale(.97); }
 
-/* ---------- filter: убрать финальные цены ---------- */
-.filter-row {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  margin: 10px 0 12px; padding: 10px 12px;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
-}
-.filter-chk { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--text); user-select: none; }
-.filter-chk input { width: 17px; height: 17px; accent-color: var(--brand); cursor: pointer; }
-.filter-count { color: var(--muted); font-size: 11.5px; margin-left: auto; }
-
 /* ---------- map stores ---------- */
 .map-row { margin: 10px 0 12px; }
 .map-wrap {
@@ -551,13 +541,6 @@ body {
       </div>
       <div class="cats-scroll" id="catChips"></div>
       <div class="cats-scroll sort-scroll" id="sortChips"></div>
-      <div class="filter-row">
-        <label class="filter-chk">
-          <input type="checkbox" id="chkNoFinalPrice">
-          <span>Убрать финальные цены</span>
-        </label>
-        <span class="filter-count" id="filterCount"></span>
-      </div>
       <div class="cat-note-res" id="catNote"></div>
       <div id="productsList" class="product-grid"></div>
       <div class="more-wrap"><button class="btn-more hidden" id="btnMore">Показать ещё</button></div>
@@ -611,7 +594,6 @@ const $ = (id) => document.getElementById(id);
 let state = { city: null, store: null, cart: null, goods: [], offset: 0, has_more: false,
               term: '', catKey: '', catIds: null, allStores: [], cats: [], checkout: null,
               sortKey: 'popularity', sortOrder: 'desc',
-              noFinalPrice: false,
               slot: null, payment: '', promos: [], promoCode: '', promoApplied: false, promoEstimate: null,
               payMethods: {available: [], selected_id: null}, binding: null };
 const CAT_DEFAULT = 'all';
@@ -705,11 +687,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   let theme = 'magnit';
   try { theme = localStorage.getItem('pickup_theme') || 'magnit'; } catch (e) {}
   applyTheme(theme);
-
-  $('chkNoFinalPrice').addEventListener('change', () => {
-    state.noFinalPrice = $('chkNoFinalPrice').checked;
-    renderGoods();
-  });
 
   $('btnTheme').addEventListener('click', () => $('themePop').classList.toggle('hidden'));
   document.querySelectorAll('.theme-opt').forEach(b =>
@@ -1095,11 +1072,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function renderGoods() {
     const box = $('productsList');
-    const list = state.noFinalPrice ? state.goods.filter(it => !it.discount) : state.goods;
-    const cnt = $('filterCount');
-    if (cnt) cnt.textContent = state.noFinalPrice
-      ? `Показано ${list.length} из ${state.goods.length} без финальной цены`
-      : '';
+    const list = state.goods;
     if (!list.length) { box.innerHTML = '<div class="hint">Ничего не найдено</div>'; return; }
     box.innerHTML = '';
     list.forEach(it => {
