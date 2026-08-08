@@ -89,13 +89,56 @@ def _extract_bearer(acc):
     return ''
 
 
-def add_eda_account(name, cookies_raw, token=None, yandexuid=''):
+# Client-id для обмена Session_id -> OAuth (mobileproxy passport).
+# У Яндекс.Еды app используется дефолтный мобильный client_id Яндекс Паспорта.
+PASSPORT_CLIENT_ID = '23cabbbdc6cd41889efd28061dcdb21d'
+
+
+def exchange_sessionid(session_id, client_id=None):
+    """Обменять passport Session_id на OAuth Bearer-токен.
+
+    Эндпоинт mobileproxy passport (token_by_sessionid) — тот же, что
+    использует мобильное приложение при входе. Возвращает (token, uid)
+    либо поднимает RuntimeError.
+    """
+    sid = (session_id or '').strip()
+    if not sid:
+        raise RuntimeError('Session_id пустой')
+    url = 'https://mobileproxy.passport.yandex.net/1/bundle/oauth/token_by_sessionid/'
+    hdrs = {
+        'User-Agent': 'android (9)',
+        'Accept-Language': 'ru',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+        'X-Ya-Client-Cookie': f'Session_id={sid}',
+        'X-Ya-Client-User-Agent': 'Yandex/3.19.0.0 Android/9',
+        'X-Client-Id': client_id or PASSPORT_CLIENT_ID,
+    }
+    try:
+        r = requests.post(url, headers=hdrs, data='', timeout=25)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Паспорт: сеть (token_by_sessionid): {e}')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Паспорт: HTTP {r.status_code} (token_by_sessionid): {r.text[:300]}')
+    try:
+        d = r.json()
+    except Exception:
+        raise RuntimeError(f'Паспорт: ответ не JSON: {r.text[:200]}')
+    tok = (d.get('access_token') or '').strip()
+    if not tok:
+        raise RuntimeError(f'Паспорт: нет access_token в ответе: {d}')
+    uid = str(d.get('uid') or '')
+    return tok, uid
+
+
+def add_eda_account(name, cookies_raw, token=None, yandexuid='', session_id=''):
     """Добавить аккаунт Я.Еды.
 
     Авторизация Я.Еды — Bearer-токен (OAuth). Его можно передать:
       - напрямую параметром `token`, либо
       - внутри cookie-строки как webviewtoken=..., либо
-      - как сам token в поле cookies (если строка не 'k=v').
+      - как сам token в поле cookies (если строка не 'k=v'), либо
+      - как passport `session_id` (Session_id cookie) — тогда он будет
+        обменян на OAuth-токен через mobileproxy passport.
     yandexuid (passport uid) — желателен для x-yandex-uid.
     """
     name = (name or '').strip()
@@ -116,8 +159,16 @@ def add_eda_account(name, cookies_raw, token=None, yandexuid=''):
     if ck:
         acc['cookies'] = ck
     bearer = _extract_bearer(acc)
+    # если токена нет, но есть Session_id — обмениваем
+    if not bearer and (session_id or (ck or {}).get('Session_id')):
+        sid = session_id or (ck or {}).get('Session_id')
+        tok, uid = exchange_sessionid(sid)
+        acc['token'] = tok
+        if not acc.get('yandexuid'):
+            acc['yandexuid'] = uid
+        bearer = tok
     if not bearer:
-        raise RuntimeError('нужен Bearer-токен (параметр token, либо webviewtoken/Session_id в cookies)')
+        raise RuntimeError('нужен Bearer-токен (параметр token, webviewtoken, Session_id или token_by_sessionid)')
     if not acc.get('yandexuid'):
         # попробуем вытащить uid из самого токена: Bearer 2.<uid>.<...>
         m = bearer.split('.')

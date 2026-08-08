@@ -419,7 +419,8 @@ def api_eda_accounts_add():
     data = request.get_json(silent=True) or {}
     try:
         eda.add_eda_account(data.get('name', ''), data.get('cookies', ''),
-                            token=data.get('token', ''), yandexuid=data.get('yandexuid', ''))
+                            token=data.get('token', ''), yandexuid=data.get('yandexuid', ''),
+                            session_id=data.get('session_id', ''))
     except Exception as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True})
