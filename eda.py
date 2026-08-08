@@ -181,6 +181,15 @@ def add_eda_account(name, cookies_raw, token=None, yandexuid='', session_id=''):
         acc['profile_name'] = profile_name(acc)
     except Exception:
         pass
+    # uid мог не прийти с обменом Session_id (токен y0_... без uid) —
+    # профиль Я.Еды сам отдаёт passport_uid
+    if not acc.get('yandexuid'):
+        try:
+            p = profile(acc)
+            if isinstance(p, dict) and p.get('passport_uid'):
+                acc['yandexuid'] = str(p['passport_uid'])
+        except Exception:
+            pass
     # если имя не задано — берём из профиля (или uid)
     if not acc['name']:
         acc['name'] = acc.get('profile_name') or acc.get('yandexuid') or 'аккаунт'

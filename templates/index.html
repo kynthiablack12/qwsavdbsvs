@@ -228,11 +228,14 @@
         <label>yandexuid (можно пусто)
           <input type="text" id="edaUid" placeholder="passport uid" autocomplete="off">
         </label>
+        <label>Session_id (если нет токена)
+          <input type="text" id="edaSid" placeholder="Session_id из куки Яндекс.Еды" autocomplete="off">
+        </label>
         <button class="btn btn-primary" id="edaAccAdd">Добавить аккаунт</button>
       </div>
       <div class="table-wrap" style="margin-top:16px">
         <table class="data-table" id="edaAccTable">
-          <thead><tr><th>Имя</th><th>Токен</th><th>uid</th><th>Добавлен</th><th class="col-actions">Действия</th></tr></thead>
+          <thead><tr><th>Имя</th><th>Профиль</th><th>Плюс</th><th>uid</th><th>Добавлен</th><th class="col-actions">Действия</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>

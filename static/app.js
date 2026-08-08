@@ -536,11 +536,12 @@ async function loadEdaAccounts() {
     tb.innerHTML = edaAccounts.map(a => `
       <tr>
         <td><b>${esc(a.name)}</b></td>
-        <td>${a.has_token ? '<span class="sd-badge ok">токен ✓</span>' : '<span class="sd-badge bad">без токена</span>'}</td>
+        <td>${esc(a.profile_name || '—')}</td>
+        <td>${a.plus_balance != null ? `<span class="sd-badge ok">${esc(String(a.plus_balance))}${esc(a.plus_status && a.plus_status !== 'NO_PLUS' ? ' 🅿' : '')}</span>` : '<span class="db-mut">—</span>'}</td>
         <td class="num">${esc(a.uid || '—')}</td>
         <td class="num">${esc(a.added || '—')}</td>
         <td class="col-actions"><button class="btn btn-danger btn-sm" data-del="${esc(a.name)}">Удалить</button></td>
-      </tr>`).join('') || '<tr><td colspan="5" class="db-empty">Аккаунтов Я.Еды нет</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="6" class="db-empty">Аккаунтов Я.Еды нет</td></tr>';
     tb.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
       await api(`/api/eda/accounts/${encodeURIComponent(b.dataset.del)}`, { method: 'DELETE' });
       loadEda();
@@ -571,11 +572,13 @@ $('edaAccAdd').addEventListener('click', async () => {
         name: $('edaName').value.trim(),
         token: $('edaToken').value.trim(),
         yandexuid: $('edaUid').value.trim(),
+        session_id: $('edaSid').value.trim(),
       }),
     });
     $('edaName').value = '';
     $('edaToken').value = '';
     $('edaUid').value = '';
+    $('edaSid').value = '';
     loadEda();
   } catch (e) {
     alert(e.message);
