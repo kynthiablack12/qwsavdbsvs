@@ -146,8 +146,6 @@ def add_eda_account(name, cookies_raw, token=None, yandexuid='', session_id=''):
     yandexuid (passport uid) — желателен для x-yandex-uid.
     """
     name = (name or '').strip()
-    if not name:
-        raise RuntimeError('имя аккаунта обязательно')
     acc = {'name': name}
     ck = _parse_keyvals(cookies_raw)
     # если передан token отдельно — берём его
@@ -183,6 +181,9 @@ def add_eda_account(name, cookies_raw, token=None, yandexuid='', session_id=''):
         acc['profile_name'] = profile_name(acc)
     except Exception:
         pass
+    # если имя не задано — берём из профиля (или uid)
+    if not acc['name']:
+        acc['name'] = acc.get('profile_name') or acc.get('yandexuid') or 'аккаунт'
     # подтянем баллы Я.Плюс
     try:
         pb = plus_balance(acc)
@@ -191,8 +192,8 @@ def add_eda_account(name, cookies_raw, token=None, yandexuid='', session_id=''):
     except Exception:
         pass
     accs = load_eda_accounts()
-    if any(a.get('name') == name for a in accs):
-        raise RuntimeError(f'аккаунт "{name}" уже существует')
+    if any(a.get('name') == acc['name'] for a in accs):
+        raise RuntimeError(f'аккаунт "{acc["name"]}" уже существует')
     acc['added'] = time.strftime('%Y-%m-%d %H:%M:%S')
     accs.append(acc)
     save_eda_accounts(accs)
