@@ -6,6 +6,8 @@
 <title>Магнит — Самовывоз</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 :root, :root[data-theme="magnit"] {
   --bg: #f3f4f7; --surface: #ffffff; --surface-2: #f6f7f9; --surface-3: #eceef2;
@@ -316,6 +318,37 @@ body {
 .btn-more:hover { border-color: var(--line-2); }
 .btn-more:active { transform: scale(.97); }
 
+/* ---------- filter: убрать финальные цены ---------- */
+.filter-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 10px 0 12px; padding: 10px 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+}
+.filter-chk { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--text); user-select: none; }
+.filter-chk input { width: 17px; height: 17px; accent-color: var(--brand); cursor: pointer; }
+.filter-count { color: var(--muted); font-size: 11.5px; margin-left: auto; }
+
+/* ---------- map stores ---------- */
+.map-row { margin: 10px 0 12px; }
+.map-wrap {
+  position: relative; height: 320px; border-radius: 14px; overflow: hidden;
+  border: 1px solid var(--line); box-shadow: var(--shadow);
+}
+.map-wrap .leaflet-container { font-family: 'Manrope', system-ui, sans-serif; }
+.map-pop {
+  font-size: 12px; line-height: 1.35;
+}
+.map-pop b { font-weight: 800; }
+.map-pop .addr { color: var(--muted); margin-top: 2px; }
+.map-btn {
+  border: 1px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer;
+  border-radius: 10px; font-family: inherit; font-weight: 800; font-size: 12px; padding: 8px 14px;
+  transition: border-color .15s, background .15s;
+}
+.map-btn:hover { border-color: var(--brand); color: var(--brand); }
+.map-btn.on { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.map-tools { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+
 /* ---------- checkout ---------- */
 .chk-store { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin-bottom: 14px; }
 .chk-store-ico { width: 38px; height: 38px; border-radius: 11px; background: var(--brand-soft); display: flex; align-items: center; justify-content: center; font-size: 18px; }
@@ -492,6 +525,13 @@ body {
         <input type="text" id="storeQuery" placeholder="Поиск по адресу или названию…">
         <button class="search-clear hidden" id="storeClear">×</button>
       </div>
+      <div class="map-row">
+        <div class="map-tools">
+          <button class="map-btn" id="btnMapToggle">🗺 Показать на карте</button>
+          <button class="map-btn hidden" id="btnMapClose">✕ Закрыть карту</button>
+        </div>
+        <div id="storeMap" class="map-wrap hidden"></div>
+      </div>
       <div id="storesList" class="store-list"><div class="hint">Загрузка…</div></div>
     </section>
 
@@ -511,6 +551,13 @@ body {
       </div>
       <div class="cats-scroll" id="catChips"></div>
       <div class="cats-scroll sort-scroll" id="sortChips"></div>
+      <div class="filter-row">
+        <label class="filter-chk">
+          <input type="checkbox" id="chkNoFinalPrice">
+          <span>Убрать финальные цены</span>
+        </label>
+        <span class="filter-count" id="filterCount"></span>
+      </div>
       <div class="cat-note-res" id="catNote"></div>
       <div id="productsList" class="product-grid"></div>
       <div class="more-wrap"><button class="btn-more hidden" id="btnMore">Показать ещё</button></div>
@@ -564,6 +611,7 @@ const $ = (id) => document.getElementById(id);
 let state = { city: null, store: null, cart: null, goods: [], offset: 0, has_more: false,
               term: '', catKey: '', catIds: null, allStores: [], cats: [], checkout: null,
               sortKey: 'popularity', sortOrder: 'desc',
+              noFinalPrice: false,
               slot: null, payment: '', promos: [], promoCode: '', promoApplied: false, promoEstimate: null,
               payMethods: {available: [], selected_id: null}, binding: null };
 const CAT_DEFAULT = 'all';
@@ -693,8 +741,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('btnBackCheckout').addEventListener('click', () => { showView('view-products'); refreshCart(); });
   $('btnCheckoutView').addEventListener('click', () => openCheckout());
   $('btnMore').addEventListener('click', () => loadGoods(true));
-  $('storeClear').addEventListener('click', () => { $('storeQuery').value = ''; renderStores(); });
+  $('storeClear').addEventListener('click', () => { $('storeQuery').value = ''; $('storeClear').classList.add('hidden'); renderStores(); });
   $('termClear').addEventListener('click', () => { $('termInput').value = ''; state.term = ''; state.catKey = ''; state.catIds = null; applyCats(); });
+  $('chkNoFinalPrice').addEventListener('change', () => {
+    state.noFinalPrice = $('chkNoFinalPrice').checked;
+    renderGoods();
+  });
+  $('btnMapToggle').addEventListener('click', () => {
+    $('storeMap').classList.toggle('hidden');
+    $('btnMapToggle').classList.toggle('hidden', !$('storeMap').classList.contains('hidden'));
+    $('btnMapClose').classList.toggle('hidden', $('storeMap').classList.contains('hidden'));
+    if (!$('storeMap').classList.contains('hidden')) renderStoreMap();
+  });
+  $('btnMapClose').addEventListener('click', () => {
+    $('storeMap').classList.add('hidden');
+    $('btnMapToggle').classList.remove('hidden');
+    $('btnMapClose').classList.add('hidden');
+  });
 
   function openTab(tab) {
     if (tab === 'pickup') {
@@ -725,6 +788,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('storeQuery').addEventListener('input', () => {
     $('storeClear').classList.toggle('hidden', !$('storeQuery').value);
     renderStores();
+    if (!$('storeMap').classList.contains('hidden')) renderStoreMap();
   });
 
   let termTimer = null;
@@ -844,6 +908,55 @@ document.addEventListener('DOMContentLoaded', async () => {
     showView('view-products');
     renderStoreBar();
     loadCategories();
+  }
+
+  let storeMap = null;
+
+  function renderStoreMap() {
+    const el = $('storeMap');
+    const q = $('storeQuery').value.trim().toLowerCase();
+    const list = q
+      ? state.allStores.filter(s => ((s.name || '') + ' ' + (s.address || '') + ' ' + (s.code || '')).toLowerCase().includes(q))
+      : state.allStores;
+    if (!storeMap) {
+      if (typeof L === 'undefined') {
+        el.innerHTML = '<div class="hint">Карта недоступна (нет сети).</div>';
+        return;
+      }
+      storeMap = L.map('storeMap').setView([55.7558, 37.6173], 6);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(storeMap);
+      el._leaflet_id = storeMap._leaflet_id;
+    }
+    storeMap.eachLayer(l => { if (l instanceof L.Marker) storeMap.removeLayer(l); });
+    const markers = list.filter(s => s.latitude != null && s.longitude != null);
+    markers.forEach(st => {
+      const on = state.store && state.store.code === st.code;
+      const mk = L.marker([st.latitude, st.longitude], {
+        icon: L.icon({
+          iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+          iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+          shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+          iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
+          shadowSize: [41, 41]
+        }),
+        title: st.name || ''
+      }).addTo(storeMap);
+      mk.bindPopup(`<b>${esc(st.name || '')}</b><br>${esc(st.address || '')}`, { closeButton: false });
+      if (on) mk.openPopup();
+      mk.on('click', () => selectStore(st));
+    });
+    if (markers.length === 1) {
+      storeMap.setView([markers[0].latitude, markers[0].longitude], 15);
+    } else if (markers.length > 1) {
+      const bounds = L.latLngBounds(markers.map(s => [s.latitude, s.longitude]));
+      storeMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+    } else {
+      storeMap.setView([55.7558, 37.6173], 6);
+    }
+    setTimeout(() => storeMap.invalidateSize(), 60);
   }
 
   function renderStoreBar() {
@@ -981,9 +1094,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function renderGoods() {
     const box = $('productsList');
-    if (!state.goods.length) { box.innerHTML = '<div class="hint">Ничего не найдено</div>'; return; }
+    const list = state.noFinalPrice ? state.goods.filter(it => !it.discount) : state.goods;
+    const cnt = $('filterCount');
+    if (cnt) cnt.textContent = state.noFinalPrice
+      ? `Показано ${list.length} из ${state.goods.length} без финальной цены`
+      : '';
+    if (!list.length) { box.innerHTML = '<div class="hint">Ничего не найдено</div>'; return; }
     box.innerHTML = '';
-    state.goods.forEach(it => {
+    list.forEach(it => {
       const el = document.createElement('div');
       el.className = 'p-card';
       const disc = it.discount ? `<span class="p-disc">−${it.discount}%</span>` : '';
