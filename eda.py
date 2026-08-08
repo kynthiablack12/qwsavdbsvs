@@ -201,8 +201,12 @@ def add_eda_account(name, cookies_raw, token=None, yandexuid='', session_id=''):
     except Exception:
         pass
     accs = load_eda_accounts()
+    # если имя уже занято — добавляем номер: Client, Client 2, Client 3…
     if any(a.get('name') == acc['name'] for a in accs):
-        raise RuntimeError(f'аккаунт "{acc["name"]}" уже существует')
+        base, n = acc['name'], 2
+        while any(a.get('name') == f'{base} {n}' for a in accs):
+            n += 1
+        acc['name'] = f'{base} {n}'
     acc['added'] = time.strftime('%Y-%m-%d %H:%M:%S')
     accs.append(acc)
     save_eda_accounts(accs)
@@ -649,31 +653,37 @@ def _places_from_layout(d):
     return slugs
 
 
-def _promo_items(acc, lat, lon):
+def _promo_items(acc, lat, lon, progress=None):
     """Промокоды аккаунта: баннеры главного экрана, личный список,
-    маленькие баннеры внутри ресторанов (menu informers)."""
-    res = {'banners': [], 'list': [], 'places': {}, 'error': None}
+    маленькие баннеры внутри ресторанов (menu informers).
+
+    progress — callback(msg, frac) для отчёта о ходе (frac 0..1).
+    """
+    res = {'codes': [], 'error': None}
     layout_data = None
     try:
+        if progress:
+            progress('Загружаю главный экран', 0.0)
         layout_data = layout(acc, lat=lat, lon=lon)
         vals = []
         _find_promo_values(layout_data, vals)
-        res['banners'] = sorted(set(vals))
+        res['codes'] = list(set(vals))
     except Exception as e:
         res['error'] = str(e)
     try:
+        if progress:
+            progress('Личный список промокодов', 0.1)
         d = _eda_call(acc, 'GET', '/api/v1/user/promocodes', lat, lon)
         codes = d.get('promocodes') or [] if isinstance(d, dict) else []
-        items = []
         for c in codes:
             if isinstance(c, dict):
-                items.append({'value': c.get('value') or c.get('promocode') or '',
-                              'title': c.get('title') or c.get('name') or '',
-                              'description': c.get('description') or c.get('hint') or '',
-                              'active': c.get('active', True)})
+                v = c.get('value') or c.get('promocode') or ''
             elif isinstance(c, str):
-                items.append({'value': c, 'title': '', 'description': '', 'active': True})
-        res['list'] = items
+                v = c
+            else:
+                v = ''
+            if v:
+                res['codes'].append(v)
     except Exception as e:
         if res['error']:
             res['error'] += '; ' + str(e)
@@ -681,33 +691,30 @@ def _promo_items(acc, lat, lon):
             res['error'] = str(e)
     # маленькие баннеры внутри ресторанов (первые N из главного экрана)
     slugs = _places_from_layout(layout_data)
-    for slug in slugs[:15]:
+    n = min(len(slugs), 15)
+    for i, slug in enumerate(slugs[:n]):
         try:
+            if progress:
+                progress(f'Ресторан {i + 1}/{n}: {slug}', 0.15 + 0.85 * i / n)
             m = restaurant_menu(acc, slug, lat=lat, lon=lon)
             vals = []
             _find_promo_values(m, vals)
-            if vals:
-                res['places'][slug] = sorted(set(vals))
+            res['codes'] += vals
         except Exception:
             continue
-    # уникальный набор промокодов на аккаунте (без привязки к ресторану)
-    all_codes = set(res['banners'])
-    all_codes.update(p.get('value') or '' for p in res['list'] if isinstance(p, dict))
-    for codes in res['places'].values():
-        all_codes.update(codes)
-    res['codes'] = sorted(c for c in all_codes if c)
+    # уникальный набор промокодов на аккаунте
+    res['codes'] = sorted({c.upper() for c in res['codes'] if c})
+    if progress:
+        progress('Готово', 1.0)
     return res
 
 
-def find_promocodes(account, lat=None, lon=None):
+def find_promocodes(account, lat=None, lon=None, progress=None):
     """Найти промокоды на аккаунте Я.Еды.
 
-    Возвращает dict: {banners: [коды из баннеров главного экрана],
-    list: [промокоды из личного списка],
-    places: {slug: [коды из маленьких баннеров внутри ресторана]},
-    codes: [уникальные промокоды аккаунта],
-    error: str|None}.
+    Возвращает dict: {codes: [уникальные промокоды аккаунта],
+    error: str|None}. progress — callback(msg, frac).
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     lat, lon = _coords(acc, lat, lon)
-    return _promo_items(acc, lat, lon)
+    return _promo_items(acc, lat, lon, progress)

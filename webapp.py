@@ -443,21 +443,67 @@ def api_eda_accounts_refresh(name):
     return jsonify({'ok': True, **res})
 
 
+# Промо-задачи: {task_id: {state, progress, message, result}}
+PROMO_TASKS = {}
+_PROMO_LOCK = threading.Lock()
+
+
 @app.route('/api/eda/promos', methods=['POST'])
 def api_eda_promos():
-    """Чекер промокодов: по всем аккаунтам Я.Еды."""
+    """Чекер промокодов: по всем аккаунтам Я.Еды (в фоне, с прогрессом)."""
     data = request.get_json(silent=True) or {}
     names = data.get('names') or None
-    result = []
-    for a in eda.load_eda_accounts():
-        if names and a.get('name') not in names:
-            continue
+    task_id = hashlib.md5(os.urandom(16)).hexdigest()[:12]
+    with _PROMO_LOCK:
+        PROMO_TASKS[task_id] = {'state': 'running', 'progress': 0, 'message': 'Запуск…', 'result': None}
+
+    def _run():
         try:
-            r = eda.find_promocodes(a)
+            accounts = eda.load_eda_accounts()
+            if names:
+                accounts = [a for a in accounts if a.get('name') in names]
+            result = []
+            total = max(len(accounts), 1)
+            for idx, a in enumerate(accounts):
+                acc_progress = {'frac': 0.0, 'msg': ''}
+
+                def _cb(msg, frac, _idx=idx, _a=a, _acc_progress=acc_progress):
+                    _acc_progress['frac'] = frac
+                    _acc_progress['msg'] = msg
+                    pct = int(((_idx + frac) / total) * 100)
+                    with _PROMO_LOCK:
+                        t = PROMO_TASKS[task_id]
+                        t['progress'] = pct
+                        t['message'] = f'{_a.get("name")}: {msg}'
+
+                try:
+                    r = eda.find_promocodes(a, progress=_cb)
+                except Exception as e:
+                    r = {'codes': [], 'error': str(e)}
+                result.append({'name': a.get('name'), **r})
+            with _PROMO_LOCK:
+                PROMO_TASKS[task_id]['state'] = 'done'
+                PROMO_TASKS[task_id]['progress'] = 100
+                PROMO_TASKS[task_id]['message'] = 'Готово'
+                PROMO_TASKS[task_id]['result'] = result
         except Exception as e:
-            r = {'banners': [], 'list': [], 'places': {}, 'error': str(e)}
-        result.append({'name': a.get('name'), **r})
-    return jsonify(result)
+            with _PROMO_LOCK:
+                PROMO_TASKS[task_id]['state'] = 'error'
+                PROMO_TASKS[task_id]['message'] = str(e)
+                PROMO_TASKS[task_id]['result'] = None
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({'task_id': task_id})
+
+
+@app.route('/api/eda/promos/<task_id>', methods=['GET'])
+def api_eda_promos_status(task_id):
+    with _PROMO_LOCK:
+        t = PROMO_TASKS.get(task_id)
+    if not t:
+        return jsonify({'error': 'task not found'}), 404
+    return jsonify({'state': t['state'], 'progress': t['progress'],
+                    'message': t['message'], 'result': t['result']})
 
 
 @app.route('/api/eda/sessions', methods=['GET'])

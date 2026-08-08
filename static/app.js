@@ -972,14 +972,30 @@ function promoBadges(codes) {
 async function runEdaPromos() {
   const btn = $('edaPromoRun');
   const tb = $('edaPromoTable').querySelector('tbody');
+  const prog = $('edaPromoProgress');
   btn.disabled = true;
   tb.innerHTML = '<tr><td colspan="3" class="db-empty">Проверяю все аккаунты Я.Еды…</td></tr>';
   $('edaPromoCount').textContent = '';
   try {
-    const rows = await api('/api/eda/promos', {
+    const { task_id } = await api('/api/eda/promos', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     });
+    prog.classList.remove('hidden');
+    const render = (st) => {
+      $('edaPromoFill').style.width = `${st.progress || 0}%`;
+      $('edaPromoMsg').textContent = `${st.progress || 0}% — ${st.message || ''}`;
+      tb.innerHTML = `<tr><td colspan="3" class="db-empty">${esc(st.message || '')} (${st.progress || 0}%)</td></tr>`;
+    };
+    for (;;) {
+      const st = await api(`/api/eda/promos/${task_id}`);
+      render(st);
+      if (st.state === 'done' || st.state === 'error') break;
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    const st = await api(`/api/eda/promos/${task_id}`);
+    prog.classList.add('hidden');
+    const rows = st.result || [];
     tb.innerHTML = rows.map(r => `
       <tr>
         <td><b>${esc(r.name)}</b></td>
@@ -988,6 +1004,7 @@ async function runEdaPromos() {
       </tr>`).join('') || '<tr><td colspan="3" class="db-empty">Аккаунтов Я.Еды нет</td></tr>';
     $('edaPromoCount').textContent = `аккаунтов: ${rows.length}`;
   } catch (e) {
+    prog.classList.add('hidden');
     tb.innerHTML = `<tr><td colspan="3" class="db-empty">${esc(e.message)}</td></tr>`;
   } finally {
     btn.disabled = false;
