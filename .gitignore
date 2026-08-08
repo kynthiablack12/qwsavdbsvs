@@ -41,10 +41,16 @@ shared_prefs/
 Qwen_html_*.html
 _chk*.py
 _dbg*.py
+_extract*.py
+_fetch_*.py
 _*_script.js
 _extract_js.py
 _shop_*.png
 _shot_*.png
+_game_shot.png
+monstro_main.js
+chrome_dbg/
+chrome_dbg*/
 bypass-pinning.js
 frida-server*
 mitmdump_*.txt

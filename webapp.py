@@ -115,29 +115,54 @@ def api_account_status(name):
         return jsonify({'error': 'not found'}), 404
     try:
         at = core.refresh_magnit_token(acc)
-        rs = core.get_game_token(acc, at)
-        if acc.get('event_id') == 'At99RuZXsCpnFRhpmEZCK':
+        games = {}
+        # Призолето
+        try:
+            rs = core.get_game_token(acc, at, event_id='wX8CoYBu0OQzsA6DBwqlU')
+            login = core.login_game(rs)
+            h = core.game_headers(login['token'], login['external_id'])
+            prof = core.s.get('https://magnit-prizoleto.ru/api/v1/profile', headers=h, timeout=20).json()
+            ind = prof.get('indicators') or {}
+            base = prof.get('attempts', {}).get('total_count') or 0
+            tasks = core.get_tasks_prizoleto(h)
+            ready = [t for t in tasks if t.get('ready_for_activation')]
+            pend_sum = sum(int((r.get('amount') or 0)) for t in ready for r in (t.get('rewards') or []) if r.get('type') == 'attempts')
+            games['wX8CoYBu0OQzsA6DBwqlU'] = {
+                'game': 'Призолето',
+                'attempts': base + pend_sum,
+                'base_attempts': base,
+                'pending_attempts': pend_sum,
+                'last_level': prof.get('last_finished_map_level'),
+                'daily_reward_ready': bool(ind.get('has_ready_daily_login_reward')),
+                'everyday_task_ready': bool(ind.get('has_ready_everyday_login_task')),
+                'has_tasks': bool(ind.get('has_ready_tasks')),
+            }
+        except Exception as e:
+            games['wX8CoYBu0OQzsA6DBwqlU'] = {'game': 'Призолето', 'error': str(e)[:120]}
+        # Монстро-планетяне
+        try:
+            rs = core.get_game_token(acc, at, event_id='At99RuZXsCpnFRhpmEZCK')
             data = core.auth_game_monstro(rs)
             user = data.get('user', {})
-            return jsonify({
-                'name': name,
+            pending = data.get('pending_rewards') or []
+            base = user.get('attempts_count') or 0
+            pend_sum = sum((t.get('attempts') or 0) for t in pending)
+            games['At99RuZXsCpnFRhpmEZCK'] = {
                 'game': 'Монстро-планетяне',
-                'attempts': user.get('attempts_count'),
+                'attempts': base + pend_sum,
+                'base_attempts': base,
+                'pending_attempts': pend_sum,
                 'last_level': None,
-                'indicators': {
-                    'attempts_count': user.get('attempts_count'),
-                    'chances_count': user.get('chances_count'),
-                },
-            })
-        login = core.login_game(rs)
-        h = core.game_headers(login['token'], login['external_id'])
-        prof = core.s.get('https://magnit-prizoleto.ru/api/v1/profile', headers=h, timeout=20).json()
+                'daily_reward_ready': bool(pending),
+                'pending_tasks': len(pending),
+                'chances': user.get('chances_count'),
+            }
+        except Exception as e:
+            games['At99RuZXsCpnFRhpmEZCK'] = {'game': 'Монстро-планетяне', 'error': str(e)[:120]}
         return jsonify({
             'name': name,
-            'game': 'Призолето',
-            'attempts': prof.get('attempts', {}).get('total_count'),
-            'last_level': prof.get('last_finished_map_level'),
-            'indicators': prof.get('indicators'),
+            'games': games,
+            'active_event_id': acc.get('event_id'),
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -195,6 +220,48 @@ def api_play(name):
     push_log(name, '--- started ---')
     threading.Thread(target=run_in_thread, args=(name,), daemon=True).start()
     return jsonify({'ok': True})
+
+
+@app.route('/api/accounts/<name>/rewards/claim', methods=['POST'])
+def api_claim_daily(name):
+    accs = core.load_accounts()
+    acc = next((a for a in accs if a.get('name') == name), None)
+    if not acc:
+        return jsonify({'error': 'not found'}), 404
+    lines = []
+    log = lambda l: lines.append(l)
+    try:
+        at = core.refresh_magnit_token(acc)
+        results = {}
+        # Призолето — ежедневный бонус за вход и готовые задачи
+        try:
+            rs = core.get_game_token(acc, at, event_id='wX8CoYBu0OQzsA6DBwqlU')
+            login = core.login_game(rs)
+            h = core.game_headers(login['token'], login['external_id'])
+            got = core.claim_prizoleto_daily(h, log)
+            results['wX8CoYBu0OQzsA6DBwqlU'] = {'game': 'Призолето', 'attempts_got': got}
+        except Exception as e:
+            results['wX8CoYBu0OQzsA6DBwqlU'] = {'game': 'Призолето', 'error': str(e)[:120]}
+        # Монстро — pending rewards (ежедневный бонус и задачи)
+        try:
+            rs = core.get_game_token(acc, at, event_id='At99RuZXsCpnFRhpmEZCK')
+            data = core.auth_game_monstro(rs)
+            h = core.mh_headers(data['token'])
+            got = 0
+            for task in (data.get('pending_rewards') or []):
+                tid = task.get('task_id')
+                if not tid:
+                    continue
+                rew = core.claim_daily_reward_monstro(h, [tid])
+                g = (rew.get('reward') or {}).get('attempts', 0)
+                got += g
+                log(f'   task {tid} reward: +{g} attempts')
+            results['At99RuZXsCpnFRhpmEZCK'] = {'game': 'Монстро-планетяне', 'attempts_got': got}
+        except Exception as e:
+            results['At99RuZXsCpnFRhpmEZCK'] = {'game': 'Монстро-планетяне', 'error': str(e)[:120]}
+        return jsonify({'ok': True, 'results': results, 'log': lines})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/accounts/<name>/game', methods=['POST'])

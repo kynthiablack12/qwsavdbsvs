@@ -1,4 +1,4 @@
-import requests, sys, json, os, re, uuid, threading, time, sqlite3
+import requests, sys, json, os, re, uuid, hashlib, threading, time, sqlite3
 sys.stdout.reconfigure(encoding='utf-8')
 
 # Railway: данные в PostgreSQL (DATABASE_URL) + файлы в каталоге DATA_DIR (Volume).
@@ -462,8 +462,9 @@ def game_domain(acc):
     return GAMES.get(acc.get('event_id'), 'magnit-prizoleto.ru')
 
 
-def get_game_token(acc, magnit_token):
-    r = s.get(f'https://middle-api.magnit.ru/v1/promo-games/{acc["event_id"]}/mobile',
+def get_game_token(acc, magnit_token, event_id=None):
+    event_id = event_id or acc['event_id']
+    r = s.get(f'https://middle-api.magnit.ru/v1/promo-games/{event_id}/mobile',
               headers={**dev_headers(acc), 'Authorization': 'bearer ' + magnit_token}, timeout=20)
     r.raise_for_status()
     return r.json()['url'].split('token=')[1]
@@ -507,6 +508,43 @@ def pick_reward(h, reward_id):
     r = s.put(f'https://magnit-prizoleto.ru/api/v1/game/rewards/{reward_id}:choice',
               headers=h, data='', timeout=20)
     return r.status_code
+
+
+def get_tasks_prizoleto(h):
+    """POST /api/v1/tasks — список задач (ежедневный бонус и пр.)."""
+    r = s.post('https://magnit-prizoleto.ru/api/v1/tasks', headers=h, data='', timeout=20)
+    r.raise_for_status()
+    return r.json().get('tasks', [])
+
+
+def activate_task_prizoleto(h, task_id):
+    """PUT /api/v1/tasks/{id}:activate — забрать награду за задачу."""
+    h2 = dict(h)
+    h2['Idempotency-Key'] = hashlib.sha256(uuid.uuid4().hex.encode()).hexdigest()
+    r = s.put(f'https://magnit-prizoleto.ru/api/v1/tasks/{task_id}:activate',
+              headers=h2, data='', timeout=20)
+    r.raise_for_status()
+    return r.json()
+
+
+def claim_prizoleto_daily(h, log=print):
+    """Забрать все готовые задачи Призолето (в т.ч. ежедневный бонус за вход)."""
+    total = 0
+    tasks = get_tasks_prizoleto(h)
+    for t in tasks:
+        if not t.get('ready_for_activation'):
+            continue
+        tid = t.get('id')
+        try:
+            res = activate_task_prizoleto(h, tid)
+        except Exception as e:
+            log(f'   task {tid} activate error: {e}')
+            continue
+        got = res.get('attempts_count', 0)
+        name = (t.get('name') or '').replace('&nbsp;', ' ')
+        log(f'   task {tid} [{name[:40]}] +{got} attempts')
+        total += got
+    return total
 
 
 # ---------- Монстро-планетяне (Монстриксы) ----------
@@ -693,6 +731,11 @@ def play_prizoleto_account(acc, log=print):
     prof = s.get('https://magnit-prizoleto.ru/api/v1/profile', headers=h, timeout=20).json()
     attempts = prof.get('attempts', {}).get('total_count', 0)
     log(f'   attempts: {attempts}')
+    # ежедневный бонус за вход + готовые задачи
+    got = claim_prizoleto_daily(h, log)
+    if got:
+        attempts += got
+        log(f'   после забора задач: {attempts} attempts')
     level = prof.get('last_finished_map_level', 0) + 1
     games = 0
     while attempts > 0:

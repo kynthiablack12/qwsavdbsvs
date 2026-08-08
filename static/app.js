@@ -89,12 +89,14 @@ function createAccountCard(a) {
       <div class="game-pick">
         <select class="game-select" data-game-select>${selOpts}</select>
       </div>
+      <div class="games-status" data-games-status></div>
       <div class="offers">
         <div class="offers-title">Персональные предложения</div>
         <div class="offers-list"></div>
       </div>
       <div class="account-actions">
         <button class="btn btn-primary" data-act="play">Играть</button>
+        <button class="btn btn-ghost btn-sm" data-act="claim">Забрать бонус</button>
         <button class="btn btn-ghost btn-sm" data-act="coupons">Купоны</button>
         <button class="btn btn-ghost btn-sm" data-act="prizes">Призы</button>
         <button class="btn btn-ghost btn-sm" data-act="logs">Логи</button>
@@ -102,6 +104,7 @@ function createAccountCard(a) {
       </div>`;
 
   card.querySelector('[data-act="play"]').addEventListener('click', () => playAccount(a.name, card));
+  card.querySelector('[data-act="claim"]').addEventListener('click', () => claimDaily(a.name, card));
   card.querySelector('[data-act="coupons"]').addEventListener('click', () => syncCoupons(a.name, card));
   card.querySelector('[data-act="logs"]').addEventListener('click', () => openLogs(a.name));
   card.querySelector('[data-act="prizes"]').addEventListener('click', () => openPrizes(a.name));
@@ -128,19 +131,31 @@ function createAccountCard(a) {
 async function refreshStatus(name, card) {
   try {
     const st = await api(`/api/accounts/${encodeURIComponent(name)}/status`);
+    const games = st.games || {};
+    const g = games[st.active_event_id] || {};
     const m = card.querySelectorAll('.mini-stat b');
-    m[0].textContent = st.attempts ?? '—';
-    m[0].classList.toggle('good', (st.attempts ?? 0) > 0);
-    m[0].classList.toggle('bad', (st.attempts ?? 0) === 0);
-    m[1].textContent = st.last_level ?? '—';
-    const row = card.querySelector('.account-stats');
-    const old = row.querySelector('.daily-reward');
-    if (old) old.remove();
-    if (st.indicators && st.indicators.has_ready_daily_login_reward) {
-      const el = document.createElement('div');
-      el.className = 'daily-reward';
-      el.textContent = '+ награда за вход готова';
-      row.appendChild(el);
+    const attempts = g.attempts ?? '—';
+    m[0].textContent = attempts;
+    m[0].classList.toggle('good', typeof attempts === 'number' && attempts > 0);
+    m[0].classList.toggle('bad', attempts === 0);
+    m[1].textContent = g.last_level ?? '—';
+    const box = card.querySelector('[data-games-status]');
+    if (box) {
+      box.innerHTML = '';
+      Object.values(games).forEach(gg => {
+        if (gg.error) return;
+        const row = document.createElement('div');
+        row.className = 'game-row';
+        const chips = [];
+        if (gg.attempts != null) chips.push(`${gg.attempts} поп.`);
+        if (gg.daily_reward_ready) chips.push(gg.game === 'Монстро-планетяне'
+          ? `ежедн. бонус: ${gg.pending_tasks || 1}`
+          : '+ награда за вход');
+        if (gg.everyday_task_ready) chips.push('задание на вход');
+        row.innerHTML = `<span class="game-row-name">${esc(gg.game)}</span>` +
+          chips.map(c => `<span class="chip ${c.startsWith('+') || c.startsWith('ежедн') ? 'chip-gold' : ''}">${esc(c)}</span>`).join('');
+        box.appendChild(row);
+      });
     }
   } catch (e) {
     // card stays with —
@@ -221,6 +236,20 @@ async function syncCoupons(name, card) {
     const r = await api(`/api/accounts/${encodeURIComponent(name)}/coupons/sync`, { method: 'POST' });
     openLogs(name);
     alert(`Купонов добавлено: ${r.added}`);
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function claimDaily(name, card) {
+  const btn = card.querySelector('[data-act="claim"]');
+  btn.disabled = true;
+  try {
+    const r = await api(`/api/accounts/${encodeURIComponent(name)}/rewards/claim`, { method: 'POST' });
+    refreshStatus(name, card);
+    alert((r.log || []).join('\n') || 'Бонусов нет');
   } catch (e) {
     alert(e.message);
   } finally {

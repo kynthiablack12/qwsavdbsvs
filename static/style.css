@@ -167,6 +167,14 @@ body {
   background: #fff; color: #1a1a1f; font: inherit; font-size: 13px;
   padding: 7px 10px; cursor: pointer; appearance: auto;
 }
+.games-status { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.game-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; }
+.game-row-name { color: var(--muted); font-weight: 600; }
+.chip {
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 2px 7px; font-weight: 700; color: var(--text);
+}
+.chip-gold { background: rgba(255, 193, 7, .12); border-color: rgba(255, 193, 7, .4); color: #b8860b; }
 
 /* ---------- buttons ---------- */
 .btn {
