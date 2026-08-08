@@ -237,6 +237,9 @@ body {
 }
 
 .modal form { margin-top: 14px; }
+.eda-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 5px; margin: 16px 0 4px; }
+.eda-add { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+.eda-add .btn-primary { grid-column: 1 / -1; }
 .modal label { display: block; color: var(--muted); font-size: 12px; font-weight: 600; margin-bottom: 14px; }
 .modal input, .modal textarea {
   width: 100%; margin-top: 7px; background: var(--panel-2); border: 1px solid var(--border);

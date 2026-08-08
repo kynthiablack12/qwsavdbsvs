@@ -2,6 +2,7 @@ import sys, os, json, threading, hashlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
 import pickup
+import eda
 from flask import Flask, jsonify, request, render_template, Response, session, redirect, url_for
 import time
 
@@ -115,11 +116,25 @@ def api_account_status(name):
     try:
         at = core.refresh_magnit_token(acc)
         rs = core.get_game_token(acc, at)
+        if acc.get('event_id') == 'At99RuZXsCpnFRhpmEZCK':
+            data = core.auth_game_monstro(rs)
+            user = data.get('user', {})
+            return jsonify({
+                'name': name,
+                'game': 'Монстро-планетяне',
+                'attempts': user.get('attempts_count'),
+                'last_level': None,
+                'indicators': {
+                    'attempts_count': user.get('attempts_count'),
+                    'chances_count': user.get('chances_count'),
+                },
+            })
         login = core.login_game(rs)
         h = core.game_headers(login['token'], login['external_id'])
         prof = core.s.get('https://magnit-prizoleto.ru/api/v1/profile', headers=h, timeout=20).json()
         return jsonify({
             'name': name,
+            'game': 'Призолето',
             'attempts': prof.get('attempts', {}).get('total_count'),
             'last_level': prof.get('last_finished_map_level'),
             'indicators': prof.get('indicators'),
@@ -207,10 +222,11 @@ def api_account_from_token():
     d = request.get_json(force=True)
     name = str(d.get('name', '')).strip()
     token = str(d.get('refresh_token', '')).strip()
+    event_id = str(d.get('event_id', '')).strip() or 'wX8CoYBu0OQzsA6DBwqlU'
     if not name or not token:
         return jsonify({'error': 'name and refresh_token required'}), 400
     try:
-        core.add_account_by_token(name, token)
+        core.add_account_by_token(name, token, event_id=event_id)
     except Exception as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, 'name': name})
@@ -223,10 +239,11 @@ def api_register_start():
     name = str(d.get('name', '')).strip() or None
     first_name = str(d.get('first_name', '')).strip() or None
     birth_date = str(d.get('birth_date', '')).strip() or None
+    event_id = str(d.get('event_id', '')).strip() or 'wX8CoYBu0OQzsA6DBwqlU'
     if not phone:
         return jsonify({'error': 'phone required'}), 400
     try:
-        reg = core.add_account(phone, name, first_name, birth_date)
+        reg = core.add_account(phone, name, first_name, birth_date, event_id=event_id)
         core.store_pending(reg)
     except Exception as e:
         return jsonify({'error': str(e)}), 400
@@ -282,6 +299,57 @@ def api_delete(name):
     accs = core.load_accounts()
     accs = [a for a in accs if a.get('name') != name]
     core.save_accounts(accs)
+    return jsonify({'ok': True})
+
+
+# ---------- Яндекс Еда: cookie-аккаунты ----------
+
+@app.route('/api/eda/accounts')
+def api_eda_accounts():
+    return jsonify([{'name': a.get('name'),
+                     'added': a.get('added'),
+                     'has_token': bool(eda._extract_bearer(a)),
+                     'uid': a.get('yandexuid', '')}
+                    for a in eda.load_eda_accounts()])
+
+
+@app.route('/api/eda/accounts', methods=['POST'])
+def api_eda_accounts_add():
+    data = request.get_json(silent=True) or {}
+    try:
+        eda.add_eda_account(data.get('name', ''), data.get('cookies', ''),
+                            token=data.get('token', ''), yandexuid=data.get('yandexuid', ''))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True})
+
+
+@app.route('/api/eda/accounts/<name>', methods=['DELETE'])
+def api_eda_accounts_delete(name):
+    eda.delete_eda_account(name)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/eda/sessions', methods=['GET'])
+def api_eda_sessions_list():
+    return jsonify(eda.load_eda_sessions())
+
+
+@app.route('/api/eda/sessions', methods=['POST'])
+def api_eda_sessions_create():
+    data = request.get_json(silent=True) or {}
+    try:
+        token = eda.create_eda_session(data.get('name', ''), data.get('account', ''),
+                                       int(data.get('hours') or 24))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'token': token,
+                    'url': f'/d/{token}'})
+
+
+@app.route('/api/eda/sessions/<token>', methods=['DELETE'])
+def api_eda_sessions_revoke(token):
+    eda.revoke_eda_session(token)
     return jsonify({'ok': True})
 
 
@@ -810,6 +878,325 @@ def api_pickup_order_page(token, number):
             can_cancel=(order.get('availableActions', {}) or {}).get('canCancelOrder', False),
             token=token,
         )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ---------- Яндекс Еда: клиент доставки ----------
+
+@app.route('/d/<token>')
+def eda_client_page(token):
+    s = eda.get_eda_session(token)
+    if not s:
+        return render_template('eda.html', invalid=True), 403
+    return render_template('eda.html', token=token, invalid=False)
+
+
+def eda_session(token):
+    s = eda.get_eda_session(token)
+    if not s:
+        raise RuntimeError('сессия не найдена, истекла или отозвана')
+    eda.touch_eda_session(token)
+    return s
+
+
+@app.route('/api/eda/<token>/info')
+def api_eda_info(token):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    return jsonify({'name': s['name'], 'account': s['account'],
+                    'expires_at': s['expires_at']})
+
+
+@app.route('/api/eda/<token>/profile')
+def api_eda_profile(token):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'profile': eda.profile(s['account'])})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/restaurants')
+def api_eda_restaurants(token):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        q = request.args.get('query', '')
+        lat = request.args.get('lat', type=float)
+        lon = request.args.get('lon', type=float)
+        return jsonify({'ok': True, 'restaurants': eda.search_restaurants(
+            s['account'], query=q, lat=lat, lon=lon)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/restaurants/<rid>')
+def api_eda_menu(token, rid):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        lat = request.args.get('lat', type=float)
+        lon = request.args.get('lon', type=float)
+        return jsonify({'ok': True, 'menu': eda.restaurant_menu(
+            s['account'], rid, lat=lat, lon=lon)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/layout')
+def api_eda_layout(token):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        slug = request.args.get('slug')
+        lat = request.args.get('lat', type=float)
+        lon = request.args.get('lon', type=float)
+        view = {'type': 'collection', 'slug': slug} if slug else None
+        return jsonify({'ok': True, 'layout': eda.layout(
+            s['account'], view=view, lat=lat, lon=lon)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/shop/<slug>/categories')
+def api_eda_shop_categories(token, slug):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'categories': eda.shop_categories(
+            s['account'], slug)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/shop/<slug>/goods', methods=['POST'])
+def api_eda_shop_goods(token, slug):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify({'ok': True, 'goods': eda.shop_goods(
+            s['account'], slug, data.get('uids') or [])})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/shop/<slug>/category/<uid>')
+def api_eda_shop_category(token, slug, uid):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'category': eda.shop_category(
+            s['account'], slug, uid)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/shop/<slug>/info')
+def api_eda_shop_info(token, slug):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'info': eda.shop_info(s['account'], slug)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/shop/<slug>/search')
+def api_eda_shop_search(token, slug):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        q = request.args.get('query', '')
+        return jsonify({'ok': True, 'search': eda.shop_search(
+            s['account'], slug, q)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/cart')
+def api_eda_cart(token):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        lat = request.args.get('lat', type=float)
+        lon = request.args.get('lon', type=float)
+        slug = request.args.get('place_slug')
+        return jsonify({'ok': True, 'cart': eda.cart(
+            s['account'], slug=slug, lat=lat, lon=lon)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/cart', methods=['POST'])
+def api_eda_cart_add(token):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify({'ok': True, 'cart': eda.add_to_cart(
+            s['account'],
+            data.get('place_slug') or data.get('restaurant_id'),
+            data.get('item') or data.get('item_id'),
+            qty=int(data.get('qty') or 1),
+            item_options=data.get('item_options'),
+            lat=data.get('lat'), lon=data.get('lon'),
+            business=data.get('business', 'restaurant'))})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/addresses')
+def api_eda_addresses(token):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'addresses': eda.addresses(s['account'])})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/checkout', methods=['GET', 'POST'])
+def api_eda_checkout(token):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify({'ok': True, 'checkout': eda.checkout(
+            s['account'],
+            data.get('place_slug'),
+            data.get('address', {}),
+            lat=data.get('lat'), lon=data.get('lon'))})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/payment/methods')
+def api_eda_payment_methods(token):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'methods': eda.payment_methods(s['account'])})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/order', methods=['POST'])
+def api_eda_order_create(token):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify({'ok': True, 'order': eda.create_order(
+            s['account'], data.get('address_id'), data.get('payment_id'),
+            data.get('items') or [])})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/orders/active')
+def api_eda_orders_active(token):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'orders': eda.active_orders(s['account'])})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/order/<oid>')
+def api_eda_order_info(token, oid):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'order': eda.order_status(s['account'], oid)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/order/<oid>/cancel', methods=['POST'])
+def api_eda_order_cancel(token, oid):
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        eda.cancel_order(s['account'], oid)
+        return jsonify({'ok': True})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

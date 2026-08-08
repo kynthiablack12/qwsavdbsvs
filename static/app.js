@@ -70,12 +70,13 @@ function createAccountCard(a) {
   card.dataset.name = a.name;
 
   const initials = (a.name || '?').slice(0, 2).toUpperCase();
+  const gameName = a.event_id === 'At99RuZXsCpnFRhpmEZCK' ? 'Монстро-планетяне' : 'Призолето';
   card.innerHTML = `
       <div class="account-head">
         <div class="avatar">${initials}</div>
         <div>
           <div class="account-name">${esc(a.name)}</div>
-          <div class="account-device">${esc(a.device_id || '')}</div>
+          <div class="account-device">${esc(gameName)} · ${esc(a.device_id || '')}</div>
         </div>
       </div>
       <div class="account-stats">
@@ -381,7 +382,7 @@ $('formToken').addEventListener('submit', async (e) => {
   try {
     await api('/api/accounts/from-token', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: $('tokName').value, refresh_token: $('tokRefresh').value }),
+      body: JSON.stringify({ name: $('tokName').value, refresh_token: $('tokRefresh').value, event_id: $('tokEvent').value }),
     });
     $('modalAdd').classList.add('hidden');
     $('tokName').value = '';
@@ -419,6 +420,7 @@ $('formAdd').addEventListener('submit', async (e) => {
       data.name = $('addName').value;
       data.first_name = $('addFirstName').value;
       data.birth_date = $('addBirth').value;
+      data.event_id = $('addEvent').value;
     }
     await api('/api/register/start', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
@@ -758,6 +760,146 @@ function renderSessionDetail(s) {
     <div class="sd-section"><h3>Купоны</h3>${coupons}</div>
   `;
 }
+
+// ---- Яндекс Еда: аккаунты и сессии ----
+$('btnEda').addEventListener('click', () => {
+  $('modalEda').classList.remove('hidden');
+  loadEdaAccounts();
+  loadEdaSessions();
+  fillEdaAccountSelect();
+});
+$('edaClose').addEventListener('click', () => $('modalEda').classList.add('hidden'));
+
+$('edaTabAccs').addEventListener('click', () => {
+  $('edaTabAccs').classList.add('active');
+  $('edaTabSess').classList.remove('active');
+  $('edaPaneAccs').classList.remove('hidden');
+  $('edaPaneSess').classList.add('hidden');
+});
+$('edaTabSess').addEventListener('click', () => {
+  $('edaTabSess').classList.add('active');
+  $('edaTabAccs').classList.remove('active');
+  $('edaPaneSess').classList.remove('hidden');
+  $('edaPaneAccs').classList.add('hidden');
+});
+
+let edaAccounts = [];
+
+async function loadEdaAccounts() {
+  const box = $('edaAccounts');
+  try {
+    edaAccounts = await api('/api/eda/accounts');
+    if (!edaAccounts.length) {
+      box.innerHTML = '<p class="muted" style="margin-top:16px">Аккаунтов Я.Еды нет. Добавьте первый выше.</p>';
+      return;
+    }
+    box.innerHTML = edaAccounts.map(a => `
+      <div class="session-row">
+        <div>
+          <div class="session-name">${esc(a.name)} <span class="session-account">${a.has_token ? 'токен ✓' : 'без токена'}</span></div>
+          <div class="muted" style="font-size:11.5px;margin-top:3px">добавлен ${esc(a.added || '—')}${a.uid ? ' · uid ' + esc(a.uid) : ''}</div>
+        </div>
+        <div class="session-actions">
+          <button class="btn btn-danger btn-sm" data-del="${esc(a.name)}">Удалить</button>
+        </div>
+      </div>`).join('');
+    box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+      await api(`/api/eda/accounts/${encodeURIComponent(b.dataset.del)}`, { method: 'DELETE' });
+      loadEdaAccounts();
+      fillEdaAccountSelect();
+    }));
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+  }
+}
+
+function fillEdaAccountSelect() {
+  const sel = $('edaSessAccount');
+  sel.innerHTML = '';
+  edaAccounts.forEach(a => {
+    const o = document.createElement('option');
+    o.value = a.name;
+    o.textContent = a.name;
+    sel.appendChild(o);
+  });
+}
+
+$('edaAccAdd').addEventListener('click', async () => {
+  const btn = $('edaAccAdd');
+  btn.disabled = true;
+  try {
+    await api('/api/eda/accounts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('edaName').value.trim(),
+        token: $('edaToken').value.trim(),
+        yandexuid: $('edaUid').value.trim(),
+      }),
+    });
+    $('edaName').value = '';
+    $('edaToken').value = '';
+    $('edaUid').value = '';
+    loadEdaAccounts();
+    fillEdaAccountSelect();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function loadEdaSessions() {
+  const box = $('edaSessions');
+  try {
+    const sess = await api('/api/eda/sessions');
+    const entries = Object.entries(sess).filter(([, v]) => v.active);
+    if (!entries.length) {
+      box.innerHTML = '<p class="muted" style="margin-top:16px">Активных сессий нет</p>';
+      return;
+    }
+    box.innerHTML = entries.map(([token, s]) => `
+      <div class="session-row">
+        <div>
+          <div class="session-name">${esc(s.name)} <span class="session-account">${esc(s.account)}</span></div>
+          <div class="muted" style="font-size:11.5px;margin-top:3px">до ${esc(s.expires_at || '—')} · последний вход: ${esc(s.last_seen || 'никогда')}</div>
+          <div class="session-link">${esc(location.origin + '/d/' + token)}</div>
+        </div>
+        <div class="session-actions">
+          <button class="btn btn-ghost btn-sm" data-copy="${esc(location.origin + '/d/' + token)}">Скопировать</button>
+          <button class="btn btn-danger btn-sm" data-revoke="${token}">Отозвать</button>
+        </div>
+      </div>`).join('');
+    box.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy, b)));
+    box.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
+      await api(`/api/eda/sessions/${b.dataset.revoke}`, { method: 'DELETE' });
+      loadEdaSessions();
+    }));
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+  }
+}
+
+$('edaSessCreate').addEventListener('click', async () => {
+  const btn = $('edaSessCreate');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/eda/sessions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('edaSessName').value.trim(),
+        account: $('edaSessAccount').value,
+        hours: parseInt($('edaSessHours').value, 10) || 24,
+      }),
+    });
+    $('edaSessName').value = '';
+    copyText(location.origin + r.url, btn);
+    loadEdaSessions();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 loadAccounts();
 setInterval(loadAccounts, 6000);

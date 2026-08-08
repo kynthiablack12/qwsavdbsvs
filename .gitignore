@@ -9,6 +9,8 @@ coupon_shares.json
 prizes.db
 *.db-wal
 *.db-shm
+eda_accounts.json
+eda_sessions.json
 
 # Logs
 *.log
@@ -19,6 +21,9 @@ _server_err.log
 # Reverse-engineering artifacts (mitm / dumps / app backups)
 flows.mitm
 flows_pay.mitm
+flows_eda.mitm
+flows_monstrix.mitm
+*.mitm
 *.tar
 extracted.txt
 dump_all.txt
@@ -31,3 +36,17 @@ files/
 no_backup/
 shared_prefs/
 404
+
+# Local scratch / debugging
+Qwen_html_*.html
+_chk*.py
+_dbg*.py
+_*_script.js
+_extract_js.py
+_shop_*.png
+_shot_*.png
+bypass-pinning.js
+frida-server*
+mitmdump_*.txt
+*.bak_*
+*.html.bak*

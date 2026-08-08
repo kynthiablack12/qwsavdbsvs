@@ -27,6 +27,7 @@
     <div class="header-btns">
       <button class="btn btn-ghost" id="btnPrizes">🏆 Все призы</button>
       <button class="btn btn-ghost" id="btnCoupons">🎟️ Купоны</button>
+      <button class="btn btn-ghost" id="btnEda">🚚 Доставка</button>
       <button class="btn btn-ghost" id="btnAccess">🔑 Доступ</button>
       <button class="btn btn-primary" id="btnAdd">+ Добавить аккаунт</button>
     </div>
@@ -94,6 +95,12 @@
         <label>Дата рождения
           <input type="date" id="addBirth" value="2000-01-01">
         </label>
+        <label>Игра
+          <select id="addEvent">
+            <option value="wX8CoYBu0OQzsA6DBwqlU">Призолето</option>
+            <option value="At99RuZXsCpnFRhpmEZCK">Монстро-планетяне</option>
+          </select>
+        </label>
       </div>
       <button type="submit" class="btn btn-primary btn-block">Отправить SMS</button>
     </form>
@@ -103,6 +110,12 @@
       </label>
       <label>Refresh-токен Магнита
         <input type="password" id="tokRefresh" placeholder="вставьте refresh token из приложения Магнит" autocomplete="off">
+      </label>
+      <label>Игра
+        <select id="tokEvent">
+          <option value="wX8CoYBu0OQzsA6DBwqlU">Призолето</option>
+          <option value="At99RuZXsCpnFRhpmEZCK">Монстро-планетяне</option>
+        </select>
       </label>
       <p class="muted" style="margin:4px 0 14px">Вход по SMS для существующих аккаунтов сервер Магнита блокирует (<code>untrustedDevice</code>), поэтому нужен refresh-токен. Он есть в приложении: Логин в Магнит → запросы <code>/v1/auth/token/refresh</code> → поле <code>refreshToken</code>.</p>
       <button type="submit" class="btn btn-primary btn-block">Добавить аккаунт</button>
@@ -181,6 +194,49 @@
     <div class="coupons-list" id="cpnCoupons"><p class="muted">Выберите аккаунт…</p></div>
     <div class="sd-section" style="margin-top:20px"><h3>Созданные ссылки</h3>
       <div id="cpnShares"><p class="muted">Загрузка…</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- EDA (Яндекс Еда) modal -->
+<div class="modal-overlay hidden" id="modalEda">
+  <div class="modal modal-wide">
+    <button class="modal-close" id="edaClose">×</button>
+    <h2>🚚 Яндекс Еда — доставка</h2>
+    <p class="muted">Сессия даёт человеку доступ к мобильной копии Я.Еды по ссылке <code>/d/&lt;token&gt;</code>. Токены аккаунтов наружу не выдаются.</p>
+    <div class="eda-tabs">
+      <button class="tab active" id="edaTabAccs">Аккаунты</button>
+      <button class="tab" id="edaTabSess">Сессии</button>
+    </div>
+    <div id="edaPaneAccs">
+      <div class="eda-add">
+        <label>Имя аккаунта
+          <input type="text" id="edaName" placeholder="например: omsk1" autocomplete="off">
+        </label>
+        <label>Bearer-токен
+          <input type="text" id="edaToken" placeholder="2.uid.token или webviewtoken=..." autocomplete="off">
+        </label>
+        <label>yandexuid (можно пусто)
+          <input type="text" id="edaUid" placeholder="passport uid" autocomplete="off">
+        </label>
+        <button class="btn btn-primary" id="edaAccAdd">Добавить аккаунт</button>
+      </div>
+      <div class="eda-accounts" id="edaAccounts"><p class="muted">Загрузка…</p></div>
+    </div>
+    <div id="edaPaneSess" class="hidden">
+      <div class="access-form">
+        <label>Имя человека
+          <input type="text" id="edaSessName" placeholder="например: Вася" autocomplete="off">
+        </label>
+        <label>Аккаунт Я.Еды
+          <select id="edaSessAccount"></select>
+        </label>
+        <label>Срок действия, часов
+          <input type="number" id="edaSessHours" value="24" min="1">
+        </label>
+        <button class="btn btn-primary" id="edaSessCreate">Создать сессию</button>
+      </div>
+      <div class="sessions-list" id="edaSessions"></div>
     </div>
   </div>
 </div>

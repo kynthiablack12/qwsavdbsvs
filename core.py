@@ -244,16 +244,17 @@ def get_tokens(device, magnit_id):
     return r.json()
 
 
-def add_account(phone, name=None, first_name=None, birth_date=None):
+def add_account(phone, name=None, first_name=None, birth_date=None, event_id='wX8CoYBu0OQzsA6DBwqlU'):
     device = make_device_headers()
     attempt_id = request_otp(phone, device)
     if not name:
         name = 'acc_' + phone[-7:]
     return {'device': device, 'attempt_id': attempt_id, 'phone': phone, 'name': name,
-            'first_name': first_name or 'Пользователь', 'birth_date': birth_date or '2000-01-01'}
+            'first_name': first_name or 'Пользователь', 'birth_date': birth_date or '2000-01-01',
+            'event_id': event_id}
 
 
-def add_account_by_token(name, refresh_token):
+def add_account_by_token(name, refresh_token, event_id='wX8CoYBu0OQzsA6DBwqlU'):
     """Добавить существующий аккаунт по refresh-токену (OTP для зарегистрированных
     номеров блокируется сервером untrustedDevice, поэтому только токен)."""
     name = name.strip()
@@ -273,7 +274,7 @@ def add_account_by_token(name, refresh_token):
         "refresh_token": refresh_token.strip(),
         "device_id": device['x-device-id'],
         "device_tag": device['x-device-tag'],
-        "event_id": "wX8CoYBu0OQzsA6DBwqlU",
+        "event_id": event_id,
     })
     save_accounts(accs)
     return accs
@@ -307,7 +308,7 @@ def confirm_account(reg, code):
         "refresh_token": tokens['refreshToken'],
         "device_id": device['x-device-id'],
         "device_tag": device['x-device-tag'],
-        "event_id": "wX8CoYBu0OQzsA6DBwqlU",
+        "event_id": reg.get('event_id') or 'wX8CoYBu0OQzsA6DBwqlU',
     })
     save_accounts(accs)
     return accs
@@ -445,7 +446,21 @@ def revoke_coupon_share(token):
     return False
 
 
-# ---------- game ----------
+# ---------- games ----------
+
+# Игры Магнита: event_id -> домен игры
+GAMES = {
+    'wX8CoYBu0OQzsA6DBwqlU': 'magnit-prizoleto.ru',                      # Призолето
+    'At99RuZXsCpnFRhpmEZCK': 'magnit-monstroplanetyane.ru-prod2.kts.studio',  # Монстро-планетяне
+}
+GAME_EVENTS = {
+    'Призолето': 'wX8CoYBu0OQzsA6DBwqlU',
+    'Монстро-планетяне': 'At99RuZXsCpnFRhpmEZCK',
+}
+
+def game_domain(acc):
+    return GAMES.get(acc.get('event_id'), 'magnit-prizoleto.ru')
+
 
 def get_game_token(acc, magnit_token):
     r = s.get(f'https://middle-api.magnit.ru/v1/promo-games/{acc["event_id"]}/mobile',
@@ -492,6 +507,51 @@ def pick_reward(h, reward_id):
     r = s.put(f'https://magnit-prizoleto.ru/api/v1/game/rewards/{reward_id}:choice',
               headers=h, data='', timeout=20)
     return r.status_code
+
+
+# ---------- Монстро-планетяне (Монстриксы) ----------
+
+def mh_headers(hs256_token):
+    return {
+        'Authorization': 'Bearer ' + hs256_token,
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 9; SM-S906N Build/PQ3A.190605.09261140; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 Mobile Safari/537.36',
+    }
+
+
+def auth_game_monstro(rs256_token):
+    """POST /api/v1/users/auth — обмен RS256-токена на HS256-токен игры и профиль."""
+    r = s.post('https://magnit-monstroplanetyane.ru-prod2.kts.studio/api/v1/users/auth',
+               headers={'Content-Type': 'application/json',
+                        'User-Agent': 'Mozilla/5.0 (Linux; Android 9; SM-S906N Build/PQ3A.190605.09261140; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 Mobile Safari/537.36'},
+               data=json.dumps({'token': rs256_token, 'refresh_only': False}), timeout=20)
+    r.raise_for_status()
+    return r.json()['data']
+
+
+def claim_daily_reward_monstro(h, tasks):
+    """POST /api/v1/tasks/reward — получить награду за задания (ежедневный бонус)."""
+    r = s.post('https://magnit-monstroplanetyane.ru-prod2.kts.studio/api/v1/tasks/reward',
+               headers=h, data=json.dumps({'tasks': tasks}), timeout=20)
+    r.raise_for_status()
+    return r.json().get('data', {})
+
+
+def start_game_monstro(h):
+    """POST /api/v1/game/start — начать партию."""
+    r = s.post('https://magnit-monstroplanetyane.ru-prod2.kts.studio/api/v1/game/start',
+               headers=h, data='', timeout=20)
+    r.raise_for_status()
+    return r.json().get('data', {})
+
+
+def finish_game_monstro(h, game_timestamp, duration):
+    """POST /api/v1/game/finish — завершить партию и получить приз."""
+    body = {'game_timestamp': game_timestamp, 'duration': duration}
+    r = s.post('https://magnit-monstroplanetyane.ru-prod2.kts.studio/api/v1/game/finish',
+               headers=h, data=json.dumps(body), timeout=20)
+    r.raise_for_status()
+    return r.json().get('data', {})
 
 
 # ---------- coupons sync ----------
@@ -616,6 +676,12 @@ class RunManager:
 
 
 def play_account(acc, log=print):
+    if acc.get('event_id') == 'At99RuZXsCpnFRhpmEZCK':
+        return play_monstro_account(acc, log)
+    return play_prizoleto_account(acc, log)
+
+
+def play_prizoleto_account(acc, log=print):
     name = acc.get('name', '?')
     log(f'=== {name} ===')
     at = refresh_magnit_token(acc)
@@ -657,6 +723,60 @@ def play_account(acc, log=print):
     prof2 = s.get('https://magnit-prizoleto.ru/api/v1/profile', headers=h, timeout=20).json()
     log(f'   done: {games} games, remaining {prof2.get("attempts", {}).get("total_count")}, '
         f'last level {prof2.get("last_finished_map_level")}')
+    return games
+
+
+def play_monstro_account(acc, log=print):
+    name = acc.get('name', '?')
+    log(f'=== {name} (Монстро-планетяне) ===')
+    at = refresh_magnit_token(acc)
+    log('1. magnit token OK')
+    rs = get_game_token(acc, at)
+    data = auth_game_monstro(rs)
+    h = mh_headers(data['token'])
+    user = data.get('user', {})
+    attempts = user.get('attempts_count', 0)
+    log(f'   attempts: {attempts}')
+    # ежедневный бонус / pending rewards
+    pending = data.get('pending_rewards') or []
+    for task in pending:
+        tid = task.get('task_id')
+        if tid:
+            rew = claim_daily_reward_monstro(h, [tid])
+            got = (rew.get('reward') or {}).get('attempts', 0)
+            log(f'   task {tid} reward: +{got} attempts')
+            attempts += got
+    games = 0
+    while attempts > 0:
+        try:
+            st = start_game_monstro(h)
+        except Exception as e:
+            log(f'   start game error: {e}')
+            break
+        info = st.get('game_info', {})
+        level = info.get('level')
+        max_level = info.get('max_level')
+        result = info.get('result')
+        log(f'   start: level {level}/{max_level} result={result}')
+        # game_timestamp — ms timestamp string, duration ms
+        ts = str(int(time.time() * 1000))
+        dur = 2000
+        fin = finish_game_monstro(h, ts, dur)
+        log(f'   finish: remaining attempts {fin.get("attempts_count")}, type {fin.get("attempts_type")}')
+        for p in fin.get('prizes', []):
+            title = p.get('title', '')
+            ptype = p.get('type', 'text')
+            # промокод/купон несёт код в value; посткарта — просто открытка без кода
+            code = str(p.get('value') or '') or (str(p.get('id', '')) if ptype in ('promocode', 'barcode') else '')
+            fake = {'id': p.get('id'), 'info': {'name': title, 'icon_ref': (p.get('image_url') or [''])[0]},
+                    'expiration_date': '', 'is_barcode': ptype == 'barcode', 'is_button': False, 'items': []}
+            save_prize(name, acc.get('event_id'), level or 0, fake, barcode=code or None, coupon_id=code or None,
+                       display_type=ptype)
+            log(f'   prize {p.get("id")} [{ptype}] {title[:50]}')
+        attempts = fin.get('attempts_count', attempts - 1)
+        games += 1
+        time.sleep(0.5)
+    log(f'   done: {games} games')
     return games
 
 

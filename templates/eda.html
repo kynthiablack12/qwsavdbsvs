@@ -1,0 +1,1717 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Яндекс Еда — доставка</title>
+<script src="https://api-maps.yandex.ru/2.1/?apikey=c0d403ab-e5be-4049-908c-8122a58acf23&lang=ru_RU" type="text/javascript"></script>
+<style>
+@font-face{font-family:'YSCompressed';font-weight:800;font-style:normal;font-display:swap;src:url('https://yastatic.net/s3/eda-front/www/assets/buildid/mobile.YSCompressed_Heavy-3e1dbef438e42c92bc38.woff2') format('woff2')}
+@font-face{font-family:'YSCompressed';font-weight:500;font-style:normal;font-display:swap;src:url('https://yastatic.net/s3/eda-front/www/assets/buildid/mobile.YSCompressed_Medium-a4e6e38b0bf10862acc2.woff2') format('woff2')}
+@font-face{font-family:'YSText';font-weight:300;font-style:normal;font-display:swap;src:url('https://yastatic.net/s3/eda-front/www/assets/buildid/mobile.YSText_Light-893ff6fb7148ad686448.woff2') format('woff2')}
+@font-face{font-family:'YSText';font-weight:400;font-style:normal;font-display:swap;src:url('https://yastatic.net/s3/eda-front/www/assets/buildid/mobile.YSText_Regular-b872f69a5368fdf4d3db.woff2') format('woff2')}
+@font-face{font-family:'YSText';font-weight:500;font-style:normal;font-display:swap;src:url('https://yastatic.net/s3/eda-front/www/assets/buildid/mobile.YSText_Medium-218abe94e3ff7e25312c.woff2') format('woff2')}
+@font-face{font-family:'YSText';font-weight:700;font-style:normal;font-display:swap;src:url('https://yastatic.net/s3/eda-front/www/assets/buildid/mobile.YSText_Bold-80bbc612042330eb45a8.woff2') format('woff2')}
+@font-face{font-family:'YSText';font-weight:800;font-style:normal;font-display:swap;src:url('https://yastatic.net/s3/eda-front/www/assets/buildid/mobile.YSText_Heavy_Italic-9c8b1f58970e0df5192e.woff2') format('woff2')}
+
+:root{
+  --bg:#F5F4F2; --card:#FFFFFF; --ink:#21201F; --ink54:rgba(33,32,31,.54); --ink45:rgba(33,32,31,.45); --ink25:rgba(33,32,31,.25);
+  --green:#029154; --red:#E52322; --yellow:#FCE000; --yellow-d:#E5C500;
+  --chip:#F5F4F2; --search:rgba(92,90,87,.1);
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{background:#fff}
+body{font-family:'YSText',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#fff;color:var(--ink);font-weight:400}
+.phone{max-width:480px;margin:0 auto;background:var(--bg);min-height:100vh;position:relative}
+.screen{display:none;padding-bottom:108px}
+.screen.active{display:block}
+.screen.with-rb{padding-bottom:132px}
+.no-bar{scrollbar-width:none;-ms-overflow-style:none}
+.no-bar::-webkit-scrollbar{display:none}
+.hidden{display:none!important}
+.hint{text-align:center;color:var(--ink45);font-size:14px;padding:34px 0}
+.err{color:var(--red);font-size:13px;padding:14px;background:#fff;border:1px solid #f3d2d6;border-radius:14px;margin:14px}
+h1,h2,h3{font-family:'YSCompressed','YSText',sans-serif;font-weight:800}
+
+/* ---------- Шапка главной ---------- */
+.top{position:sticky;top:0;z-index:20;background:var(--card);display:flex;align-items:center;gap:8px;padding:8px 16px 12px;border-radius:0 0 24px 24px;box-shadow:0 2px 12px rgba(33,32,31,.04)}
+.avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#ff9aa8,#ffd1a8);color:#21201F;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:800;flex-shrink:0;border:none;cursor:pointer;font-family:'YSCompressed','YSText',sans-serif}
+.addr{flex:1;min-width:0;text-align:left;cursor:pointer;background:none;border:none;font-family:inherit}
+.addr-line{display:block;color:var(--ink45);font-size:12px;font-weight:400;margin-bottom:2px}
+.addr strong{font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;color:var(--ink)}
+.plus{background:var(--yellow);color:var(--ink);border:none;border-radius:100px;padding:9px 18px;font-weight:700;font-size:13px;cursor:pointer;font-family:'YSText',sans-serif;flex-shrink:0}
+
+/* ---------- Поиск ---------- */
+.search{margin:12px 16px 4px;background:var(--search);border-radius:1000px;padding:0 16px;display:flex;align-items:center;gap:10px;color:var(--ink);font-size:15px;min-height:48px;cursor:text}
+.search i{font-style:normal;opacity:.85}
+.search input{flex:1;min-width:0;background:none;border:none;outline:none;font-size:15px;color:var(--ink);font-family:inherit}
+.search input::placeholder{color:var(--ink45)}
+.search .clear{border:none;background:rgba(33,32,31,.08);color:var(--ink);font-size:12px;width:24px;height:24px;border-radius:50%;cursor:pointer;font-family:inherit}
+
+/* ---------- Категории главные ---------- */
+.cats{display:grid;grid-template-columns:1.15fr 1fr;gap:12px;padding:16px 16px 0}
+.cats-col{display:flex;flex-direction:column;gap:12px}
+.cat{cursor:pointer;position:relative;border-radius:24px;overflow:hidden;background:var(--card);box-shadow:0 2px 12px rgba(33,32,31,.05)}
+.img{border-radius:24px;display:flex;align-items:flex-end;justify-content:center;overflow:hidden;position:relative}
+.img img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0}
+.img.rest{height:232px;background:linear-gradient(160deg,#FF623D,#F7A600)}
+.img.gro{height:110px;background:linear-gradient(160deg,#F7A600,#FCE000)}
+.img.rest::after,.img.gro::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 45%,rgba(0,0,0,.35))}
+.cat figcaption{position:relative;z-index:2;color:#fff;font-weight:800;font-size:17px;padding:12px 14px;text-align:left;font-family:'YSCompressed','YSText',sans-serif;text-shadow:0 1px 6px rgba(0,0,0,.35)}
+.cat.gray .img.gro{background:linear-gradient(160deg,#F5F4F2,#E8E6E1)}
+
+/* ---------- Мини-категории ---------- */
+.mini{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:18px 16px 4px;text-align:center}
+.m{cursor:pointer}
+.m span{font-size:12.5px;font-weight:500;color:var(--ink)}
+.m-img{width:64px;height:64px;border-radius:50%;background:var(--card);display:flex;align-items:center;justify-content:center;overflow:hidden;margin:0 auto 8px;box-shadow:0 2px 10px rgba(33,32,31,.06)}
+.m-img img{width:100%;height:100%;object-fit:cover}
+
+/* ---------- Заголовки секций ---------- */
+.head{display:flex;justify-content:space-between;align-items:baseline;padding:20px 16px 10px}
+.head h2{font-size:22px;font-weight:800;letter-spacing:-.2px}
+.all{color:var(--ink54);font-weight:500;text-decoration:none;font-size:13px;background:none;border:none;font-family:inherit;cursor:pointer}
+
+/* ---------- Магазины на главной ---------- */
+.row{display:flex;gap:14px;overflow-x:auto;padding:4px 16px 10px}
+.shop{min-width:76px;cursor:pointer;text-align:center}
+.s-card{width:76px;height:76px;border-radius:16px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:26px;position:relative;overflow:hidden;margin:0 auto}
+.s-card img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.s-card .ov{position:relative;z-index:2;font-family:'YSCompressed','YSText',sans-serif;font-weight:800;font-size:20px;text-shadow:0 1px 4px rgba(0,0,0,.25)}
+.s-card.red{background:#E52322}.s-card.green{background:#029154}
+.s-card.dark{background:#0C592E}.s-card.lilac{background:#6C3BB5}
+.s-card.dgreen{background:#134727}.s-card.orange{background:#F58220}
+.s-card.blue{background:#024592}.s-card.mint{background:#00A99D}.s-card.lime{background:#94C11E}
+.shop time{display:block;margin-top:8px;font-size:12.5px;color:var(--ink45);font-weight:400}
+.shop b{display:block;font-size:12.5px;color:var(--ink);font-weight:500;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:96px}
+
+/* ---------- Чипсы ---------- */
+.chips{display:flex;gap:8px;overflow-x:auto;padding:10px 16px 2px}
+.chip{background:var(--chip);border:none;border-radius:1000px;padding:8px 16px;white-space:nowrap;font-size:13px;font-weight:400;color:var(--ink);font-family:inherit;cursor:pointer}
+.chip.on{background:var(--ink);color:#fff}
+
+/* ---------- Магазины: раздел (сетка) ---------- */
+.stores{display:grid;grid-template-columns:repeat(3,1fr);gap:18px 12px;padding:0 16px}
+.store{cursor:pointer}
+.store .sname{font-size:14px;font-weight:500;margin-top:8px;color:var(--ink);font-family:'YSText',sans-serif}
+.store .stime{font-size:12px;color:var(--ink45);margin-top:2px}
+.scard{height:96px;border-radius:16px;display:flex;align-items:flex-end;justify-content:center;gap:6px;color:#fff;position:relative;overflow:hidden;padding:8px;font-weight:800}
+.scard img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.scard::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 40%,rgba(0,0,0,.45))}
+.scard .ov{position:relative;z-index:2;display:flex;align-items:center;gap:6px;font-weight:800;font-size:15px;text-shadow:0 1px 6px rgba(0,0,0,.4)}
+.scard .ov .lg{font-weight:800}
+.b-pya{background:linear-gradient(135deg,#E52322,#B5121A)}
+.b-mag{background:#E52322}
+.b-sem{background:linear-gradient(135deg,#E94040,#C81E1E)}
+.b-len{background:#024592}
+.b-met{background:#E52322}
+.b-auch{background:#EE1C24}
+.b-mon{background:#F58220}
+.b-dm{background:#0095DD}
+
+/* ---------- Экран магазина (внутри) ---------- */
+.shophead{position:sticky;top:0;z-index:20;background:var(--card);display:flex;align-items:center;gap:12px;padding:12px 16px 16px;border-radius:0 0 24px 24px;box-shadow:0 2px 12px rgba(33,32,31,.04)}
+.shophead .t{font-size:17px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'YSCompressed','YSText',sans-serif}
+.shophead .tt{display:block;font-size:12px;color:var(--ink45);font-weight:400;margin-top:2px;font-family:'YSText',sans-serif}
+.sqlogo{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;background:#fff;border:1px solid var(--ink25)}
+.sqlogo img{width:100%;height:100%;object-fit:cover;border-radius:14px}
+.sqlogo i{width:26px;height:26px;border:2.5px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-style:normal;font-weight:800;font-size:12px;background:rgba(0,0,0,.25)}
+.back-btn{width:36px;height:36px;border-radius:50%;background:var(--chip);border:none;font-size:16px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--ink);font-family:inherit}
+.spromos{display:flex;gap:12px;padding:14px 16px 6px;overflow-x:auto;scrollbar-width:none}
+.spromo{min-width:calc(100% - 32px);border-radius:24px;position:relative;overflow:hidden;color:var(--ink);flex-shrink:0;padding:18px;display:flex;flex-direction:column;justify-content:flex-end;min-height:150px}
+.spromo.p-green{background:linear-gradient(150deg,#FFFFFF,#F3F0E7)}
+.spromo h3{font-size:20px;font-weight:800;line-height:1.2}
+.spromo p{font-size:13px;margin-top:6px;color:var(--ink54);font-weight:400}
+.spromo .code{font-weight:700;font-size:14px;margin-top:10px;display:inline-flex;align-items:center;gap:8px;color:var(--green)}
+.spromo .label{font-weight:800;font-size:18px;line-height:1.2;margin-bottom:6px}
+.search2{margin:14px 16px 4px;min-height:48px;background:var(--search);border-radius:16px;display:flex;align-items:center;justify-content:flex-start;gap:10px;color:var(--ink45);font-size:15px;cursor:pointer;padding:0 16px;font-family:inherit;border:none;width:calc(100% - 32px)}
+.shopcats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px 8px;padding:18px 16px 8px}
+.shopcat{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;cursor:pointer}
+.shopcat .ic{height:108px;width:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:12px;background:var(--chip)}
+.shopcat .ic img{width:100%;height:100%;object-fit:cover}
+.shopcat .lb{font-size:12px;color:var(--ink);line-height:1.2;font-weight:400}
+.catsec-title{font-size:22px;font-weight:800;padding:22px 16px 10px;letter-spacing:-.2px}
+
+/* ---------- Вертикальный список категорий магазина ---------- */
+.shopcatrow{display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;background:#fff}
+.shopcatrow+.shopcatrow{border-top:1px solid rgba(33,32,31,.06)}
+.shopcatrow .ic{width:52px;height:52px;border-radius:12px;overflow:hidden;flex-shrink:0;background:var(--chip);display:flex;align-items:center;justify-content:center;font-size:24px}
+.shopcatrow .ic img{width:100%;height:100%;object-fit:cover}
+.shopcatrow .cn{flex:1;font-size:15px;font-weight:400;color:var(--ink)}
+.shopcatrow .ar{color:var(--ink25);font-size:20px;font-weight:500}
+
+/* ---------- Лента товаров магазина ---------- */
+.sdeals{display:flex;gap:12px;padding:2px 16px 10px;overflow-x:auto;scrollbar-width:none}
+.sdeal{min-width:142px;width:142px;background:var(--card);border-radius:16px;padding:8px;position:relative;flex-shrink:0}
+.sdeal .img{height:120px;border-radius:12px;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;background:var(--chip)}
+.sdeal .img img{width:100%;height:100%;object-fit:cover}
+.sdeal .img .em{font-size:56px}
+.sdeal .disc{position:absolute;left:6px;top:6px;background:var(--green);color:#fff;font-weight:700;font-size:12px;padding:4px 8px;border-radius:8px;z-index:2}
+.sdeal .sold{position:absolute;left:6px;bottom:6px;background:rgba(33,32,31,.6);color:#fff;font-size:11px;font-weight:400;padding:3px 8px;border-radius:8px;z-index:2}
+.sdeal .price{margin-top:10px;font-size:15px;font-weight:800;color:var(--ink);font-family:'YSText',sans-serif}
+.sdeal .old{font-size:12px;color:var(--ink45);text-decoration:line-through;font-weight:400;margin-left:6px}
+.sdeal .name{font-size:13px;line-height:1.3;color:var(--ink);margin-top:4px;font-weight:400;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:34px}
+.sdeal .wt{font-size:12px;color:var(--ink45);margin-top:4px}
+.tocart{margin-top:10px;width:100%;min-height:36px;background:var(--yellow);color:var(--ink);border:none;border-radius:1000px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit}
+.tocart:disabled{background:var(--chip);color:var(--ink25)}
+
+/* ---------- Скидки / рестораны на главной ---------- */
+.deals{display:flex;gap:12px;overflow-x:auto;padding:0 16px 8px}
+.deal{min-width:80%;cursor:pointer;background:var(--card);border-radius:20px;padding:10px;box-shadow:0 2px 10px rgba(33,32,31,.05)}
+.d-img{height:190px;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:56px;position:relative;overflow:hidden;background:var(--chip)}
+.d-img img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.d-img .wm{position:relative;z-index:1;font-size:56px;font-weight:800;font-style:normal;color:rgba(255,255,255,.6);text-shadow:0 2px 10px rgba(0,0,0,.25);font-family:'YSCompressed','YSText',sans-serif}
+.d-line{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;font-size:15px;font-weight:500;color:var(--ink)}
+.d-line.gray{color:var(--ink45);font-size:13px;margin-top:4px;font-weight:400}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.tags span{background:var(--green);color:#fff;font-size:11px;font-weight:400;border-radius:6px;padding:4px 8px}
+.rest-card{margin:0 16px 20px;cursor:pointer}
+/* ---------- Сетка мест в разделе ---------- */
+.sstores{display:grid;grid-template-columns:repeat(3,1fr);gap:16px 12px;padding:4px 16px 20px}
+.sstore{cursor:pointer}
+.sstore .sname{font-size:14px;font-weight:500;margin-top:8px;color:var(--ink);line-height:1.2;font-family:'YSText',sans-serif}
+.sstore .stime{font-size:12px;color:var(--ink45);margin-top:2px}
+.sscard{height:92px;border-radius:16px;display:flex;align-items:flex-end;justify-content:center;gap:6px;color:#fff;position:relative;overflow:hidden;padding:8px;font-weight:800;font-size:20px}
+.sscard img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.sscard::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 40%,rgba(0,0,0,.4))}
+.sscard .ov{position:relative;z-index:2;display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.12);padding:4px 10px;border-radius:1000px;font-size:15px;text-shadow:0 1px 6px rgba(0,0,0,.35);font-family:'YSCompressed','YSText',sans-serif}
+.ss-logo{width:22px;height:22px;border:2px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px}
+.sscard.c7{background:#3a3a40}
+.r-img{height:180px;border-radius:20px;display:flex;align-items:flex-end;justify-content:flex-start;font-size:64px;position:relative;overflow:hidden;background:var(--red)}
+.r-img img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.r-img::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 50%,rgba(0,0,0,.3))}
+.r-img .wm{position:absolute;top:12px;left:12px;z-index:2;background:rgba(255,255,255,.9);color:var(--ink);font-weight:800;font-size:15px;font-style:normal;padding:6px 12px;border-radius:1000px;box-shadow:0 2px 8px rgba(0,0,0,.12);font-family:'YSCompressed','YSText',sans-serif}
+.r-img.vt{background:linear-gradient(160deg,#0C592E,#134727)}
+.r-img.kfc{background:#E52322}
+.r-img .st{position:absolute;bottom:12px;right:12px;background:rgba(255,255,255,.9);color:var(--ink);font-size:12px;font-weight:400;padding:6px 10px;border-radius:1000px;z-index:2}
+
+/* ---------- Кнопка вверх ---------- */
+.up{position:fixed;bottom:112px;right:20px;width:48px;height:48px;border-radius:50%;background:var(--ink);color:#fff;border:none;font-size:18px;box-shadow:0 6px 18px rgba(0,0,0,.25);cursor:pointer;z-index:6}
+@media(min-width:520px){.up{right:calc(50% - 240px + 20px)}}
+
+/* ---------- Нижняя навигация ---------- */
+.bottom{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--card);display:flex;padding:8px 0 calc(12px + env(safe-area-inset-bottom));border-top:1px solid rgba(33,32,31,.06);z-index:30}
+.b{flex:1;text-align:center;color:var(--ink45);font-size:11px;font-weight:400;position:relative;cursor:pointer;background:none;border:none;font-family:inherit;padding-top:2px}
+.b.active{color:var(--ink)}
+.b-ico{display:block;font-size:22px;margin-bottom:2px}
+.b.active .b-ico{filter:none}
+.b-dot{position:absolute;top:-2px;left:calc(50% + 10px);min-width:17px;height:17px;background:#FF3B30;color:#fff;border-radius:999px;font-size:10px;font-weight:500;display:flex;align-items:center;justify-content:center;padding:0 4px}
+
+/* ---------- Экран ресторана ---------- */
+.hero{height:264px;background:var(--chip);position:relative;overflow:hidden}
+.hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.hero .shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(33,32,31,.18),rgba(33,32,31,0) 50%,rgba(33,32,31,.15))}
+.hero .wm{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:220px;font-weight:800;font-style:italic;color:rgba(33,32,31,.12);z-index:0;font-family:'YSCompressed','YSText',sans-serif}
+.circle{position:absolute;top:14px;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.94);border:none;font-size:15px;cursor:pointer;z-index:5;display:flex;align-items:center;justify-content:center;color:var(--ink);box-shadow:0 2px 8px rgba(0,0,0,.15);font-family:inherit}
+.circle.left{left:16px}
+.circle.right{right:16px}
+.hero-title{position:absolute;top:20px;left:64px;right:64px;font-weight:500;font-size:15px;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.5);z-index:4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+.info{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 16px;margin-top:-30px;position:relative;z-index:3}
+.i-card{background:rgba(255,255,255,.96);backdrop-filter:blur(8px);border-radius:14px;padding:30px 4px 10px;text-align:center;position:relative;box-shadow:0 2px 10px rgba(33,32,31,.08)}
+.i-card small{color:var(--ink45);font-size:11px;line-height:1.35;display:block;font-weight:400}
+.pill{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:var(--chip);color:var(--ink);border-radius:1000px;padding:7px 12px;font-weight:500;font-size:13px;white-space:nowrap;max-width:calc(100% - 8px);overflow:hidden;text-overflow:ellipsis}
+.rtitle{padding:14px 16px 0;display:flex;align-items:baseline;gap:8px}
+.rtitle h1{font-size:24px;font-weight:800;letter-spacing:-.3px}
+.rtitle .rate{font-size:15px;font-weight:500;color:var(--ink);white-space:nowrap}
+.cat-chip-row{display:flex;gap:8px;overflow-x:auto;padding:12px 16px;scrollbar-width:none}
+.cat-chip{flex-shrink:0;background:var(--chip);color:var(--ink);border:none;border-radius:1000px;padding:8px 16px;font-size:13px;font-weight:400;cursor:pointer;font-family:inherit}
+.cat-chip.on{background:var(--ink);color:#fff}
+.products{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:6px 16px 16px}
+.product{background:var(--card);border-radius:16px;padding:8px;position:relative}
+.p-img{background:var(--chip);border-radius:12px;height:150px;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+.p-img img{width:100%;height:100%;object-fit:cover}
+.p-img .em{font-size:60px}
+.p-name{display:block;font-size:13px;margin:8px 2px 0;font-weight:400;line-height:1.3;min-height:34px;color:var(--ink)}
+.p-w{display:block;font-size:12px;color:var(--ink45);margin:2px 2px 8px;min-height:15px}
+.p-row{display:flex;align-items:baseline;gap:6px;margin:0 2px;min-height:24px}
+.p-row s{color:var(--ink45);font-size:12px;font-weight:400}
+.p-row b{font-size:16px;font-weight:800;color:var(--ink)}
+.p-add{position:absolute;right:8px;bottom:8px;width:40px;height:40px;border-radius:1000px;background:#fff;color:var(--ink);border:none;font-size:26px;line-height:1;font-weight:300;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:3;box-shadow:0 3px 10px rgba(33,32,31,.18)}
+.p-add:disabled{background:#fff;color:var(--ink25);box-shadow:none}
+.p-badge{position:absolute;top:8px;left:8px;background:var(--green);color:#fff;font-size:11px;font-weight:400;padding:4px 8px;border-radius:6px;z-index:2}
+.p-sold{position:absolute;bottom:8px;left:8px;background:rgba(33,32,31,.6);color:#fff;font-size:11px;font-weight:400;padding:4px 8px;border-radius:6px;z-index:2}
+.rest-bottom{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--card);border-top:1px solid rgba(33,32,31,.06);display:flex;align-items:center;gap:12px;padding:10px 16px calc(12px + env(safe-area-inset-bottom));z-index:30}
+.rb-text{flex:1}
+.rb-text b{font-size:15px;font-weight:500;display:block;color:var(--ink)}
+.rb-text small{color:var(--ink45);font-size:12px}
+.rb-go{background:var(--yellow);color:var(--ink);border:none;border-radius:1000px;padding:12px 20px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;white-space:nowrap}
+.rb-go.green{background:var(--green);color:#fff}
+
+/* ---------- Корзина / оформление / заказы ---------- */
+.vhead{padding:16px 16px 4px}
+.vhead h2{font-size:24px;font-weight:800;letter-spacing:-.3px}
+.vhead p{color:var(--ink45);font-size:13px;margin-top:2px}
+.backlink{background:none;border:none;color:var(--ink);font-size:22px;cursor:pointer;font-family:inherit;padding:16px 16px 0}
+.cart-card{background:#fff;border-radius:20px;margin:14px 16px;padding:16px;box-shadow:0 2px 10px rgba(33,32,31,.05)}
+.cart-item{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(33,32,31,.06)}
+.cart-item:last-of-type{border-bottom:none}
+.ci-name{flex:1;font-size:14px;font-weight:400;min-width:0}
+.ci-qty{display:flex;align-items:center;gap:8px}
+.ci-qty button{width:30px;height:30px;border-radius:1000px;border:none;background:var(--chip);color:var(--ink);cursor:pointer;font-size:16px;font-weight:400;font-family:inherit}
+.ci-qty b{min-width:16px;text-align:center;font-weight:500}
+.ci-price{font-size:14px;font-weight:800;min-width:70px;text-align:right;font-family:'YSText',sans-serif}
+.cart-sum{display:flex;justify-content:space-between;align-items:center;padding-top:12px;font-size:15px;font-weight:500}
+.cart-sum .sum-val{font-weight:800;font-family:'YSText',sans-serif}
+.chk-block{background:#fff;border-radius:20px;margin:0 16px 12px;padding:16px;box-shadow:0 2px 10px rgba(33,32,31,.05)}
+.chk-block h3{font-size:15px;font-weight:700;margin-bottom:10px}
+.chk-row{display:flex;justify-content:space-between;font-size:14px;padding:5px 0}
+.chk-row .k{color:var(--ink45)}
+.chk-row .v{font-weight:500;text-align:right}
+.pay-opt{display:flex;align-items:center;gap:10px;padding:13px;border:1px solid rgba(33,32,31,.08);border-radius:14px;margin-bottom:8px;font-size:14px;font-weight:400}
+.pay-opt .st{margin-left:auto;font-size:12px;font-weight:500;color:var(--green)}
+.pay-opt .st.no{color:var(--ink45)}
+.btn-main{width:calc(100% - 32px);margin:6px 16px;border:none;border-radius:16px;background:var(--yellow);color:var(--ink);font-family:inherit;font-size:15px;font-weight:500;padding:16px;cursor:pointer}
+.btn-main:disabled{opacity:.5}
+/* пустая корзина */
+.cart-empty{padding:60px 24px 24px;text-align:center}
+.cart-empty .ce-em{font-size:64px;margin-bottom:20px}
+.cart-empty h2{font-size:22px;font-weight:800;letter-spacing:-.3px}
+.cart-empty p{color:var(--ink45);font-size:14px;margin-top:8px;line-height:1.4}
+.cart-empty .btn-yellow{display:block;width:100%;max-width:320px;margin:28px auto 0;background:var(--yellow);color:var(--ink);border:none;border-radius:16px;font-family:inherit;font-size:15px;font-weight:500;padding:16px;cursor:pointer}
+
+/* ---------- Выбор адреса ---------- */
+.screen#address{display:none;padding-bottom:0;flex-direction:column;height:100dvh;overflow:hidden}
+#address.active{display:flex}
+.addr-top{position:sticky;top:0;z-index:30;background:var(--bg);padding:8px 16px 12px;display:flex;align-items:center;gap:6px}
+.addr-top .backlink{flex-shrink:0}
+.addr-search{margin:0;flex:1;min-width:0}
+.addr-suggest{position:absolute;top:0;left:0;right:0;z-index:40;background:#fff;border-radius:0 0 20px 20px;box-shadow:0 8px 24px rgba(33,32,31,.14);max-height:62vh;overflow:auto;padding:8px 0}
+.addr-suggest .as-item{display:flex;align-items:center;gap:10px;padding:12px 18px;cursor:pointer;font-size:14px;border:none;background:none;width:100%;text-align:left;font-family:inherit;color:var(--ink)}
+.addr-suggest .as-item:active{background:var(--bg)}
+.addr-suggest .as-item i{font-style:normal;opacity:.5;flex-shrink:0}
+.addr-saved{padding:8px 16px 0;display:flex;flex-direction:column;gap:2px}
+.addr-saved .as-title{font-size:13px;color:var(--ink45);font-weight:400;padding:8px 4px}
+.addr-saved .as-item{display:flex;align-items:center;gap:12px;padding:12px 10px;cursor:pointer;border:none;background:none;font-family:inherit;text-align:left;color:var(--ink);font-size:14px}
+.addr-saved .as-item:active{background:var(--bg)}
+.addr-saved .as-item .ic{font-size:18px;flex-shrink:0;opacity:.6}
+.addr-saved .as-item small{display:block;color:var(--ink45);font-size:12px;margin-top:2px}
+.addr-mapwrap{position:relative;flex:1;min-height:280px;margin-top:10px;background:#E9EBEA}
+#addrMap{position:absolute;inset:0}
+.addr-pin{position:absolute;left:50%;top:50%;width:0;height:0;z-index:20;pointer-events:none;transform:translate(-50%,-100%)}
+.addr-pin::before{content:"";position:absolute;left:-17px;top:-34px;width:34px;height:34px;border-radius:50%;background:var(--red);box-shadow:0 2px 8px rgba(0,0,0,.35)}
+.addr-pin::after{content:"";position:absolute;left:-5px;top:-14px;width:10px;height:10px;border-radius:50%;background:#fff}
+.addr-recenter{position:absolute;right:14px;bottom:18px;z-index:20;width:44px;height:44px;border-radius:50%;background:#fff;border:none;box-shadow:0 2px 10px rgba(33,32,31,.2);font-size:20px;cursor:pointer;font-family:inherit;color:var(--ink)}
+.addr-panel{position:sticky;bottom:0;z-index:30;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -4px 20px rgba(33,32,31,.08);padding:16px 16px 20px}
+.addr-panel .btn-main{width:100%;margin:10px 0 0}
+.ap-main{display:flex;align-items:flex-start;gap:12px}
+.ap-line{font-size:15px;font-weight:500;color:var(--ink);line-height:1.35}
+.ap-line2{font-size:13px;color:var(--ink45);line-height:1.35;margin-top:3px}
+.ap-fields{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-top:14px}
+.ap-field{display:flex;flex-direction:column;gap:4px}
+.ap-field span{font-size:12px;color:var(--ink45)}
+.ap-field input,.ap-comment{border:1px solid #e8e6e3;border-radius:12px;background:#f7f6f4;padding:10px 12px;font-family:inherit;font-size:15px;color:var(--ink);width:100%;box-sizing:border-box}
+.ap-field input:focus,.ap-comment:focus{outline:none;border-color:var(--yellow);background:#fff}
+.ap-comment{margin-top:12px}
+.ap-spin{width:14px;height:14px;border:2px solid rgba(33,32,31,.15);border-top-color:var(--ink);border-radius:50%;animation:apspin .8s linear infinite;flex-shrink:0}
+@keyframes apspin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <div id="invalid" class="hidden">
+    <div class="err">Ссылка недействительна, истекла или отозвана.</div>
+  </div>
+
+  <!-- ================= ГЛАВНЫЙ ЭКРАН ================= -->
+  <div class="screen active" id="home">
+    <header class="top">
+      <button class="avatar" onclick="showView('orders')" title="Заказы">Е</button>
+      <div class="addr" onclick="openAddress()">
+        <span class="addr-line">Адрес и время доставки ›</span>
+        <strong id="addrCity">Омск, проспект Мира, 33</strong>
+      </div>
+      <button class="plus" onclick="toast('Яндекс Плюс: пока недоступно')">Плюс</button>
+    </header>
+
+    <div class="search">
+      <i>🔍</i>
+      <input id="searchInput" type="text" placeholder="Поиск" autocomplete="off">
+      <button class="clear hidden" id="searchClear">✕</button>
+    </div>
+
+    <section class="cats">
+      <figure class="cat" onclick="openSection('restaurants','Рестораны')">
+        <div class="img rest"><img src="/static/eda/restorany.png" alt="Рестораны"></div>
+        <figcaption>Рестораны</figcaption>
+      </figure>
+      <div class="cats-col">
+        <figure class="cat" onclick="openSection('food_department','Продукты')">
+          <div class="img gro"><img src="/static/eda/produkty.png" alt="Продукты"></div>
+          <figcaption>Продукты</figcaption>
+        </figure>
+        <figure class="cat gray" onclick="openSection('food_department','Продукты')">
+          <div class="img gro"><img src="/static/eda/esche.png" alt=""></div>
+          <figcaption>Ещё</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="mini">
+      <div class="m" onclick="openSection('flowers_department','Цветы')"><div class="m-img"><img src="/static/eda/tsvety.png" alt=""></div><span>Цветы</span></div>
+      <div class="m" onclick="openSection('cosmetic_department','Красота')"><div class="m-img"><img src="/static/eda/krasota.png" alt=""></div><span>Красота</span></div>
+      <div class="m" onclick="applyQuery('детям','')"><div class="m-img"><img src="/static/eda/detyam.png" alt=""></div><span>Для детей</span></div>
+      <div class="m" onclick="openSection('food_department','Продукты')"><div class="m-img"><img src="/static/eda/esche.png" alt=""></div><span>Ещё</span></div>
+    </section>
+
+    <section>
+      <div class="head"><h2>Магазины</h2><button class="all" onclick="openSection('food_department','Продукты')">Все ›</button></div>
+      <div class="row no-bar" id="shopsRow"></div>
+    </section>
+
+    <div class="chips no-bar" id="cuisineChips"></div>
+
+    <section>
+      <div class="head"><h2>Скидки на доставку</h2><button class="all" onclick="applyQuery('','')">Все ›</button></div>
+      <div class="deals no-bar" id="dealsRow"></div>
+    </section>
+
+    <section>
+      <div class="head"><h2 id="resultsTitle">Рестораны</h2></div>
+      <div id="restList"><div class="hint">Загрузка…</div></div>
+    </section>
+
+    <button class="up" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
+
+    <nav class="bottom" id="bottomNav">
+      <button class="b active" data-v="home"><span class="b-ico">🏠</span>Главная</button>
+      <button class="b" data-v="pickup"><span class="b-ico">🛍</span>Самовывоз</button>
+      <button class="b" data-v="orders"><span class="b-ico">🧾</span>Заказы</button>
+      <button class="b" data-v="cart"><span class="b-ico">🛒</span>Корзина<span class="b-dot hidden" id="cartDot">0</span></button>
+    </nav>
+  </div>
+
+  <!-- ================= ЭКРАН РЕСТОРАНА ================= -->
+  <div class="screen with-rb" id="restic">
+    <div class="hero" id="menuHero">
+      <span class="wm" id="menuWm">R</span>
+      <img id="menuHeroImg" src="" alt="" style="display:none">
+      <div class="shade"></div>
+      <button class="circle left" onclick="showView('home')">‹</button>
+      <span class="hero-title" id="menuTitle">…</span>
+      <button class="circle right" onclick="toast('Поиск внутри ресторана: скоро')">🔍</button>
+    </div>
+
+    <div class="info" id="menuInfo"></div>
+
+    <div class="cat-chip-row no-bar" id="catChips"></div>
+
+    <div id="itemList"><div class="hint">Загрузка…</div></div>
+
+    <div class="rest-bottom" id="restBottom">
+      <div class="rb-text" id="rbText"><b>Выберите блюда</b><small>Доставка в выбранное время</small></div>
+      <button class="rb-go hidden" id="rbGo" onclick="showView('cart')">Корзина ›</button>
+    </div>
+  </div>
+
+  <!-- ================= ЭКРАН МАГАЗИНА ================= -->
+  <div class="screen with-rb" id="shop">
+    <div class="shophead">
+      <button class="back-btn" onclick="showView('home')">‹</button>
+      <span class="sqlogo" id="shopLogo"><i id="shopLogoI">5</i></span>
+      <span class="t" id="shopTitle">Пятёрочка<span class="tt" id="shopTime2"></span></span>
+    </div>
+
+    <div class="spromos no-bar" id="shopPromos"></div>
+
+    <button class="search2" onclick="toggleSearch()"><i>🔍</i>Быстрый поиск</button>
+
+    <div id="shopSearchPanel" class="hidden">
+      <div class="search" style="margin:0 16px 8px">
+        <i>🔍</i>
+        <input id="shopSearchInput" placeholder="Поиск в магазине">
+        <button class="clear" onclick="closeShopSearch()">✕</button>
+      </div>
+      <div class="hint" id="searchPanelTitle">Часто ищут</div>
+      <div class="cat-chip-row no-bar" id="searchHints"></div>
+      <div id="searchResults"><div class="hint">Начните вводить запрос</div></div>
+    </div>
+
+    <div id="shopHome">
+      <div class="catsec-title">Категории</div>
+      <div id="shopCatsList"><div class="hint">Загрузка…</div></div>
+    </div>
+
+    <div id="shopCatBox" class="hidden">
+      <div class="catsec-title" id="shopCatTitle">Категория</div>
+      <div id="shopSubCats"></div>
+      <div id="shopDeals"><div class="hint">Загрузка…</div></div>
+    </div>
+
+    <div class="rest-bottom" id="shopBottom">
+      <div class="rb-text" id="shopRbText"><b>Выберите товары</b><small>Доставка в выбранное время</small></div>
+      <button class="rb-go hidden" id="shopRbGo" onclick="showView('cart')">Корзина ›</button>
+    </div>
+  </div>
+
+  <!-- ================= ЭКРАН РАЗДЕЛА ================= -->
+  <div class="screen" id="section">
+    <button class="backlink" onclick="showView('home')">‹</button>
+    <div class="vhead"><h2 id="secTitle">Раздел</h2><p id="secSub">Категории и места</p></div>
+    <div class="cat-chip-row no-bar" id="secChips"></div>
+    <div id="sectionList"><div class="hint">Загрузка…</div></div>
+  </div>
+
+  <!-- ================= КОРЗИНА ================= -->
+  <div class="screen" id="cart">
+    <button class="backlink" onclick="showView('home')">‹</button>
+    <div class="vhead"><h2>Корзина</h2><p id="cartSub">Содержимое корзины</p></div>
+    <div id="cartBox"><div class="hint">Загрузка…</div></div>
+  </div>
+
+  <!-- ================= ЗАКАЗЫ ================= -->
+  <div class="screen" id="orders">
+    <button class="backlink" onclick="showView('home')">‹</button>
+    <div class="vhead"><h2>Заказы</h2><p>Активные и последние заказы</p></div>
+    <div id="ordersBox"><div class="hint">Загрузка…</div></div>
+  </div>
+
+  <!-- ================= ВЫБОР АДРЕСА ================= -->
+  <div class="screen" id="address">
+    <div class="addr-top">
+      <button class="backlink" onclick="closeAddress()">‹</button>
+      <div class="search addr-search">
+        <i>🔍</i>
+        <input id="addrInput" type="text" placeholder="Куда доставить?" autocomplete="off">
+        <button class="clear hidden" id="addrClear">✕</button>
+      </div>
+    </div>
+    <div id="addrSuggest" class="addr-suggest hidden"></div>
+    <div id="addrSaved" class="addr-saved"></div>
+    <div class="addr-mapwrap" id="addrMapWrap">
+      <div id="addrMap"></div>
+      <div class="addr-pin" id="addrPin"></div>
+      <div class="addr-recenter" id="addrRecenter" onclick="addrGeocodePin()">⌖</div>
+    </div>
+    <div class="addr-panel" id="addrPanel">
+      <div class="ap-main">
+        <div class="ap-line" id="addrLine1">Доставка</div>
+        <div class="ap-line2" id="addrLine2">Переместите метку на карте или выберите адрес</div>
+      </div>
+      <div class="ap-fields">
+        <label class="ap-field"><span>Квартира</span><input id="addrFlat" type="text" inputmode="numeric" placeholder="Кв."></label>
+        <label class="ap-field"><span>Этаж</span><input id="addrFloor" type="text" inputmode="numeric" placeholder="—"></label>
+        <label class="ap-field"><span>Подъезд</span><input id="addrEntrance" type="text" inputmode="numeric" placeholder="—"></label>
+        <label class="ap-field"><span>Домофон</span><input id="addrIntercom" type="text" inputmode="numeric" placeholder="—"></label>
+      </div>
+      <input class="ap-comment" id="addrComment" type="text" placeholder="Комментарий курьеру (по желанию)">
+      <button class="btn-main" id="addrApply" onclick="addrApply()">Доставка сюда</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const TOKEN = "{{ token if token else '' }}";
+const INVALID = {{ 'true' if invalid else 'false' }};
+
+if (INVALID) {
+  document.getElementById('invalid').classList.remove('hidden');
+  document.getElementById('home').classList.remove('active');
+}
+
+const $ = id => document.getElementById(id);
+
+const state = {
+  rest: null,
+  restInfo: null,
+  cats: [],
+  catKey: 'all',
+  cart: null,
+  orders: [],
+  biz: null,
+  shops: [],
+};
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function imgUrl(uri) {
+  if (!uri) return '';
+  if (/^https?:/.test(uri)) return uri.replace('{w}','600').replace('{h}','600');
+  return 'https://eda.yandex' + (uri.includes('{w}') ? uri.replace('{w}','600').replace('{h}','600') : uri);
+}
+function fmtRub(v) {
+  if (v == null) return '—';
+  const n = Math.round(Number(v));
+  return n.toLocaleString('ru-RU') + ' ₽';
+}
+function toast(m) { alert(m); }
+
+async function api(url, opts) {
+  const r = await fetch(url, Object.assign({}, opts, {
+    headers: Object.assign({'Content-Type': 'application/json'}, (opts||{}).headers||{}),
+  }));
+  let data = null;
+  try { data = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error((data && (data.error || data.message)) || ('HTTP ' + r.status));
+  return data;
+}
+const qs = (obj) => {
+  const p = new URLSearchParams();
+  Object.keys(obj).forEach(k => { if (obj[k] != null) p.set(k, obj[k]); });
+  return p.toString();
+};
+
+/* ---------- навигация ---------- */
+function showView(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const screen = {home:'home', menu:'restic', restic:'restic', shop:'shop', cart:'cart', orders:'orders', section:'section', address:'address'}[name];
+  if (screen) $(screen).classList.add('active');
+  document.querySelectorAll('#bottomNav .b').forEach(b => {
+    const v = b.dataset.v;
+    const target = screen === 'section' || screen === 'shop' ? 'home' : screen;
+    b.classList.toggle('active', v === target);
+  });
+  if (name === 'home') loadHome();
+  if (name === 'restic') { if (state.rest) loadMenu(); else showView('home'); }
+  if (name === 'shop') { if (state.rest) loadShopMenu(); else showView('home'); }
+  if (name === 'cart') loadCart();
+  if (name === 'orders') loadOrders();
+  if (name === 'pickup') { toast('Самовывоз: пока недоступно'); return; }
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll('#bottomNav .b').forEach(b => {
+  b.addEventListener('click', () => showView(b.dataset.v));
+});
+
+/* ---------- главная ---------- */
+const CUISINES = ['Бургеры','Пицца','Суши','Шаурма','WOK','Десерты','Кофе','Завтраки'];
+$('cuisineChips').innerHTML = CUISINES.map(c => `<button class="chip" data-q="${esc(c)}">${esc(c)}</button>`).join('');
+$('cuisineChips').querySelectorAll('.chip').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#cuisineChips .chip').forEach(x => x.classList.toggle('on', x === b));
+    applyQuery(b.dataset.q, '');
+  });
+});
+
+$('searchInput').addEventListener('input', () => {
+  const v = $('searchInput').value.trim();
+  $('searchClear').classList.toggle('hidden', !v);
+  clearTimeout(state._st);
+  state._st = setTimeout(() => { state.biz = null; loadRestaurants(); }, 380);
+});
+$('searchClear').addEventListener('click', () => {
+  $('searchInput').value = '';
+  $('searchClear').classList.add('hidden');
+  state.biz = null;
+  loadRestaurants();
+});
+
+function applyQuery(q, biz) {
+  $('searchInput').value = q || '';
+  $('searchClear').classList.toggle('hidden', !(q || ''));
+  state.biz = biz || null;
+  loadRestaurants();
+  window.scrollTo(0, 0);
+}
+
+async function loadHome() {
+  try {
+    const info = await api(`/api/eda/${TOKEN}/info`);
+    const c = $('addrCity');
+    if (c && !(state.addr && state.addr.text)) {
+      c.textContent = (info.addr && info.addr.full_text) || 'Омск, проспект Мира, 33';
+    }
+  } catch (e) {}
+  loadRestaurants();
+}
+
+function normP(p) {
+  if (!p) return null;
+  if (p.name && typeof p.name === 'object' && p.brand) {
+    const lm = (p.left_meta||[]).find(m => m.payload && m.payload.text && m.payload.text.value);
+    const ft = p.features || {};
+    return {
+      slug: p.slug,
+      title: (p.name.value) || '',
+      biz: (p.brand.business) || 'restaurant',
+      img: (p.picture && (p.picture.image || p.picture.url)) || '',
+      available: p.available !== false,
+      delivery: (ft.delivery && ft.delivery.text) || (lm && lm.payload.text.value) || '',
+      rating: (ft.rating && ft.rating.text && ft.rating.text.value) || '',
+      tags: (p.chips||[]).map(c => ({title:(c.payload && c.payload.text && c.payload.text.value)||''})).filter(t => t.title),
+      brand: (p.brand.name) || '',
+    };
+  }
+  if (p.brand && (p.media || p.data)) {
+    const d = p.data || {};
+    const ft = d.features || {};
+    const accent = (ft.accent_color || [])[0];
+    return {
+      slug: p.slug,
+      title: (p.name && p.name.value) || p.name || p.slug,
+      biz: (p.brand.business) || 'shop',
+      img: ((p.media && p.media.photos && p.media.photos[0] && p.media.photos[0].uri) ||
+            (p.media && p.media.picture && p.media.picture.uri)) || '',
+      available: (p.availability || {}).is_available !== false,
+      delivery: (ft.delivery && ft.delivery.text) || '',
+      rating: '',
+      tags: [],
+      brand: (p.brand.name) || '',
+      accent: accent && accent.value,
+    };
+  }
+  return {
+    slug: p.slug,
+    title: p.title || p.slug,
+    biz: p.business || (p.brand && p.brand.business) || 'restaurant',
+    img: (p.picture && p.picture.url) || '',
+    available: p.available !== false,
+    delivery: (p.delivery && p.delivery.text) || '',
+    rating: p.rating || '',
+    tags: p.tags || [],
+    brand: (p.brand && p.brand.name) || '',
+  };
+}
+
+function flatPlaces(blocks) {
+  const out = [];
+  (blocks || []).forEach(l => {
+    const list = (l && l.payload && l.payload.places) || [];
+    list.forEach(p => out.push(p.item || p));
+  });
+  return out.map(normP).filter(Boolean);
+}
+
+function addrCoords() {
+  return (state.addr && state.addr.lat) ? `&lat=${state.addr.lat}&lon=${state.addr.lon}` : '';
+}
+
+async function loadRestaurants() {
+  const box = $('restList');
+  const q = $('searchInput').value.trim();
+  box.innerHTML = '<div class="hint">Загрузка…</div>';
+  try {
+    let shops = [], deals = [], places = [];
+    if (!q) {
+      const r = await api(`/api/eda/${TOKEN}/layout?${qs({slug: ''})}${addrCoords()}`);
+      const d = (r.layout && r.layout.data) || {};
+      const shopsAll = flatPlaces(d.mini_places_carousels);
+      const restC = flatPlaces(d.places_v2_medium_carousels);
+      const restL = flatPlaces(d.places_v2_lists);
+      shops = shopsAll;
+      state.shops = shops;
+      renderShops(shops);
+      deals = restC.slice(0, 10);
+      renderDeals(deals);
+      places = restL.concat(restC);
+      if (state.biz === 'shop') places = places.filter(p => p.biz === 'shop');
+      else places = places.filter(p => p.biz === 'restaurant');
+      $('resultsTitle').textContent = state.biz === 'shop' ? 'Продукты и товары' : 'Рестораны';
+    } else {
+      const r = await api(`/api/eda/${TOKEN}/restaurants?${qs({query: q})}${addrCoords()}`);
+      const blocks = (r.restaurants && r.restaurants.blocks) || [];
+      const all = [];
+      blocks.forEach(b => { if (b.type === 'places') all.push(...(b.payload || [])); });
+      shops = all.filter(p => p.business === 'shop' && p.available).map(normP);
+      state.shops = shops;
+      renderShops(shops);
+      deals = all.filter(p => p.business === 'restaurant' && p.available).slice(0, 6).map(normP);
+      renderDeals(deals);
+      places = all.map(normP).filter(p => p.biz === 'restaurant');
+      $('resultsTitle').textContent = `По запросу «${q}»`;
+    }
+
+    if (!places.length) { box.innerHTML = '<div class="hint">Ничего не найдено</div>'; return; }
+    box.innerHTML = places.map(p => {
+      const img = imgUrl(p.img);
+      const tags = (p.tags||[]).slice(0,3).map(t=>t.title).join(', ');
+      return `
+      <article class="rest-card" onclick="openRestaurant('${esc(p.slug)}', this)" data-biz="${p.biz==='shop'?'shop':'restaurant'}" data-pic="${esc(p.img||'')}">
+        <div class="r-img ${p.biz==='shop'?'vt':''}">
+          ${img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : ''}
+          <span class="wm">${esc((p.title||'')[0])}</span>
+          ${!p.available ? '<span class="st">Закрыто</span>' : (p.delivery?'<span class="st">'+esc(p.delivery)+'</span>':'')}
+        </div>
+        <div class="d-line"><b>${esc(p.title)}</b>${p.rating?`<span>${esc(p.rating)}</span>`:''}</div>
+        <div class="d-line gray">${tags?esc(tags):'доставка еды'}</div>
+      </article>`;
+    }).join('');
+  } catch (e) {
+    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+const BRAND_COLORS = {
+  'magnit':'#E52322','lenta':'#024592','metro':'#E52322','vkusvill':'#134727',
+  'pyaterochka':'#E30613','5ka':'#E30613','monetka':'#F58220','samokat':'#FE6F20',
+  'vkusno_itochka':'#ED0E00','svetofor':'#2DBE64','fix_price':'#08C4A9',
+  'okey':'#F9B000','azbuka':'#1F4292','perekrestok':'#0C592E','chizhik':'#68C9FF',
+  'billa':'#F80000','diksi':'#E3122B','magnolia':'#3E9B46','prisma':'#0099E5',
+  'selgros':'#FDB714','sbermarket':'#27AE60','vklyuchu':'#F28C22','ok_e':'#F9B000',
+  'grossmart':'#F6A700','torgservis':'#ED1C24','orion':'#F04E23','sitymarket':'#00A99D',
+  'multiservis':'#F39200','mydecor':'#7A5CFA','vitrina':'#E6007E','grand_roll':'#E52322'
+};
+const BRAND_FALLBACK = ['#E52322','#029154','#0C592E','#6C3BB5','#F58220','#024592','#00A99D','#94C11E'];
+function brandColor(p, i) {
+  const c = BRAND_COLORS[p.slug] || BRAND_COLORS[p.brand && p.brand.slug];
+  return c || BRAND_FALLBACK[i % BRAND_FALLBACK.length];
+}
+
+function renderShops(shops) {
+  const row = $('shopsRow');
+  if (!shops.length) { row.innerHTML = ''; return; }
+  row.innerHTML = shops.slice(0, 10).map((p, i) => {
+    const img = imgUrl(p.img);
+    const color = p.accent || brandColor(p, i);
+    return `
+    <div class="shop" onclick="openRestaurant('${esc(p.slug)}', this)" data-biz="shop" data-pic="${esc(p.img||'')}">
+      <div class="s-card" style="background:${color}">
+        ${img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : `<span class="ov">${esc((p.title||'')[0])}</span>`}
+      </div>
+      <b>${esc(p.title)}</b>
+      <time>${esc(p.delivery || 'доставка')}</time>
+    </div>`;
+  }).join('');
+}
+
+function renderDeals(deals) {
+  const row = $('dealsRow');
+  if (!deals.length) { row.innerHTML = ''; return; }
+  row.innerHTML = deals.map(p => {
+    const img = imgUrl(p.img);
+    const tags = (p.tags||[]).slice(0,2);
+    return `
+    <article class="deal" onclick="openRestaurant('${esc(p.slug)}', this)" data-biz="${p.biz==='shop'?'shop':'restaurant'}" data-pic="${esc(p.img||'')}">
+      <div class="d-img">
+        ${img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : `<span class="wm">${esc((p.title||'')[0])}</span>`}
+      </div>
+      <div class="d-line"><b>${esc(p.title)}</b></div>
+      <div class="d-line gray">🛵 ${esc(p.delivery || 'доставка')}</div>
+      <div class="tags">${tags.map(t=>'<span>'+esc(t.title)+'</span>').join('')}</div>
+    </article>`;
+  }).join('');
+}
+
+/* ---------- разделы (layout-constructor) ---------- */
+async function openSection(slug, title) {
+  state.secSlug = slug;
+  state.secTitle = title || slug;
+  $('secTitle').textContent = state.secTitle;
+  $('secSub').textContent = 'Категории и места';
+  showView('section');
+  loadSection();
+}
+
+async function loadSection() {
+  const box = $('sectionList');
+  const chipsBox = $('secChips');
+  box.innerHTML = '<div class="hint">Загрузка…</div>';
+  chipsBox.innerHTML = '';
+  state.secCats = [];
+  state.secKey = 'all';
+  try {
+    const r = await api(`/api/eda/${TOKEN}/layout?${qs({slug: state.secSlug})}${addrCoords()}`);
+    const data = (r.layout || {}).data || {};
+    state.secLayout = data;
+
+    const chips = [];
+    const hdr = data.view_header;
+    if (hdr) {
+      const ch = (hdr.chips || hdr.chips_v2 || []).filter(Boolean);
+      chips.push({key:'all', label: 'Все'});
+      ch.forEach(c => {
+        const t = (c.payload && c.payload.text && c.payload.text.value) || c.title || '';
+        if (t) chips.push({key:String(c.id ?? t), label:t});
+      });
+    }
+    if (chips.length) {
+      chipsBox.innerHTML = chips.map(c => `<button class="cat-chip" data-key="${esc(c.key)}">${esc(c.label)}</button>`).join('');
+      chipsBox.querySelectorAll('.cat-chip').forEach(b => b.addEventListener('click', () => selectSecCat(b.dataset.key)));
+    }
+
+    renderSection();
+  } catch (e) {
+    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function selectSecCat(key) {
+  state.secKey = key;
+  document.querySelectorAll('#secChips .cat-chip').forEach(b => b.classList.toggle('on', b.dataset.key === key));
+  renderSection();
+}
+
+function secPlaces() {
+  const d = state.secLayout || {};
+  const out = [];
+  (d.places_v2_lists || []).forEach(l => (l.payload && l.payload.places || []).forEach(p => out.push(p)));
+  (d.places_multiline || []).forEach(m => (m.payload && m.payload.places || []).forEach(p => out.push(p.item || p)));
+  (d.super_places_feed || []).forEach(f => (f.payload && f.payload.places || []).forEach(p => out.push(p.item || p)));
+  (d.places_products_feed || []).forEach(f => (f.payload && f.payload.places || []).forEach(p => out.push(p)));
+  return out;
+}
+
+function secNormalize(p) {
+  if (p && p.name && typeof p.name === 'object') {
+    return {
+      slug: p.slug, title: (p.name && p.name.value) || '', biz: (p.brand||{}).business || 'restaurant',
+      img: (p.picture||{}).image || (p.picture||{}).url, available: p.available !== false,
+      delivery: (p.features && p.features.delivery && p.features.delivery.text) || '',
+      rating: (p.features && p.features.rating && p.features.rating.text && p.features.rating.text.value) || '',
+      brand: (p.brand||{}).name || '',
+    };
+  }
+  if (p && p.brand) {
+    const media = (p.media && p.media.photos && p.media.photos[0]) || {};
+    const ft = (p.data && p.data.features) || {};
+    return {
+      slug: p.slug,
+      title: (p.name && p.name.value) || (p.data && p.data.title) || (p.brand.name) || p.slug,
+      biz: (p.brand||{}).business || 'shop',
+      img: media.uri || (p.media && p.media.picture && p.media.picture.uri) || '',
+      available: (p.availability||{}).is_available !== false,
+      delivery: (ft.delivery && ft.delivery.text) || '',
+      rating: '',
+      brand: (p.brand||{}).name || '',
+    };
+  }
+  return null;
+}
+
+function renderSection() {
+  const box = $('sectionList');
+  let places = secPlaces().map(secNormalize).filter(Boolean);
+  if (state.secKey !== 'all') {
+    const key = state.secKey;
+    places = places.filter(p => (p.title||'').indexOf(key) >= 0 || (p.brand||'').indexOf(key) >= 0);
+  }
+  if (!places.length) { box.innerHTML = '<div class="hint">Пусто</div>'; return; }
+  const colors = ['#E52322','#029154','#0C592E','#6C3BB5','#F58220','#024592'];
+  box.innerHTML = '<div class="sstores">' + places.map((p, i) => {
+    const img = imgUrl(p.img);
+    const letter = esc((p.title||'')[0]);
+    return `
+    <div class="sstore" onclick="openRestaurant('${esc(p.slug)}', this)" data-biz="${p.biz}" data-pic="${esc(p.img||'')}">
+      <div class="sscard ${p.biz==='shop' ? '' : 'c7'}" ${p.biz==='shop'?`style="background:${brandColor(p,i)}"`:''}>
+        ${img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : ''}
+        <span class="ov">${p.biz==='shop' ? '<i class="ss-logo">'+letter+'</i>' : letter}</span>
+      </div>
+      <div class="sname">${esc(p.title)}</div>
+      <div class="stime">${esc(p.delivery || 'доставка')}</div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+function openRestaurant(slug, el) {
+  const card = el && el.querySelector('.d-line') ? el : null;
+  const title = card ? card.querySelector('.d-line b').textContent : slug;
+  const biz = (el && el.dataset && el.dataset.biz) || 'restaurant';
+  state.rest = slug;
+  state.biz = biz;
+  state.restInfo = { title: title };
+  state.restPic = (el && el.dataset && el.dataset.pic) || '';
+  state.catKey = 'all';
+  showView(biz === 'shop' ? 'shop' : 'restic');
+}
+
+/* ---------- меню ресторана ---------- */
+async function loadMenu() {
+  if (state.biz === 'shop') return loadShopMenu();
+  const slug = state.rest;
+  $('menuHeroImg').style.display = 'none';
+  $('menuWm').textContent = (state.restInfo && state.restInfo.title || slug)[0] || '?';
+  $('menuTitle').textContent = (state.restInfo && state.restInfo.title) || slug;
+  $('catChips').innerHTML = '';
+  $('itemList').innerHTML = '<div class="hint">Загрузка…</div>';
+  try {
+    const r = await api(`/api/eda/${TOKEN}/restaurants/${encodeURIComponent(slug)}`);
+    const payload = (r.menu && r.menu.payload) || r.payload || {};
+    const cats = payload.categories || [];
+    state.cats = cats;
+    state.catKey = 'all';
+
+    const gal = cats.find(c => c.gallery && c.gallery.length);
+    const gitem = gal ? gal.gallery[0] : null;
+    const heroPic = (gitem && (gitem.picture && gitem.picture.uri || gitem.uri)) || (state.restPic || '');
+    if (heroPic) {
+      $('menuHeroImg').src = imgUrl(heroPic);
+      $('menuHeroImg').style.display = 'block';
+      $('menuWm').style.display = 'none';
+    }
+
+    const items = [];
+    (function collect(cs){ cs.forEach(c => { items.push(...(c.items||[])); collect(c.categories||[]); }); })(cats);
+
+    $('menuInfo').innerHTML = `
+      <div class="i-card"><span class="pill">🛵</span><small>Доставка<br>${esc((state.restInfo&&state.restInfo.delivery)||'30–40 мин')}</small></div>
+      <div class="i-card"><span class="pill">${items.length}</span><small>блюд<br>в меню</small></div>
+      <div class="i-card"><span class="pill">ⓘ</span><small>О<br>месте</small></div>
+      <div class="i-card"><span class="pill">⤴</span><small>Поде­литься</small></div>`;
+
+    if (!cats.length) {
+      $('itemList').innerHTML = '<div class="hint">Каталог этого места пока недоступен в веб-клиенте</div>';
+      $('restBottom').classList.add('hidden');
+      return;
+    }
+    $('restBottom').classList.remove('hidden');
+
+    const chips = [{key:'all', label:'Все'}].concat(cats.map((c,i) => ({key:String(c.id ?? ('c'+i)), label:c.name||''})));
+    $('catChips').innerHTML = chips.map(c => `<button class="cat-chip" data-key="${esc(c.key)}">${esc(c.label)}</button>`).join('');
+    $('catChips').querySelectorAll('.cat-chip').forEach(b => {
+      b.classList.toggle('on', b.dataset.key === 'all');
+      b.addEventListener('click', () => selectCat(b.dataset.key));
+    });
+    updateRb();
+    renderItems();
+  } catch (e) {
+    $('itemList').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function selectCat(key) {
+  state.catKey = key;
+  document.querySelectorAll('#catChips .cat-chip').forEach(b => b.classList.toggle('on', b.dataset.key === key));
+  renderItems();
+}
+
+/* ---------- экран магазина ---------- */
+let shopGoodsCache = {};
+let shopSubCache = {};
+let shopPath = [];
+
+async function loadShopMenu() {
+  const slug = state.rest;
+  shopGoodsCache = {};
+  shopSubCache = {};
+  shopPath = [];
+  state.catKey = null;
+  state.subKey = null;
+  $('shopSearchPanel').classList.add('hidden');
+  $('shopHome').classList.remove('hidden');
+  $('shopCatBox').classList.add('hidden');
+  $('shopCatsList').innerHTML = '<div class="hint">Загрузка…</div>';
+  $('shopDeals').innerHTML = '';
+  $('shopSubCats').innerHTML = '';
+  try {
+    const [r, info] = await Promise.all([
+      api(`/api/eda/${TOKEN}/shop/${encodeURIComponent(slug)}/categories`),
+      api(`/api/eda/${TOKEN}/shop/${encodeURIComponent(slug)}/info`),
+    ]);
+    renderShopCard(info);
+    const payload = (r.categories || {}).payload || {};
+    const all = payload.categories || [];
+    const roots = all.filter(c => !c.parentId && c.available !== false);
+    state.shopCats = all;
+    state.shopRoots = roots;
+    renderShopCatList(roots);
+  } catch (e) {
+    $('shopCatsList').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function renderShopCard(info) {
+  const fd = (((info || {}).info || {}).payload || {}).foundPlace || {};
+  const place = fd.place || {};
+  const lp = fd.locationParams || {};
+  const dt = lp.deliveryTime || {};
+  const timeTxt = (dt.min != null && dt.max != null) ? `${dt.min}–${dt.max} мин` : ((dt.description||'').replace(/\u00a0/g,' ') || '30–40 мин');
+  state.shopTime = timeTxt;
+  state.shopName = place.name || (state.restInfo && state.restInfo.title) || state.rest;
+
+  const logo = (place.logo && place.logo[0] && place.logo[0].value && place.logo[0].value[0] && place.logo[0].value[0].logo_url) || '';
+  const pic = (place.picture && (place.picture.uri || place.picture.image)) || '';
+  const lg = logo || pic;
+  $('shopTitle').textContent = state.shopName;
+  $('shopTitle').innerHTML = state.shopName + `<span class="tt">${esc(timeTxt)}</span>`;
+  if (lg) {
+    $('shopLogoI').style.display = 'none';
+    $('shopLogo').innerHTML = `<img src="${esc(imgUrl(lg))}" alt="">`;
+  }
+
+  const bb = fd.bottomBanner || {};
+  const bbName = (bb.name && (bb.name.text || (bb.name.value&&bb.name.value.text))) || '';
+  const bbDesc = (bb.description && (bb.description.text || (bb.description.value&&bb.description.value.text))) || '';
+  renderShopPromos(bbName ? [{label: bbName, sub: bbDesc, cls: 'p-green'}] : []);
+  $('shopRbText').innerHTML = `<b>${esc(bbName || 'Выберите товары')}</b><small>${esc(bbDesc || timeTxt)}</small>`;
+  updateShopRb();
+}
+
+function renderShopPromos(promos) {
+  const box = $('shopPromos');
+  if (!promos.length) { box.innerHTML = ''; box.style.display = 'none'; return; }
+  box.style.display = '';
+  box.innerHTML = promos.map(p => `
+    <div class="spromo ${p.cls}"><div class="label">${esc(p.label)}</div>${p.sub?`<p>${esc(p.sub)}</p>`:''}</div>`).join('');
+}
+
+function renderShopCatList(cats) {
+  const box = $('shopCatsList');
+  if (!cats.length) { box.innerHTML = '<div class="hint">Категорий нет</div>'; return; }
+  box.innerHTML = '<div class="shopcats">' + cats.map(c => {
+    const g = (c.gallery||[])[0];
+    const img = (g && (g.url || g.uri)) || '';
+    return `<div class="shopcat" onclick="drillShopCategory('${esc(String(c.uid))}')">
+      <span class="ic">${img?`<img src="${esc(imgUrl(img))}" alt="" loading="lazy" onerror="this.parentNode.textContent='🛒'">`:'🛒'}</span>
+      <span class="lb">${esc(c.name||'')}</span>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+async function drillShopCategory(uid) {
+  const slug = state.rest;
+  uid = String(uid);
+  for (const key in shopSubCache) {
+    const cats = shopSubCache[key];
+    const self = cats.find(c => String(c.uid) === uid);
+    if (self && ((self.items && self.items.length) || cats.some(c => c.parentId && String(c.parentId) === uid))) {
+      shopSubCache[uid] = cats;
+      showShopCat(uid);
+      return;
+    }
+  }
+  if (!shopSubCache[uid]) {
+    $('shopDeals').innerHTML = '<div class="hint">Загрузка…</div>';
+    try {
+      const r = await api(`/api/eda/${TOKEN}/shop/${encodeURIComponent(slug)}/category/${encodeURIComponent(uid)}`);
+      const cats = (((r.category || {}).payload || {}).categories) || [];
+      shopSubCache[uid] = cats;
+    } catch (e) {
+      $('shopDeals').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+      return;
+    }
+  }
+  showShopCat(uid);
+}
+
+function shopSubFor(uid) {
+  const cats = shopSubCache[uid] || [];
+  const parent = cats.find(c => String(c.uid) === String(uid)) || {name:''};
+  const kids = cats.filter(c => c.parentId && String(c.parentId) === String(uid));
+  return {parent, kids};
+}
+
+function showShopCat(uid) {
+  state.catKey = String(uid);
+  state.subKey = null;
+  const {parent, kids} = shopSubFor(uid);
+  $('shopHome').classList.add('hidden');
+  $('shopCatBox').classList.remove('hidden');
+  $('shopCatTitle').textContent = parent.name || 'Категория';
+  const subsBox = $('shopSubCats');
+  if (kids.length) {
+    subsBox.innerHTML = kids.map(k => {
+      const g = (k.gallery||[])[0];
+      const img = (g && (g.url || g.uri)) || '';
+      return `<div class="shopcatrow" onclick="drillShopCategory('${esc(String(k.uid))}')">
+        <span class="ic">${img?`<img src="${esc(imgUrl(img))}" alt="" loading="lazy" onerror="this.parentNode.textContent='🛒'">`:'🛒'}</span>
+        <span class="cn">${esc(k.name||'')}</span><span class="ar">›</span>
+      </div>`;
+    }).join('');
+  } else {
+    subsBox.innerHTML = '';
+  }
+  renderShopDeals(uid);
+  updateShopRb();
+}
+
+function renderShopDeals(uid) {
+  const box = $('shopDeals');
+  const cats = shopSubCache[uid] || [];
+  const root = cats.find(c => String(c.uid) === String(uid)) || {items: []};
+  let list = (root.items || []).slice();
+  const collect = (c) => {
+    list = list.concat(c.items || []);
+    cats.filter(x => x.parentId && String(x.parentId) === String(c.uid)).forEach(ch => collect(ch));
+  };
+  cats.filter(x => x.parentId && String(x.parentId) === String(uid)).forEach(ch => collect(ch));
+  if (!list.length) { box.innerHTML = '<div class="hint">Товаров нет</div>'; return; }
+  box.innerHTML = '<div class="sdeals">' + list.map(it => shopDealHtml(it)).join('') + '</div>';
+  bindShopAdds(box);
+}
+
+function shopDealHtml(it) {
+  const img = (it.picture||{}).url || (it.picture||{}).uri;
+  const price = it.price != null ? Number(it.price) : Number(it.decimalPrice || 0);
+  const promo = it.promoPrice != null ? Number(it.promoPrice) : (it.decimalPromoPrice != null && Number(it.decimalPromoPrice) > 0 ? Math.round(Number(it.decimalPromoPrice)) : null);
+  const out = it.inStock === 0 || it.available === false;
+  const weight = it.weight_data && it.weight_data.unit_text ? it.weight_data.value + ' ' + it.weight_data.unit_text : (it.weight || '');
+  const pct = promo != null && price > 0 ? Math.round((1 - promo/price) * 100) : 0;
+  return `
+    <article class="sdeal">
+      <div class="img">
+        ${img ? `<img src="${esc(imgUrl(img))}" alt="" loading="lazy" onerror="this.parentNode.innerHTML='<span class=&quot;em&quot;>🛒</span>'">` : '<span class="em">🛒</span>'}
+        ${pct ? `<span class="disc">−${pct}%</span>` : ''}
+        ${out ? '<span class="sold">Нет</span>' : ''}
+      </div>
+      <div class="price">${fmtRub(promo != null ? promo : price)}${promo != null ? `<span class="old">${fmtRub(price)}</span>` : ''}</div>
+      <div class="name">${esc(it.name||'')}</div>
+      ${weight ? `<div class="wt">${esc(weight)}</div>` : ''}
+      <button class="tocart" data-add data-biz="shop" data-id="${esc(it.uid || it.public_id || it.id)}" data-name="${esc(it.name||'')}" data-price="${esc(promo != null ? promo : price)}" ${out?'disabled':''}>В корзину</button>
+    </article>`;
+}
+
+function bindShopAdds(box) {
+  box.querySelectorAll('[data-add]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      addItem(btn.dataset.id, btn.dataset.name, Number(btn.dataset.price), btn.dataset.biz);
+    });
+  });
+}
+
+function showShopHome() {
+  $('shopCatBox').classList.add('hidden');
+  $('shopHome').classList.remove('hidden');
+  window.scrollTo(0, 0);
+}
+
+/* ---------- поиск в магазине ---------- */
+function toggleSearch() {
+  if (state.biz !== 'shop') { toast('Поиск по меню ресторана — скоро'); return; }
+  const p = $('shopSearchPanel');
+  if (p.classList.contains('hidden')) {
+    $('shopHome').classList.add('hidden');
+    $('shopCatBox').classList.add('hidden');
+    p.classList.remove('hidden');
+    $('shopSearchInput').value = '';
+    $('searchResults').innerHTML = '<div class="hint">Начните вводить запрос</div>';
+    loadSearchHints();
+    window.scrollTo(0, 0);
+  } else {
+    closeShopSearch();
+  }
+}
+
+function closeShopSearch() {
+  $('shopSearchPanel').classList.add('hidden');
+  if (state.catKey) { $('shopCatBox').classList.remove('hidden'); } else { $('shopHome').classList.remove('hidden'); }
+}
+
+async function loadSearchHints() {
+  const slug = state.rest;
+  const box = $('searchHints');
+  box.innerHTML = '';
+  try {
+    const r = await api(`/api/eda/${TOKEN}/shop/${encodeURIComponent(slug)}/search?${qs({query: ''})}`);
+    const blocks = (r.search || {}).blocks || [];
+    const hist = blocks.find(b => b.type === 'user_search_history');
+    const pop = blocks.find(b => b.type === 'popular_search_queries');
+    const histList = ((hist && hist.payload && hist.payload.queries) || []).map(x => x.text).filter(Boolean);
+    const popList = ((pop && pop.payload) || []).map(x => (x.show_text && x.show_text.value) || x.search_text).filter(Boolean);
+    const qsList = histList.concat(popList);
+    box.innerHTML = qsList.map(q => `<button class="cat-chip" data-q="${esc(q)}">${esc(q)}</button>`).join('');
+    box.querySelectorAll('.cat-chip').forEach(b => {
+      b.addEventListener('click', () => {
+        $('shopSearchInput').value = b.dataset.q;
+        runShopSearch(b.dataset.q);
+      });
+    });
+  } catch (e) {
+    box.innerHTML = '';
+  }
+}
+
+let shopSearchTimer = null;
+$('shopSearchInput').addEventListener('input', () => {
+  clearTimeout(shopSearchTimer);
+  shopSearchTimer = setTimeout(() => runShopSearch($('shopSearchInput').value.trim()), 380);
+});
+
+async function runShopSearch(q) {
+  const slug = state.rest;
+  const box = $('searchResults');
+  if (!q) { box.innerHTML = '<div class="hint">Начните вводить запрос</div>'; loadSearchHints(); return; }
+  box.innerHTML = '<div class="hint">Загрузка…</div>';
+  try {
+    const r = await api(`/api/eda/${TOKEN}/shop/${encodeURIComponent(slug)}/search?${qs({query: q})}`);
+    const blocks = (r.search || {}).blocks || [];
+    const prod = blocks.find(b => b.type === 'categories_products');
+    const items = ((prod && prod.payload) || {}).products || [];
+    if (!items.length) { box.innerHTML = '<div class="hint">Ничего не найдено</div>'; return; }
+    box.innerHTML = '<div class="sdeals">' + items.map(it => shopDealHtml(it)).join('') + '</div>';
+    bindShopAdds(box);
+  } catch (e) {
+    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function updateShopRb() {
+  const n = cartItems().length;
+  const go = $('shopRbGo');
+  if (n) {
+    const t = cartTotal();
+    $('shopRbText').innerHTML = `<b>${fmtRub(t)} · ${n} ${decl(n,'товар','товара','товаров')}</b><small>Перейти к оформлению</small>`;
+    go.classList.remove('hidden');
+  } else {
+    $('shopRbText').innerHTML = '<b>Выберите товары</b><small>Доставка в выбранное время</small>';
+    go.classList.add('hidden');
+  }
+}
+
+function collectItems(cats, key) {
+  if (key === 'all') {
+    const out = [];
+    (function walk(cs){ cs.forEach(c => { out.push(...(c.items||[])); walk(c.categories||[]); }); })(cats);
+    return out;
+  }
+  const cat = (function find(cs){ for (const c of cs) { if (String(c.id ?? ('c'+cs.indexOf(c))) === key) return c; const f = find(c.categories||[]); if (f) return f; } return null; })(cats);
+  return (cat && cat.items) || [];
+}
+
+function renderItems() {
+  const box = $('itemList');
+  const list = collectItems(state.cats, state.catKey);
+  if (!list.length) { box.innerHTML = '<div class="hint">Товаров нет</div>'; return; }
+  box.innerHTML = '<div class="products">' + list.map((it, i) => {
+    const img = (it.picture||{}).uri || (it.picture||{}).url || ((it.images||[])[0]||{}).uri || ((it.images||[])[0]||{}).url;
+    const price = it.price != null ? Number(it.price) : Number(it.decimalPrice || 0);
+    const promo = it.promoPrice != null ? Number(it.promoPrice) : (it.decimalPromoPrice != null && Number(it.decimalPromoPrice) > 0 ? Math.round(Number(it.decimalPromoPrice)) : null);
+    const badge = (it.badges && it.badges[0] && it.badges[0].text && it.badges[0].text.value) ? it.badges[0].text.value : '';
+    const ms = it.measure || {};
+    const wt = it.weight || ms.text || ((ms.value != null ? ms.value + ' ' : '') + (ms.unit_text || ''));
+    return `
+      <article class="product">
+        <div class="p-img">
+          ${img ? `<img src="${esc(imgUrl(img))}" alt="" loading="lazy" onerror="this.parentNode.innerHTML='<span class=&quot;em&quot;>🍽</span>'">` : '<span class="em">🍽</span>'}
+          ${badge ? `<span class="p-badge">${esc(badge)}</span>` : ''}
+          ${it.available===false ? '<span class="p-sold">Нет в наличии</span>' : ''}
+          <button class="p-add" data-add data-id="${esc(String(it.id))}" data-name="${esc(it.name||'')}" data-price="${esc(promo != null ? promo : price)}" ${it.available===false?'disabled':''}>+</button>
+        </div>
+        <span class="p-name">${esc(it.name||'')}</span>
+        ${wt ? `<span class="p-w">${esc(wt)}</span>` : ''}
+        <div class="p-row">${promo != null ? `<b>${fmtRub(promo)}</b><s>${fmtRub(price)}</s>` : `<b>${fmtRub(price)}</b>`}</div>
+      </article>`;
+  }).join('') + '</div>';
+  box.querySelectorAll('[data-add]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      addItem(btn.dataset.id, btn.dataset.name, Number(btn.dataset.price), btn.dataset.biz);
+    });
+  });
+}
+
+function updateRb() {
+  const n = cartItems().length;
+  const go = $('rbGo');
+  if (n) {
+    const t = cartTotal();
+    $('rbText').innerHTML = `<b>${fmtRub(t)} · ${n} ${decl(n,'товар','товара','товаров')}</b><small>Перейти к оформлению</small>`;
+    go.classList.remove('hidden');
+  } else {
+    $('rbText').innerHTML = '<b>Выберите блюда</b><small>Доставка в выбранное время</small>';
+    go.classList.add('hidden');
+  }
+}
+function decl(n, o1, o2, o5) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return o1;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return o2;
+  return o5;
+}
+
+/* ---------- корзина ---------- */
+let addInFlight = false;
+async function addItem(itemId, name, price, biz) {
+  if (addInFlight) return;
+  addInFlight = true;
+  try {
+    const r = await api(`/api/eda/${TOKEN}/cart`, {
+      method: 'POST',
+      body: JSON.stringify({place_slug: state.rest, item_id: itemId, qty: 1, business: biz || state.biz}),
+    });
+    state.cart = r.cart;
+    updateCartDot();
+    updateRb();
+    updateShopRb();
+  } catch (e) {
+    toast('Не удалось добавить: ' + e.message);
+  } finally {
+    addInFlight = false;
+  }
+}
+
+function cartItems() {
+  const c = state.cart || {};
+  return (c.cart && c.cart.items) || c.items || [];
+}
+function cartTotal() {
+  const c = state.cart || {};
+  const cart = c.cart || {};
+  if (cart.total != null) return Number(cart.total);
+  return cartItems().reduce((s,i)=>s+(Number(i.price)||0)*(Number(i.quantity)||1), 0);
+}
+function updateCartDot() {
+  const n = cartItems().length;
+  const dot = $('cartDot');
+  dot.textContent = n;
+  dot.classList.toggle('hidden', !n);
+}
+
+async function loadCart() {
+  const box = $('cartBox');
+  box.innerHTML = '<div class="hint">Загрузка…</div>';
+  try {
+    const r = await api(`/api/eda/${TOKEN}/cart?${qs({place_slug: state.rest})}`);
+    state.cart = r.cart;
+    updateCartDot();
+    renderCart();
+  } catch (e) {
+    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function renderCart() {
+  const box = $('cartBox');
+  const c = state.cart || {};
+  const cart = c.cart || {};
+  const items = cart.items || [];
+  if (!items.length) {
+    box.innerHTML = `
+      <div class="cart-empty">
+        <div class="ce-em">🛒</div>
+        <h2>Пусто, как ночью<br>в холодильнике</h2>
+        <p>Но это ненадолго — добавьте что-нибудь вкусное, и оно уже мчится к вам.</p>
+        <button class="btn-yellow" onclick="showView('home')">Вернуться на главную</button>
+      </div>`;
+    return;
+  }
+  const subtotal = cart.subtotal != null ? Number(cart.subtotal) : cartItems().reduce((s,i)=>s+(Number(i.price)||0)*(Number(i.quantity)||1),0);
+  const delivery = cart.delivery_fee != null ? Number(cart.delivery_fee) : 0;
+  const total = cart.total != null ? Number(cart.total) : subtotal + delivery;
+  box.innerHTML = `
+    <div class="cart-card">
+      ${items.map(it => `
+        <div class="cart-item">
+          <div class="ci-name">${esc(it.name||'')}</div>
+          <div class="ci-qty">
+            <button data-dec="${esc(String(it.id))}">−</button>
+            <b>${it.quantity||1}</b>
+            <button data-inc="${esc(String(it.id))}">+</button>
+          </div>
+          <div class="ci-price">${fmtRub((Number(it.price)||0)*(it.quantity||1))}</div>
+        </div>`).join('')}
+      <div class="cart-sum"><span>Итого</span><span class="sum-val">${fmtRub(total)}</span></div>
+    </div>
+    <button class="btn-main" id="btnCheckout">Оформить заказ</button>`;
+  box.querySelectorAll('[data-inc]').forEach(b => b.addEventListener('click', () => toast('Изменение количества: пока не поддерживается')));
+  box.querySelectorAll('[data-dec]').forEach(b => b.addEventListener('click', () => toast('Изменение количества: пока не поддерживается')));
+  $('btnCheckout').addEventListener('click', () => checkoutFlow());
+}
+
+/* ---------- оформление ---------- */
+async function checkoutFlow() {
+  const address = prompt('Адрес доставки (например: Омск, проспект Мира, 33):', 'Омск, проспект Мира, 33');
+  if (!address) return;
+  const addr = parseAddress(address);
+  try {
+    const r = await api(`/api/eda/${TOKEN}/checkout`, {
+      method: 'POST',
+      body: JSON.stringify({place_slug: state.rest, address: addr, lat: null, lon: null}),
+    });
+    state.checkout = r.checkout;
+    renderCheckout(addr);
+  } catch (e) {
+    toast('Оформление: ' + e.message);
+  }
+}
+
+function parseAddress(text) {
+  let city = 'Омск', street = '', house = '';
+  const parts = text.split(',').map(s => s.trim()).filter(Boolean);
+  if (parts.length >= 3) { city = parts[0]; street = parts[1]; house = parts[2]; }
+  else if (parts.length === 2) { street = parts[0]; house = parts[1]; }
+  else { street = text; }
+  return {
+    city, street, house, country: 'Россия',
+    short_text: [street, house].filter(Boolean).join(', '),
+    full_text: [city, street, house].filter(Boolean).join(', '),
+    location: {latitude: 55.02878527315827, longitude: 73.27583823706175},
+  };
+}
+
+function crossCheckLines(cc) {
+  const lines = [];
+  (cc && cc.items || []).forEach(it => {
+    if (it.type === 'category') {
+      (it.category_items || []).forEach(ci => {
+        lines.push({name: (ci.name||{}).value || '', amount: (ci.amount||{}).value || ''});
+      });
+    } else {
+      lines.push({name: (it.name||{}).value || '', amount: (it.amount||{}).value || ''});
+    }
+  });
+  return lines;
+}
+
+function renderCheckout(addr) {
+  const co = state.checkout || {};
+  const box = $('cartBox');
+  const seen = {};
+  const offers = (co.offers || []).filter(o => {
+    if (!o || !o.possiblePayment) return false;
+    const k = o.possiblePayment.title || o.possiblePayment.id || 'x';
+    if (seen[k]) return false;
+    seen[k] = true;
+    return true;
+  });
+  const first = offers[0] || (co.offers || [])[0] || {};
+  const pay = first.possiblePayment || {};
+  const lines = crossCheckLines(pay.cross_check);
+  box.innerHTML = `
+    <button class="backlink" onclick="state.checkout=null;loadCart()">‹</button>
+    <div class="vhead"><h2>Оформление</h2><p>${esc(addr.full_text)}</p></div>
+    ${lines.length ? `<div class="chk-block">
+      <h3>Состав заказа</h3>
+      ${lines.map(l => `<div class="chk-row"><span class="k">${esc(l.name)}</span><span class="v">${esc(l.amount)}</span></div>`).join('')}
+    </div>` : ''}
+    <div class="chk-block">
+      <h3>Способы оплаты</h3>
+      ${offers.length ? offers.map(o => {
+        const p = o.possiblePayment || {};
+        const av = p.availability && p.availability.available;
+        const cfc = p.costForCustomer ? p.costForCustomer.value : '';
+        const ic = p.type === 'sbp' ? '🏦' : p.type === 'add_new_card' ? '💳' : p.type === 'create_yandex_bank' ? '🅿️' : '💳';
+        return `<div class="pay-opt"><span>${ic} ${esc(p.title||p.id||'—')}</span>
+                <span class="st ${av?'':'no'}">${av?(cfc?fmtRub(parseFloat(cfc)):''):'недоступно'}</span></div>`;
+      }).join('') : '<div class="hint" style="padding:10px 0">Нет предложений</div>'}
+    </div>
+    <button class="btn-main" id="btnOrder" disabled>Подтверждение заказа — дорабатывается</button>`;
+}
+
+/* ---------- заказы ---------- */
+async function loadOrders() {
+  const box = $('ordersBox');
+  box.innerHTML = '<div class="hint">Загрузка…</div>';
+  try {
+    const r = await api(`/api/eda/${TOKEN}/orders/active`);
+    const tracked = (r.orders && r.orders.payload && r.orders.payload.trackedOrders) || [];
+    state.orders = tracked;
+    if (!tracked.length) { box.innerHTML = '<div class="hint">Активных заказов нет</div>'; return; }
+    box.innerHTML = tracked.map(o => `<div class="cart-card">${esc(o.title || 'Заказ')}</div>`).join('');
+  } catch (e) {
+    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+/* ---------- init ---------- */
+if (!INVALID) {
+  loadHome();
+}
+
+/* ---------- выбор адреса ---------- */
+const DEF_ADDR = { text: 'Омск, проспект Мира, 33', lat: 55.02878527315827, lon: 73.27583823706175, flat: '', floor: '', entrance: '', intercom: '', comment: '' };
+state.addr = Object.assign({}, DEF_ADDR);
+let addrMap = null, addrPlacemark = null, addrBusy = false, addrT = null, addrGeoT = null, addrGeocodingAt = null;
+
+function addrGeocodeSet(addrText, lat, lon) {
+  state.addr.text = addrText || 'Доставка';
+  state.addr.lat = lat;
+  state.addr.lon = lon;
+  $('addrLine1').textContent = state.addr.text;
+  $('addrLine2').textContent = '';
+}
+
+function addrGeocodePin() {
+  if (!addrMap || addrBusy) return;
+  const c = addrMap.getCenter();
+  addrBusy = true;
+  addrGeocodingAt = [c[0], c[1]];
+  $('addrLine2').innerHTML = '<span class="ap-spin"></span> Ищем адрес…';
+  ymaps.geocode([c[0], c[1]], { results: 1 }).then(res => {
+    const obj = res.geoObjects.get(0);
+    const text = obj ? obj.getAddressLine() : 'Выбранная точка';
+    addrGeocodeSet(text, c[0], c[1]);
+    addrBusy = false;
+    if (addrMap && addrGeocodingAt) {
+      const cc = addrMap.getCenter();
+      if (Math.abs(cc[0] - addrGeocodingAt[0]) > 1e-5 || Math.abs(cc[1] - addrGeocodingAt[1]) > 1e-5) {
+        addrGeocodePin();
+      }
+    }
+  }).catch(() => {
+    addrGeocodeSet('Выбранная точка', c[0], c[1]);
+    addrBusy = false;
+  });
+}
+
+function addrRenderPanel() {
+  const l1 = $('addrLine1'), l2 = $('addrLine2');
+  if (!l1) return;
+  l1.textContent = state.addr.text || 'Доставка';
+  if (l2) l2.textContent = state.addr.text ? 'Время доставки рассчитаем после выбора адреса' : 'Переместите метку на карте или выберите адрес';
+}
+
+function addrApply() {
+  if (!state.addr) return;
+  addrCollectFields();
+  $('addrCity').textContent = state.addr.text;
+  closeAddress();
+  loadRestaurants();
+}
+
+function addrCollectFields() {
+  state.addr.flat = $('addrFlat').value.trim();
+  state.addr.floor = $('addrFloor').value.trim();
+  state.addr.entrance = $('addrEntrance').value.trim();
+  state.addr.intercom = $('addrIntercom').value.trim();
+  state.addr.comment = $('addrComment').value.trim();
+}
+
+function addrFillFields() {
+  $('addrFlat').value = state.addr.flat || '';
+  $('addrFloor').value = state.addr.floor || '';
+  $('addrEntrance').value = state.addr.entrance || '';
+  $('addrIntercom').value = state.addr.intercom || '';
+  $('addrComment').value = state.addr.comment || '';
+}
+
+function closeAddress() {
+  $('addrInput').value = '';
+  $('addrClear').classList.add('hidden');
+  $('addrSuggest').classList.add('hidden');
+  showView('home');
+}
+
+function addrSuggestItems(items) {
+  return items.map(s => `
+    <button class="as-item" data-t="${esc(s.value)}" ${s.pos ? `data-pos="${s.pos[1]},${s.pos[0]}"` : ''}>
+      <i>📍</i><span>${esc(s.value)}</span>
+    </button>`).join('');
+}
+
+function addrSelect(text, lat, lon) {
+  $('addrInput').value = text;
+  $('addrSuggest').classList.add('hidden');
+  addrGeocodeSet(text, lat, lon);
+  if (lat) {
+    if (addrMap) addrMap.setCenter([lat, lon], 17, { checkZoomRange: true });
+    if (addrPlacemark) addrPlacemark.geometry.setCoordinates([lat, lon]);
+    addrRenderPanel();
+  } else if (text) {
+    ymaps.geocode(text, { results: 1 }).then(res => {
+      const obj = res.geoObjects.get(0);
+      if (obj) {
+        const c = obj.geometry.getCoordinates();
+        addrGeocodeSet(obj.getAddressLine(), c[0], c[1]);
+        if (addrMap) addrMap.setCenter([c[0], c[1]], 17, { checkZoomRange: true });
+        if (addrPlacemark) addrPlacemark.geometry.setCoordinates([c[0], c[1]]);
+      }
+      addrRenderPanel();
+    }).catch(() => addrRenderPanel());
+  } else {
+    addrRenderPanel();
+  }
+}
+
+function addrDoSearch(q) {
+  const box = $('addrSuggest');
+  clearTimeout(addrT);
+  if (!q) { box.classList.add('hidden'); return; }
+  box.innerHTML = '<div class="hint" style="padding:20px">Поиск…</div>';
+  box.classList.remove('hidden');
+  addrT = setTimeout(() => {
+    ymaps.suggest(q, { results: 7 }).then(res => {
+      const items = res.map(s => ({
+        value: s.value,
+        pos: s.items && s.items[0] && s.items[0].position,
+      }));
+      if (!items.length) {
+        box.innerHTML = '<div class="hint" style="padding:20px">Ничего не найдено</div>';
+        return;
+      }
+      box.innerHTML = addrSuggestItems(items);
+      box.querySelectorAll('.as-item').forEach(b => b.addEventListener('click', () => {
+        const pos = (b.dataset.pos || '').split(',');
+        const lat = pos[1] ? Number(pos[1]) : null;
+        const lon = pos[0] ? Number(pos[0]) : null;
+        addrSelect(b.dataset.t, lat, lon);
+      }));
+    });
+  }, 300);
+}
+
+function addrSavedList() {
+  const box = $('addrSaved');
+  const a = state.addr || {};
+  const parts = [];
+  if (a.flat) parts.push('кв. ' + a.flat);
+  if (a.entrance) parts.push('подъезд ' + a.entrance);
+  if (a.floor) parts.push('этаж ' + a.floor);
+  if (a.intercom) parts.push('домофон ' + a.intercom);
+  if (a.comment) parts.push('«' + a.comment + '»');
+  const detail = parts.length ? parts.join(' · ') : 'Дом, подъезд, этаж, квартира';
+  box.innerHTML = `
+    <div class="as-title">Сохранённый адрес</div>
+    <button class="as-item" onclick="addrUseSaved()"><span class="ic">🏠</span>
+      <span>${esc(state.addr.text || 'Дом')}<small>${esc(detail)}</small></span></button>`;
+}
+
+function addrUseSaved() {
+  addrSelect(state.addr.text, state.addr.lat, state.addr.lon);
+}
+
+function initAddrMap() {
+  const wrap = $('addrMapWrap');
+  const rect = wrap.getBoundingClientRect();
+  if (rect.width < 50 || rect.height < 50) return;
+  if (!window.ymaps || addrMap) return;
+  ymaps.ready(() => {
+    const ll = [state.addr.lat, state.addr.lon];
+    addrMap = new ymaps.Map('addrMap', {
+      center: ll, zoom: 16, controls: ['zoomControl'],
+    });
+    addrMap.options.set('suppressMapOpenBlock', true);
+    addrPlacemark = new ymaps.Placemark(ll, { iconCaption: 'Выберите адрес' }, {
+      preset: 'islands#redDotIconWithCaption',
+      draggable: false,
+    });
+    addrMap.geoObjects.add(addrPlacemark);
+    addrMap.events.add('actionend', () => addrGeocodePin());
+    addrMap.events.add('boundschange', e => {
+      if (e.get('type') === 'continuous') {
+        clearTimeout(addrGeoT);
+        addrGeoT = setTimeout(addrGeocodePin, 350);
+      }
+    });
+    addrGeocodePin();
+  });
+}
+
+function openAddress() {
+  showView('address');
+  const saved = JSON.parse(localStorage.getItem('eda_addr') || 'null');
+  if (saved) state.addr = Object.assign({}, DEF_ADDR, saved);
+  $('addrCity').textContent = state.addr.text;
+  $('addrLine1').textContent = state.addr.text;
+  $('addrLine2').textContent = 'Переместите метку на карте или выберите адрес';
+  $('addrSuggest').classList.add('hidden');
+  addrRenderPanel();
+  addrFillFields();
+  addrSavedList();
+  setTimeout(initAddrMap, 80);
+}
+
+$('addrInput').addEventListener('input', () => {
+  const v = $('addrInput').value.trim();
+  $('addrClear').classList.toggle('hidden', !v);
+  addrDoSearch(v);
+});
+$('addrClear').addEventListener('click', () => {
+  $('addrInput').value = '';
+  $('addrClear').classList.add('hidden');
+  $('addrSuggest').classList.add('hidden');
+});
+
+// сохраняем адрес при подтверждении и обновляем рестораны
+const _addrApplyOrig = addrApply;
+addrApply = function() {
+  addrCollectFields();
+  localStorage.setItem('eda_addr', JSON.stringify(state.addr));
+  _addrApplyOrig();
+};
+
+// показывать сохранённый адрес при старте
+try {
+  const saved = JSON.parse(localStorage.getItem('eda_addr') || 'null');
+  if (saved) {
+    state.addr = Object.assign({}, DEF_ADDR, saved);
+    const city = $('addrCity');
+    if (city) city.textContent = state.addr.text;
+  }
+} catch (e) {}
+</script>
+</body>
+</html>
