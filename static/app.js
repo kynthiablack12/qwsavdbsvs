@@ -3,7 +3,6 @@ const $ = (id) => document.getElementById(id);
 let accounts = [];
 let logPoller = null;
 let activeLogsName = null;
-const cards = new Map();
 
 async function api(url, opts = {}) {
   const r = await fetch(url, opts);
@@ -17,238 +16,214 @@ async function api(url, opts = {}) {
   return data;
 }
 
-async function loadAccounts() {
-  try {
-    accounts = await api('/api/accounts');
-    renderAccounts();
-    updateStats();
-    accounts.forEach(a => {
-      const card = cards.get(a.name);
-      if (card) refreshStatus(a.name, card);
-    });
-  } catch (e) {
-    console.error(e);
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+
+function copyText(text, btn) {
+  const done = () => {
+    btn.textContent = '✓ Скопировано';
+    setTimeout(() => { btn.textContent = 'Копировать'; }, 1500);
+  };
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(done, done);
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta); done();
   }
 }
 
-function updateStats() {
-  $('statTotal').textContent = accounts.length;
-  $('statActive').textContent = accounts.filter(a => a.running).length;
-  $('statPrizes').textContent = '…';
-  $('empty').classList.toggle('hidden', accounts.length > 0);
-  api('/api/prizes/stats').then(s => {
-    $('statPrizes').textContent = s.count ?? '–';
-  }).catch(() => { $('statPrizes').textContent = '–'; });
+function fmtDate(s) {
+  if (!s) return '—';
+  const d = new Date(s);
+  if (isNaN(d)) return esc(s);
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-function renderAccounts() {
-  const wrap = $('accounts');
-  const seen = new Set();
-  accounts.forEach(a => {
-    seen.add(a.name);
-    let card = cards.get(a.name);
-    if (!card) {
-      card = createAccountCard(a);
-      cards.set(a.name, card);
-      wrap.appendChild(card);
-    } else {
-      wrap.appendChild(card);
-      card.classList.toggle('running', !!a.running);
-    }
+function fmtDateDb(s) {
+  if (!s) return '—';
+  let d = new Date(s);
+  if (isNaN(d)) d = new Date(String(s).replace(' ', 'T'));
+  if (isNaN(d)) return esc(s);
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function prizeCat(displayType) {
+  const map = { promocode: 'КУПОН', coupon: 'КУПОН', barcode: 'КУПОН', postcard: 'ОТКРЫТКА', booster: 'БУСТЕР', bonus: 'БОНУС', text: 'ТЕКСТ' };
+  return map[(displayType || '').toLowerCase()] || 'ПРОЧЕЕ';
+}
+
+function downloadCSV(filename, rows) {
+  const csv = rows.map(r => r.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(';')).join('\r\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ================= tabs =================
+function switchTab(name) {
+  document.querySelectorAll('.db-tabs:not(.sub) .db-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.container.wide > .db-pane').forEach(p => {
+    const on = p.id === 'pane-' + name;
+    p.classList.toggle('active', on);
   });
-  for (const [name, card] of [...cards]) {
-    if (!seen.has(name)) {
-      card.remove();
-      cards.delete(name);
-    }
+}
+document.querySelectorAll('#dbTabs .db-tab').forEach(b => b.addEventListener('click', () => {
+  switchTab(b.dataset.tab);
+  const loaders = { accounts: loadAdminAccounts, purchases: loadPurchases, coupons: loadCoupons,
+    prizes: loadPrizes, sessions: loadSessions, eda: loadEda };
+  if (loaders[b.dataset.tab]) loaders[b.dataset.tab]();
+}));
+
+$('btnRefresh').addEventListener('click', () => {
+  const active = document.querySelector('#dbTabs .db-tab.active');
+  const loaders = { accounts: loadAdminAccounts, purchases: loadPurchases, coupons: loadCoupons,
+    prizes: loadPrizes, sessions: loadSessions, eda: loadEda };
+  loadOverview();
+  if (active && loaders[active.dataset.tab]) loaders[active.dataset.tab]();
+});
+
+// ================= overview =================
+async function loadOverview() {
+  try {
+    const o = await api('/api/admin/overview');
+    $('statTotal').textContent = o.accounts ?? '–';
+    $('statActive').textContent = o.running ?? '–';
+    $('statPrizes').textContent = o.prizes ?? '–';
+    $('statOrders').textContent = o.orders ?? '–';
+  } catch (e) { /* ignore */ }
+}
+
+// ================= accounts =================
+let adminAccounts = [];
+
+async function loadAdminAccounts() {
+  try {
+    adminAccounts = await api('/api/admin/accounts');
+    renderAdminAccounts();
+  } catch (e) {
+    $('accTable').querySelector('tbody').innerHTML = `<tr><td colspan="8" class="db-empty">${esc(e.message)}</td></tr>`;
   }
 }
 
-function createAccountCard(a) {
-  const card = document.createElement('div');
-  card.className = 'account' + (a.running ? ' running' : '');
-  card.dataset.name = a.name;
-
-  const initials = (a.name || '?').slice(0, 2).toUpperCase();
-  const gameName = a.event_id === 'At99RuZXsCpnFRhpmEZCK' ? 'Монстро-планетяне' : 'Призолето';
-  const selOpts = Object.entries({ 'wX8CoYBu0OQzsA6DBwqlU': 'Призолето', 'At99RuZXsCpnFRhpmEZCK': 'Монстро-планетяне' })
-    .map(([v, label]) => `<option value="${v}"${v === a.event_id ? ' selected' : ''}>${label}</option>`).join('');
-  card.innerHTML = `
-      <div class="account-head">
-        <div class="avatar">${initials}</div>
-        <div>
-          <div class="account-name">${esc(a.name)}</div>
-          <div class="account-device">${esc(gameName)} · ${esc(a.device_id || '')}</div>
+function renderAdminAccounts() {
+  const q = ($('accSearch').value || '').toLowerCase().trim();
+  const gf = $('accGameFilter').value;
+  let rows = adminAccounts.filter(a => {
+    if (gf && a.event_id !== gf) return false;
+    if (!q) return true;
+    return (a.name || '').toLowerCase().includes(q) || (a.device_id || '').toLowerCase().includes(q);
+  });
+  $('accCount').textContent = `показано ${rows.length} из ${adminAccounts.length}`;
+  const tb = $('accTable').querySelector('tbody');
+  tb.innerHTML = rows.map(a => {
+    const games = a.games || {};
+    const pz = games['wX8CoYBu0OQzsA6DBwqlU'] || {};
+    const mn = games['At99RuZXsCpnFRhpmEZCK'] || {};
+    const activeGame = a.event_id === 'At99RuZXsCpnFRhpmEZCK' ? mn : pz;
+    const attempts = typeof activeGame.attempts === 'number' ? activeGame.attempts : '—';
+    const attemptsCls = typeof activeGame.attempts === 'number' ? (activeGame.attempts > 0 ? 'ok' : 'bad') : '';
+    const level = activeGame.last_level != null ? activeGame.last_level : '—';
+    const bal = typeof a.balance === 'number' ? a.balance : '—';
+    const err = a.error ? `<div class="db-err">${esc(a.error)}</div>` : '';
+    const status = a.running
+      ? '<span class="sd-badge ok">● играет</span>'
+      : (a.error ? '<span class="sd-badge bad">ошибка</span>' : '<span class="sd-badge">стоит</span>');
+    const attemptsCell = `${attempts} <span class="db-mut">(П:${pz.attempts ?? '?'} М:${mn.attempts ?? '?'})</span>`;
+    return `<tr>
+      <td><div class="acc-cell"><b>${esc(a.name)}</b><div class="db-mut mono">${esc(a.device_id || '')}</div>${err}</div></td>
+      <td><select class="game-select db-game" data-name="${esc(a.name)}" data-cur="${esc(a.event_id)}">
+        <option value="wX8CoYBu0OQzsA6DBwqlU"${a.event_id !== 'At99RuZXsCpnFRhpmEZCK' ? ' selected' : ''}>Призолето</option>
+        <option value="At99RuZXsCpnFRhpmEZCK"${a.event_id === 'At99RuZXsCpnFRhpmEZCK' ? ' selected' : ''}>Монстро</option>
+      </select></td>
+      <td><span class="num ${attemptsCls}">${attempts}</span> <span class="db-mut">${attemptsCell}</span></td>
+      <td class="num">${level}</td>
+      <td class="num">${bal}</td>
+      <td class="num">${a.prizes ?? 0}</td>
+      <td>${status}</td>
+      <td class="col-actions">
+        <div class="row-actions">
+          <button class="btn btn-primary btn-sm" data-act="play" data-name="${esc(a.name)}">Играть</button>
+          <button class="btn btn-ghost btn-sm" data-act="claim" data-name="${esc(a.name)}">Бонус</button>
+          <button class="btn btn-ghost btn-sm" data-act="prizes" data-name="${esc(a.name)}">Призы</button>
+          <button class="btn btn-ghost btn-sm" data-act="logs" data-name="${esc(a.name)}">Логи</button>
+          <button class="btn btn-danger btn-sm" data-act="del" data-name="${esc(a.name)}">✕</button>
         </div>
-      </div>
-      <div class="account-stats">
-        <div class="mini-stat"><b>—</b><span>попыток</span></div>
-        <div class="mini-stat"><b>—</b><span>уровень</span></div>
-        <div class="mini-stat"><b>—</b><span>бонусов</span></div>
-      </div>
-      <div class="game-pick">
-        <select class="game-select" data-game-select>${selOpts}</select>
-      </div>
-      <div class="games-status" data-games-status></div>
-      <div class="offers">
-        <div class="offers-title">Персональные предложения</div>
-        <div class="offers-list"></div>
-      </div>
-      <div class="account-actions">
-        <button class="btn btn-primary" data-act="play">Играть</button>
-        <button class="btn btn-ghost btn-sm" data-act="claim">Забрать бонус</button>
-        <button class="btn btn-ghost btn-sm" data-act="coupons">Купоны</button>
-        <button class="btn btn-ghost btn-sm" data-act="prizes">Призы</button>
-        <button class="btn btn-ghost btn-sm" data-act="logs">Логи</button>
-        <button class="btn btn-danger btn-sm" data-act="del" title="Удалить">Удалить</button>
-      </div>`;
+      </td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="8" class="db-empty">Аккаунтов нет — нажмите «+ Добавить аккаунт»</td></tr>`;
 
-  card.querySelector('[data-act="play"]').addEventListener('click', () => playAccount(a.name, card));
-  card.querySelector('[data-act="claim"]').addEventListener('click', () => claimDaily(a.name, card));
-  card.querySelector('[data-act="coupons"]').addEventListener('click', () => syncCoupons(a.name, card));
-  card.querySelector('[data-act="logs"]').addEventListener('click', () => openLogs(a.name));
-  card.querySelector('[data-act="prizes"]').addEventListener('click', () => openPrizes(a.name));
-  card.querySelector('[data-act="del"]').addEventListener('click', () => deleteAccount(a.name, card));
-  card.querySelector('[data-game-select]').addEventListener('change', async (e) => {
-    const v = e.target.value;
+  tb.querySelectorAll('[data-act="play"]').forEach(b => b.addEventListener('click', () => playAccount(b.dataset.name, b)));
+  tb.querySelectorAll('[data-act="claim"]').forEach(b => b.addEventListener('click', () => claimDaily(b.dataset.name, b)));
+  tb.querySelectorAll('[data-act="prizes"]').forEach(b => b.addEventListener('click', () => openPrizes(b.dataset.name)));
+  tb.querySelectorAll('[data-act="logs"]').forEach(b => b.addEventListener('click', () => openLogs(b.dataset.name)));
+  tb.querySelectorAll('[data-act="del"]').forEach(b => b.addEventListener('click', () => deleteAccount(b.dataset.name, b)));
+  tb.querySelectorAll('.db-game').forEach(sel => sel.addEventListener('change', async () => {
+    const name = sel.dataset.name;
     try {
-      await api(`/api/accounts/${encodeURIComponent(a.name)}/game`, {
+      await api(`/api/accounts/${encodeURIComponent(name)}/game`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event_id: v }),
+        body: JSON.stringify({ event_id: sel.value }),
       });
-      a.event_id = v;
-      const dev = card.querySelector('.account-device');
-      dev.textContent = (v === 'At99RuZXsCpnFRhpmEZCK' ? 'Монстро-планетяне' : 'Призолето') + ' · ' + esc(a.device_id || '');
-      refreshStatus(a.name, card);
+      loadAdminAccounts();
     } catch (err) {
-      showModalError(err.message);
-      e.target.value = a.event_id;
+      alert(err.message);
+      sel.value = sel.dataset.cur;
     }
-  });
-  return card;
+  }));
 }
 
-async function refreshStatus(name, card) {
-  try {
-    const st = await api(`/api/accounts/${encodeURIComponent(name)}/status`);
-    const games = st.games || {};
-    const g = games[st.active_event_id] || {};
-    const m = card.querySelectorAll('.mini-stat b');
-    const attempts = g.attempts ?? '—';
-    m[0].textContent = attempts;
-    m[0].classList.toggle('good', typeof attempts === 'number' && attempts > 0);
-    m[0].classList.toggle('bad', attempts === 0);
-    m[1].textContent = g.last_level ?? '—';
-    const box = card.querySelector('[data-games-status]');
-    if (box) {
-      box.innerHTML = '';
-      Object.values(games).forEach(gg => {
-        if (gg.error) return;
-        const row = document.createElement('div');
-        row.className = 'game-row';
-        const chips = [];
-        if (gg.attempts != null) chips.push(`${gg.attempts} поп.`);
-        if (gg.daily_reward_ready) chips.push(gg.game === 'Монстро-планетяне'
-          ? `ежедн. бонус: ${gg.pending_tasks || 1}`
-          : '+ награда за вход');
-        if (gg.everyday_task_ready) chips.push('задание на вход');
-        row.innerHTML = `<span class="game-row-name">${esc(gg.game)}</span>` +
-          chips.map(c => `<span class="chip ${c.startsWith('+') || c.startsWith('ежедн') ? 'chip-gold' : ''}">${esc(c)}</span>`).join('');
-        box.appendChild(row);
-      });
-    }
-  } catch (e) {
-    // card stays with —
-  }
-  try {
-    const ex = await api(`/api/accounts/${encodeURIComponent(name)}/extras`);
-    const b = card.querySelectorAll('.mini-stat b')[2];
-    const total = (ex.balance && ex.balance.total != null) ? ex.balance.total : null;
-    b.textContent = total != null ? total : '—';
-    b.classList.toggle('good', total > 0);
-    renderOffers(ex.offers, card);
-  } catch (e) {
-    // offers stay empty
-  }
-}
+$('accSearch').addEventListener('input', renderAdminAccounts);
+$('accGameFilter').addEventListener('change', renderAdminAccounts);
+$('accCsv').addEventListener('click', () => {
+  downloadCSV('accounts.csv', adminAccounts.map(a => [a.name, a.event_id === 'At99RuZXsCpnFRhpmEZCK' ? 'Монстро' : 'Призолето', a.device_id, a.error || '', a.balance ?? '', a.prizes ?? 0]));
+});
 
-function offerUnit(o) {
-  const u = o.unit || {};
-  if (u.type === 'POINTS') return `${u.value} бонусов`;
-  if (u.type === 'PERCENT_DISCOUNT') return `−${u.value}%`;
-  if (u.type === 'RUB_DISCOUNT') return `−${u.value} ₽`;
-  if (u.value != null) return String(u.value);
-  return (o.tag && o.tag.title) || '';
-}
-
-function renderOffers(offers, card) {
-  const box = card.querySelector('.offers-list');
-  const key = JSON.stringify((offers || []).map(o =>
-    `${o.id}|${o.status}|${(o.unit || {}).value}|${(o.tag || {}).title}|${o.title}`));
-  if (card._offersKey === key) return;
-  card._offersKey = key;
-  box.innerHTML = '';
-  if (!offers || !offers.length) {
-    box.innerHTML = '<div class="offer-empty">нет предложений</div>';
-    return;
-  }
-  const maxShow = 3;
-  offers.slice(0, maxShow).forEach(o => renderOffer(o, box));
-  if (offers.length > maxShow) {
-    const more = document.createElement('div');
-    more.className = 'offer-more';
-    more.textContent = `+ ещё ${offers.length - maxShow}`;
-    box.appendChild(more);
-  }
-}
-
-function renderOffer(o, box) {
-  const tag = (o.tag && o.tag.title) || offerUnit(o);
-  const active = o.status === 'ACTIVE';
-  const el = document.createElement('div');
-  el.className = 'offer';
-  el.innerHTML = `
-    <div class="offer-tag">${esc(tag)}</div>
-    <div class="offer-body">
-      <div class="offer-title">${esc(o.title || '')}</div>
-      <div class="offer-meta"><span>${esc(offerUnit(o))}</span>${active ? '<span class="offer-active">активно</span>' : ''}</div>
-    </div>`;
-  box.appendChild(el);
-}
-
-async function playAccount(name, card) {
-  const btn = card.querySelector('[data-act="play"]');
+$('accPlayAll').addEventListener('click', async () => {
+  const btn = $('accPlayAll');
   btn.disabled = true;
+  const prev = btn.textContent;
+  btn.textContent = '▶ Запуск…';
   try {
-    await api(`/api/accounts/${encodeURIComponent(name)}/play`, { method: 'POST' });
-    openLogs(name);
-    setTimeout(loadAccounts, 800);
-  } catch (e) {
-    alert(e.message);
-    btn.disabled = false;
-  }
-}
-
-async function syncCoupons(name, card) {
-  const btn = card.querySelector('[data-act="coupons"]');
-  btn.disabled = true;
-  try {
-    const r = await api(`/api/accounts/${encodeURIComponent(name)}/coupons/sync`, { method: 'POST' });
-    openLogs(name);
-    alert(`Купонов добавлено: ${r.added}`);
+    const r = await api('/api/accounts/play-all', { method: 'POST' });
+    const started = r.results.filter(x => x.status === 'started').length;
+    const already = r.results.filter(x => x.status === 'already_running').length;
+    alert(`Запущено: ${started}\nУже играли: ${already}`);
+    const first = r.results.find(x => x.status === 'started');
+    if (first) openLogs(first.name);
+    setTimeout(() => { loadAdminAccounts(); loadOverview(); }, 1500);
   } catch (e) {
     alert(e.message);
   } finally {
     btn.disabled = false;
+    btn.textContent = prev;
+  }
+});
+
+async function playAccount(name, btn) {
+  btn.disabled = true;
+  try {
+    await api(`/api/accounts/${encodeURIComponent(name)}/play`, { method: 'POST' });
+    openLogs(name);
+    setTimeout(() => { loadAdminAccounts(); loadOverview(); }, 1500);
+  } catch (e) {
+    alert(e.message);
+    btn.disabled = false;
   }
 }
 
-async function claimDaily(name, card) {
-  const btn = card.querySelector('[data-act="claim"]');
+async function claimDaily(name, btn) {
   btn.disabled = true;
   try {
     const r = await api(`/api/accounts/${encodeURIComponent(name)}/rewards/claim`, { method: 'POST' });
-    refreshStatus(name, card);
+    loadAdminAccounts();
     alert((r.log || []).join('\n') || 'Бонусов нет');
   } catch (e) {
     alert(e.message);
@@ -257,6 +232,409 @@ async function claimDaily(name, card) {
   }
 }
 
+async function deleteAccount(name, btn) {
+  if (!confirm(`Удалить аккаунт "${name}"?`)) return;
+  try {
+    await api(`/api/accounts/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    loadAdminAccounts();
+    loadOverview();
+  } catch (e) { alert(e.message); }
+}
+
+// ================= purchases =================
+let purchases = [];
+
+async function loadPurchases() {
+  try {
+    purchases = await api('/api/admin/purchases');
+    renderPurchases();
+  } catch (e) {
+    $('purTable').querySelector('tbody').innerHTML = `<tr><td colspan="7" class="db-empty">${esc(e.message)}</td></tr>`;
+  }
+}
+
+function renderPurchases() {
+  $('purCount').textContent = `всего ${purchases.length}`;
+  const tb = $('purTable').querySelector('tbody');
+  tb.innerHTML = purchases.map(it => {
+    if (it.kind === 'order') {
+      const badge = it.status_code ? (['CANCELED', 'CANCELED_NO_PAY', 'CANCELED_BY_USER', 'FAILED'].includes(it.status_code) ? 'bad' : 'ok') : '';
+      return `<tr>
+        <td class="num">${fmtDate(it.created_at)}</td>
+        <td><b>${esc(it.account)}</b></td>
+        <td><span class="sd-badge">заказ</span></td>
+        <td><div>№ ${esc(it.order_id || '')}${it.address ? `<div class="db-mut">${esc(it.address)}</div>` : ''}</div></td>
+        <td>${it.status_code ? `<span class="sd-badge ${badge}">${esc(it.status_name || it.status_code)}</span>` : (it.error ? `<span class="sd-badge bad">${esc(it.error)}</span>` : '—')}</td>
+        <td class="num">${esc(it.total || '—')}${it.items_count ? `<div class="db-mut">${it.items_count} тов.</div>` : ''}</td>
+        <td class="col-actions"></td>
+      </tr>`;
+    }
+    const code = it.barcode || it.coupon_id || '';
+    return `<tr>
+      <td class="num">${fmtDateDb(it.obtained_at)}</td>
+      <td><b>${esc(it.account)}</b></td>
+      <td><span class="sd-badge">приз</span></td>
+      <td><b>${esc(it.name || 'Без названия')}</b></td>
+      <td><span class="sd-badge ${it.display_type === 'postcard' ? '' : 'ok'}">${prizeCat(it.display_type)}</span></td>
+      <td class="num">${code ? `<span class="mono">${esc(code)}</span>` : '—'}</td>
+      <td class="col-actions">${code ? `<button class="btn btn-ghost btn-sm btn-copy" data-code="${esc(code)}">Копировать</button>` : ''}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" class="db-empty">Пока нет ни заказов, ни призов</td></tr>';
+  tb.querySelectorAll('.btn-copy').forEach(b => b.addEventListener('click', () => copyText(b.dataset.code, b)));
+}
+
+$('purCsv').addEventListener('click', () => {
+  downloadCSV('purchases.csv', purchases.map(it => it.kind === 'order'
+    ? ['заказ', it.account, it.order_id, it.status_name || it.status_code, it.total, it.created_at]
+    : ['приз', it.account, it.name, prizeCat(it.display_type), it.barcode || it.coupon_id || '', it.obtained_at]));
+});
+
+// ================= coupons =================
+let allCoupons = [];
+
+async function loadCoupons() {
+  try {
+    allCoupons = await api('/api/admin/coupons');
+    renderCoupons();
+  } catch (e) {
+    $('cpnTable').querySelector('tbody').innerHTML = `<tr><td colspan="6" class="db-empty">${esc(e.message)}</td></tr>`;
+  }
+  loadCouponShares();
+}
+
+function renderCoupons() {
+  $('cpnCount').textContent = `всего ${allCoupons.length}`;
+  const tb = $('cpnTable').querySelector('tbody');
+  tb.innerHTML = allCoupons.map(c => {
+    const disc = c.discount_value
+      ? (c.discount_type === 'percentDiscount' ? `−${c.discount_value}%` : `${c.discount_value} ₽`)
+      : '—';
+    return `<tr>
+      <td><b>${esc(c.account)}</b></td>
+      <td>${c.image ? `<img class="cpn-thumb" src="${esc(c.image)}" alt="">` : ''}<b>${esc(c.title || 'Купон')}</b>${c.subtitle ? `<div class="db-mut">${esc(c.subtitle)}</div>` : ''}</td>
+      <td class="num">${c.code ? `<span class="mono">${esc(c.code)}</span>` : '—'}</td>
+      <td>${disc}</td>
+      <td class="num">${esc(c.expiration_date || '—')}</td>
+      <td class="col-actions">
+        <div class="row-actions">
+          <button class="btn btn-ghost btn-sm" data-copy="${esc(c.code || '')}">Копировать</button>
+          <button class="btn btn-primary btn-sm" data-link="${esc(c.account)}" data-id="${esc(c.id || '')}">Создать ссылку</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" class="db-empty">Купонов нет</td></tr>';
+  tb.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy, b)));
+  tb.querySelectorAll('[data-link]').forEach(b => b.addEventListener('click', () => createCouponShare(b.dataset.link, b.dataset.id, b)));
+}
+
+$('cpnCsv').addEventListener('click', () => {
+  downloadCSV('coupons.csv', allCoupons.map(c => [c.account, c.title, c.code, c.discount_value, c.expiration_date]));
+});
+
+async function createCouponShare(account, couponId, btn) {
+  if (!couponId) { alert('Купон без favoriteId'); return; }
+  btn.disabled = true;
+  try {
+    const r = await api('/api/coupons/shares', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account, coupon_id: couponId, hours: parseInt($('cpnHours').value, 10) || 24 }),
+    });
+    copyText(r.link, btn);
+    loadCouponShares();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    setTimeout(() => { btn.disabled = false; }, 1500);
+  }
+}
+
+async function loadCouponShares() {
+  const box = $('cpnShares');
+  try {
+    const shares = (await api('/api/coupons/shares')).filter(s => s.active);
+    if (!shares.length) {
+      box.innerHTML = '<p class="muted" style="margin-top:8px">Ссылок на купоны нет</p>';
+      return;
+    }
+    box.innerHTML = shares.map(s => `
+      <div class="session-row">
+        <div>
+          <div class="session-name">${esc(s.title || s.coupon_id)} <span class="session-account">${esc(s.account)}</span></div>
+          <div class="muted" style="font-size:11.5px;margin-top:3px">до ${esc(s.expires_at || '—')}</div>
+          <div class="session-link">${esc(s.link)}</div>
+        </div>
+        <div class="session-actions">
+          <button class="btn btn-ghost btn-sm" data-copy="${esc(s.link)}">Копировать</button>
+          <button class="btn btn-danger btn-sm" data-revoke="${s.token}">Отвязать</button>
+        </div>
+      </div>`).join('');
+    box.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy, b)));
+    box.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
+      await api(`/api/coupons/shares/${b.dataset.revoke}`, { method: 'DELETE' });
+      loadCouponShares();
+    }));
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+  }
+}
+
+$('cpnCreate').addEventListener('click', async () => {
+  const btn = $('cpnCreate');
+  btn.disabled = true;
+  try {
+    const account = $('cpnAccount').value;
+    const id = $('cpnId').value.trim();
+    if (!account || !id) { alert('Выберите аккаунт и укажите coupon id'); return; }
+    const r = await api('/api/coupons/shares', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account, coupon_id: id, hours: parseInt($('cpnHours').value, 10) || 24 }),
+    });
+    copyText(r.link, btn);
+    loadCouponShares();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function fillCouponAccounts() {
+  const sel = $('cpnAccount');
+  sel.innerHTML = '';
+  (accounts.length ? accounts : []).forEach(a => {
+    const o = document.createElement('option');
+    o.value = a.name;
+    o.textContent = a.name;
+    sel.appendChild(o);
+  });
+}
+
+// ================= prizes =================
+let allPrizes = [];
+
+async function loadPrizes() {
+  try {
+    const [prz, stats] = await Promise.all([api('/api/prizes'), api('/api/prizes/stats')]);
+    allPrizes = prz;
+    $('przCount').textContent = `всего ${stats.count}`;
+    renderPrizesTable();
+  } catch (e) {
+    $('przTable').querySelector('tbody').innerHTML = `<tr><td colspan="7" class="db-empty">${esc(e.message)}</td></tr>`;
+  }
+}
+
+function renderPrizesTable() {
+  const tb = $('przTable').querySelector('tbody');
+  tb.innerHTML = allPrizes.map(p => {
+    const code = p.barcode || p.coupon_id || '';
+    return `<tr>
+      <td class="num">${fmtDateDb(p.obtained_at)}</td>
+      <td><b>${esc(p.account)}</b></td>
+      <td><b>${esc(p.name || 'Без названия')}</b></td>
+      <td><span class="sd-badge ${p.display_type === 'postcard' ? '' : 'ok'}">${prizeCat(p.display_type)}</span></td>
+      <td class="num">${code ? `<span class="mono">${esc(code)}</span>` : '—'}</td>
+      <td class="num">${p.level ?? '—'}</td>
+      <td class="col-actions">${code ? `<button class="btn btn-ghost btn-sm btn-copy" data-code="${esc(code)}">Копировать</button>` : ''}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" class="db-empty">Пока нет выигранных призов</td></tr>';
+  tb.querySelectorAll('.btn-copy').forEach(b => b.addEventListener('click', () => copyText(b.dataset.code, b)));
+}
+
+$('przCsv').addEventListener('click', () => {
+  downloadCSV('prizes.csv', allPrizes.map(p => [p.account, p.name, prizeCat(p.display_type), p.barcode || p.coupon_id || '', p.level, p.obtained_at]));
+});
+
+// ================= sessions =================
+async function loadSessions() {
+  const box = $('sessionsList');
+  try {
+    const sess = await api('/api/sessions');
+    const entries = Object.entries(sess).filter(([, v]) => v.active);
+    if (!entries.length) {
+      box.innerHTML = '<p class="muted" style="margin-top:16px">Активных сессий нет</p>';
+      return;
+    }
+    box.innerHTML = entries.map(([token, s]) => `
+      <div class="session-row">
+        <div>
+          <div class="session-name">${esc(s.name)} <span class="session-account">${esc(s.account)}</span></div>
+          <div class="muted" style="font-size:11.5px;margin-top:3px">до ${esc(s.expires_at || '—')} · последний вход: ${esc(s.last_seen || 'никогда')}</div>
+          <div class="session-link">${esc(location.origin + '/p/' + token)}</div>
+        </div>
+        <div class="session-actions">
+          <button class="btn btn-ghost btn-sm" data-detail="${token}">Детали</button>
+          <button class="btn btn-ghost btn-sm" data-copy="${esc(location.origin + '/p/' + token)}">Копировать</button>
+          <button class="btn btn-danger btn-sm" data-revoke="${token}">Отозвать</button>
+        </div>
+      </div>`).join('');
+    box.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy, b)));
+    box.querySelectorAll('[data-detail]').forEach(b => b.addEventListener('click', () => openSessionDetail(b.dataset.detail)));
+    box.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
+      await api(`/api/sessions/${b.dataset.revoke}`, { method: 'DELETE' });
+      loadSessions();
+    }));
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+  }
+}
+
+function fillAccountsSelect() {
+  const sel = $('accAccount');
+  sel.innerHTML = '';
+  (accounts.length ? accounts : []).forEach(a => {
+    const o = document.createElement('option');
+    o.value = a.name;
+    o.textContent = a.name;
+    sel.appendChild(o);
+  });
+}
+
+$('accCreate').addEventListener('click', async () => {
+  const btn = $('accCreate');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/sessions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('accName').value,
+        account: $('accAccount').value,
+        hours: parseInt($('accHours').value, 10) || 24,
+      }),
+    });
+    $('accName').value = '';
+    copyText(r.link, btn);
+    loadSessions();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ================= EDA =================
+let edaAccounts = [];
+
+function switchEdaTab(name) {
+  document.querySelectorAll('.db-tabs.sub .db-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  $('pane-edaAccs').classList.toggle('active', name === 'edaAccs');
+  $('pane-edaSess').classList.toggle('active', name === 'edaSess');
+}
+document.querySelectorAll('.db-tabs.sub .db-tab').forEach(b => b.addEventListener('click', () => switchEdaTab(b.dataset.tab)));
+
+async function loadEda() {
+  await loadEdaAccounts();
+  await loadEdaSessions();
+  fillEdaAccountSelect();
+  fillCouponAccounts();
+  fillAccountsSelect();
+}
+
+async function loadEdaAccounts() {
+  try {
+    edaAccounts = await api('/api/eda/accounts');
+    const tb = $('edaAccTable').querySelector('tbody');
+    tb.innerHTML = edaAccounts.map(a => `
+      <tr>
+        <td><b>${esc(a.name)}</b></td>
+        <td>${a.has_token ? '<span class="sd-badge ok">токен ✓</span>' : '<span class="sd-badge bad">без токена</span>'}</td>
+        <td class="num">${esc(a.uid || '—')}</td>
+        <td class="num">${esc(a.added || '—')}</td>
+        <td class="col-actions"><button class="btn btn-danger btn-sm" data-del="${esc(a.name)}">Удалить</button></td>
+      </tr>`).join('') || '<tr><td colspan="5" class="db-empty">Аккаунтов Я.Еды нет</td></tr>';
+    tb.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+      await api(`/api/eda/accounts/${encodeURIComponent(b.dataset.del)}`, { method: 'DELETE' });
+      loadEda();
+    }));
+  } catch (e) {
+    $('edaAccTable').querySelector('tbody').innerHTML = `<tr><td colspan="5" class="db-empty">${esc(e.message)}</td></tr>`;
+  }
+}
+
+function fillEdaAccountSelect() {
+  const sel = $('edaSessAccount');
+  sel.innerHTML = '';
+  edaAccounts.forEach(a => {
+    const o = document.createElement('option');
+    o.value = a.name;
+    o.textContent = a.name;
+    sel.appendChild(o);
+  });
+}
+
+$('edaAccAdd').addEventListener('click', async () => {
+  const btn = $('edaAccAdd');
+  btn.disabled = true;
+  try {
+    await api('/api/eda/accounts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('edaName').value.trim(),
+        token: $('edaToken').value.trim(),
+        yandexuid: $('edaUid').value.trim(),
+      }),
+    });
+    $('edaName').value = '';
+    $('edaToken').value = '';
+    $('edaUid').value = '';
+    loadEda();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function loadEdaSessions() {
+  try {
+    const sess = await api('/api/eda/sessions');
+    const entries = Object.entries(sess).filter(([, v]) => v.active);
+    const tb = $('edaSessTable').querySelector('tbody');
+    tb.innerHTML = entries.map(([token, s]) => `
+      <tr>
+        <td><b>${esc(s.name)}</b></td>
+        <td><b>${esc(s.account)}</b></td>
+        <td><span class="mono db-mut">${esc(location.origin + '/d/' + token)}</span></td>
+        <td class="num">${esc(s.expires_at || '—')}</td>
+        <td class="col-actions">
+          <div class="row-actions">
+            <button class="btn btn-ghost btn-sm" data-copy="${esc(location.origin + '/d/' + token)}">Копировать</button>
+            <button class="btn btn-danger btn-sm" data-revoke="${token}">Отозвать</button>
+          </div>
+        </td>
+      </tr>`).join('') || '<tr><td colspan="5" class="db-empty">Активных сессий Еды нет</td></tr>';
+    tb.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy, b)));
+    tb.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
+      await api(`/api/eda/sessions/${b.dataset.revoke}`, { method: 'DELETE' });
+      loadEdaSessions();
+    }));
+  } catch (e) {
+    $('edaSessTable').querySelector('tbody').innerHTML = `<tr><td colspan="5" class="db-empty">${esc(e.message)}</td></tr>`;
+  }
+}
+
+$('edaSessCreate').addEventListener('click', async () => {
+  const btn = $('edaSessCreate');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/eda/sessions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('edaSessName').value.trim(),
+        account: $('edaSessAccount').value,
+        hours: parseInt($('edaSessHours').value, 10) || 24,
+      }),
+    });
+    $('edaSessName').value = '';
+    copyText(location.origin + r.url, btn);
+    loadEdaSessions();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ================= logs modal =================
 function openLogs(name) {
   activeLogsName = name;
   $('logsTitle').textContent = `Логи — ${name}`;
@@ -278,76 +656,17 @@ function pollLogs(name) {
         box.dataset.len = String(text.length);
         box.scrollTop = box.scrollHeight;
       }
-      const st = await api(`/api/accounts/${encodeURIComponent(name)}/status`).catch(() => null);
-      const card = document.querySelector(`.account[data-name="${name}"]`);
-      if (card) card.classList.toggle('running', !!(st && st.running));
-      loadAccounts();
     } catch (e) { /* ignore */ }
   }, 1500);
 }
 
-async function deleteAccount(name, card) {
-  if (!confirm(`Удалить аккаунт "${name}"?`)) return;
-  try {
-    await api(`/api/accounts/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    loadAccounts();
-  } catch (e) { alert(e.message); }
-}
+$('logsClose').addEventListener('click', () => {
+  $('modalLogs').classList.add('hidden');
+  clearInterval(logPoller);
+  activeLogsName = null;
+});
 
-async function renderPrizes(prizes, box) {
-  box.innerHTML = '';
-  if (!prizes.length) {
-    box.innerHTML = '<p class="muted" style="text-align:center;padding:24px">Пока нет выигранных призов</p>';
-    return;
-  }
-  prizes.forEach(p => {
-    const items = (() => { try { return JSON.parse(p.items); } catch { return []; } })();
-    const disc = items.map(i => `${i.discount_value}%`).join(', ');
-    const card = document.createElement('div');
-    card.className = 'prize' + (p.is_barcode ? ' barcode' : '');
-    const img = p.icon_ref
-      ? `<img src="${esc(p.icon_ref)}" alt="" onerror="this.style.display='none'">`
-      : `<div class="prize-emoji">🎁</div>`;
-    const barcode = p.barcode || '';
-    card.innerHTML = `
-      <div class="prize-icon">${img}</div>
-      <div class="prize-body">
-        <div class="prize-name">${esc(p.name || 'Без названия')}</div>
-        <div class="prize-meta">
-          <span>${p.is_barcode ? '🧾 купон' : '⚡ награда'}</span>
-          ${disc ? `<span class="disc">скидка ${disc}</span>` : ''}
-          ${p.expiration_date ? `<span>до ${esc(p.expiration_date)}</span>` : ''}
-        </div>
-        ${barcode ? `
-        <div class="prize-barcode" title="${esc(barcode)}">
-          <span class="barcode-glyph">▮▮▮▮▮▮</span>
-          <span class="barcode-code">${esc(barcode)}</span>
-          <button class="btn btn-ghost btn-copy" data-code="${esc(barcode)}">Копировать</button>
-        </div>` : ''}
-        <div class="prize-sub">уровень ${p.level} · ${esc(p.obtained_at || '')}</div>
-      </div>`;
-    box.appendChild(card);
-    const copyBtn = card.querySelector('.btn-copy');
-    if (copyBtn) copyBtn.addEventListener('click', () => copyText(copyBtn.dataset.code, copyBtn));
-  });
-}
-
-function copyText(text, btn) {
-  const done = () => {
-    btn.textContent = '✓ Скопировано';
-    setTimeout(() => { btn.textContent = 'Копировать'; }, 1500);
-  };
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(done, done);
-  } else {
-    const ta = document.createElement('textarea');
-    ta.value = text; document.body.appendChild(ta);
-    ta.select(); document.execCommand('copy');
-    document.body.removeChild(ta); done();
-  }
-}
-
-// ---- all prizes button ----
+// ================= prizes modal (per account) =================
 let prizesScope = null;
 
 async function openPrizes(name) {
@@ -385,318 +704,47 @@ $('prizesSync').addEventListener('click', async () => {
     btn.textContent = '↻ Синхронизировать';
   }
 });
-
-async function openAllPrizes() {
-  prizesScope = null;
-  $('prizesSync').classList.add('hidden');
-  $('prizesTitle').textContent = 'Призы — все аккаунты';
-  $('prizesStats').textContent = 'Загрузка…';
-  $('prizesList').innerHTML = '';
-  $('modalPrizes').classList.remove('hidden');
-  try {
-    const [prizes, stats] = await Promise.all([api('/api/prizes'), api('/api/prizes/stats')]);
-    $('prizesStats').innerHTML = `<span class="pill">наград: <b>${stats.count}</b></span> <span class="pill">игр: <b>${stats.games}</b></span>`;
-    renderPrizes(prizes, $('prizesList'));
-  } catch (e) {
-    $('prizesStats').textContent = e.message;
-  }
-}
 $('prizesClose').addEventListener('click', () => $('modalPrizes').classList.add('hidden'));
-$('btnPrizes').addEventListener('click', () => openAllPrizes());
 
-// ---- add account modal ----
-let addMode = 'register';
-
-function setAddMode(mode) {
-  addMode = mode;
-  $('tabRegister').classList.toggle('active', mode === 'register');
-  $('tabToken').classList.toggle('active', mode === 'token');
-  $('tabLogin').classList.toggle('active', mode === 'login');
-  $('formAdd').classList.toggle('hidden', mode === 'token');
-  $('formToken').classList.toggle('hidden', mode !== 'token');
-  $('fieldsRegister').classList.toggle('hidden', mode !== 'register');
-  $('modalTitle').textContent =
-    mode === 'login' ? 'Вход в аккаунт' : mode === 'token' ? 'Добавить по токену' : 'Добавить аккаунт';
-  if (mode === 'register') $('addPhone').placeholder = '7 912 345-67-89';
-}
-
-$('tabRegister').addEventListener('click', () => setAddMode('register'));
-$('tabToken').addEventListener('click', () => setAddMode('token'));
-$('tabLogin').addEventListener('click', () => setAddMode('login'));
-
-$('formToken').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  $('modalError').classList.add('hidden');
-  const btn = e.target.querySelector('button[type="submit"]');
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Проверка токена…';
-  try {
-    await api('/api/accounts/from-token', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: $('tokName').value, refresh_token: $('tokRefresh').value, event_id: $('tokEvent').value }),
-    });
-    $('modalAdd').classList.add('hidden');
-    $('tokName').value = '';
-    $('tokRefresh').value = '';
-    loadAccounts();
-  } catch (err) {
-    showModalError(err.message);
-  } finally {
-    btn.disabled = false; btn.textContent = 'Добавить аккаунт';
+function renderPrizes(prizes, box) {
+  box.innerHTML = '';
+  if (!prizes.length) {
+    box.innerHTML = '<p class="muted" style="text-align:center;padding:24px">Пока нет выигранных призов</p>';
+    return;
   }
-});
-
-$('btnAdd').addEventListener('click', () => {
-  $('modalAdd').classList.remove('hidden');
-  $('stepConfirm').classList.add('hidden');
-  $('formAdd').classList.remove('hidden');
-  $('modalError').classList.add('hidden');
-  setAddMode('register');
-});
-$('modalClose').addEventListener('click', () => $('modalAdd').classList.add('hidden'));
-$('logsClose').addEventListener('click', () => {
-  $('modalLogs').classList.add('hidden');
-  clearInterval(logPoller);
-  activeLogsName = null;
-});
-
-$('formAdd').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  $('modalError').classList.add('hidden');
-  const btn = e.target.querySelector('button[type="submit"]');
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Отправка…';
-  try {
-    const data = { phone: $('addPhone').value };
-    if (addMode === 'register') {
-      data.name = $('addName').value;
-      data.first_name = $('addFirstName').value;
-      data.birth_date = $('addBirth').value;
-      data.event_id = $('addEvent').value;
-    }
-    await api('/api/register/start', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
-    });
-    $('formAdd').classList.add('hidden');
-    $('stepConfirm').classList.remove('hidden');
-  } catch (err) {
-    showModalError(err.message);
-  } finally {
-    btn.disabled = false; btn.textContent = 'Отправить SMS';
-  }
-});
-
-$('formConfirm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  $('modalError').classList.add('hidden');
-  const btn = e.target.querySelector('button[type="submit"]');
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Проверка…';
-  try {
-    const body = addMode === 'login'
-      ? { phone: $('addPhone').value, code: $('confirmCode').value }
-      : { name: $('addName').value, code: $('confirmCode').value };
-    await api('/api/register/confirm', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    $('modalAdd').classList.add('hidden');
-    $('formAdd').classList.remove('hidden');
-    $('stepConfirm').classList.add('hidden');
-    $('confirmCode').value = '';
-    loadAccounts();
-  } catch (err) {
-    showModalError(err.message);
-  } finally {
-    btn.disabled = false; btn.textContent = 'Подтвердить';
-  }
-});
-
-function showModalError(msg) {
-  const el = $('modalError');
-  el.textContent = msg;
-  el.classList.remove('hidden');
-}
-
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
-
-// ---- access sessions ----
-$('btnAccess').addEventListener('click', () => {
-  $('modalAccess').classList.remove('hidden');
-  loadSessions();
-  fillAccountsSelect();
-});
-$('accessClose').addEventListener('click', () => $('modalAccess').classList.add('hidden'));
-
-function fillAccountsSelect() {
-  const sel = $('accAccount');
-  sel.innerHTML = '';
-  accounts.forEach(a => {
-    const o = document.createElement('option');
-    o.value = a.name;
-    o.textContent = a.name;
-    sel.appendChild(o);
+  prizes.forEach(p => {
+    const items = (() => { try { return JSON.parse(p.items); } catch { return []; } })();
+    const disc = items.map(i => `${i.discount_value}%`).join(', ');
+    const card = document.createElement('div');
+    card.className = 'prize' + (p.is_barcode ? ' barcode' : '');
+    const img = p.icon_ref
+      ? `<img src="${esc(p.icon_ref)}" alt="" onerror="this.style.display='none'">`
+      : `<div class="prize-emoji">🎁</div>`;
+    const barcode = p.barcode || '';
+    card.innerHTML = `
+      <div class="prize-icon">${img}</div>
+      <div class="prize-body">
+        <div class="prize-name">${esc(p.name || 'Без названия')}</div>
+        <div class="prize-meta">
+          <span class="sd-badge ${p.display_type === 'postcard' ? '' : 'ok'}">${prizeCat(p.display_type)}</span>
+          ${disc ? `<span class="disc">скидка ${disc}</span>` : ''}
+          ${p.expiration_date ? `<span>до ${esc(p.expiration_date)}</span>` : ''}
+        </div>
+        ${barcode ? `
+        <div class="prize-barcode" title="${esc(barcode)}">
+          <span class="barcode-glyph">▮▮▮▮▮▮</span>
+          <span class="barcode-code">${esc(barcode)}</span>
+          <button class="btn btn-ghost btn-copy" data-code="${esc(barcode)}">Копировать</button>
+        </div>` : ''}
+        <div class="prize-sub">уровень ${p.level} · ${esc(p.obtained_at || '')}</div>
+      </div>`;
+    box.appendChild(card);
+    const copyBtn = card.querySelector('.btn-copy');
+    if (copyBtn) copyBtn.addEventListener('click', () => copyText(copyBtn.dataset.code, copyBtn));
   });
 }
 
-async function loadSessions() {
-  const box = $('sessionsList');
-  try {
-    const sess = await api('/api/sessions');
-    const entries = Object.entries(sess).filter(([, v]) => v.active);
-    if (!entries.length) {
-      box.innerHTML = '<p class="muted" style="margin-top:16px">Активных сессий нет</p>';
-      return;
-    }
-    box.innerHTML = entries.map(([token, s]) => `
-      <div class="session-row">
-        <div>
-          <div class="session-name">${esc(s.name)} <span class="session-account">${esc(s.account)}</span></div>
-          <div class="muted" style="font-size:11.5px;margin-top:3px">до ${esc(s.expires_at || '—')} · последний вход: ${esc(s.last_seen || 'никогда')}</div>
-          <div class="session-link">${esc(location.origin + '/p/' + token)}</div>
-        </div>
-        <div class="session-actions">
-          <button class="btn btn-ghost btn-sm" data-detail="${token}">Детали</button>
-          <button class="btn btn-ghost btn-sm" data-copy="${esc(location.origin + '/p/' + token)}">Скопировать</button>
-          <button class="btn btn-danger btn-sm" data-revoke="${token}">Отозвать</button>
-        </div>
-      </div>`).join('');
-    box.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy, b)));
-    box.querySelectorAll('[data-detail]').forEach(b => b.addEventListener('click', () => openSessionDetail(b.dataset.detail)));
-    box.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
-      await api(`/api/sessions/${b.dataset.revoke}`, { method: 'DELETE' });
-      loadSessions();
-    }));
-  } catch (e) {
-    box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
-  }
-}
-
-$('accCreate').addEventListener('click', async () => {
-  const btn = $('accCreate');
-  btn.disabled = true;
-  try {
-    const r = await api('/api/sessions', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: $('accName').value,
-        account: $('accAccount').value,
-        hours: parseInt($('accHours').value, 10) || 24,
-      }),
-    });
-    $('accName').value = '';
-    copyText(r.link, btn);
-    loadSessions();
-  } catch (e) {
-    alert(e.message);
-  } finally {
-    btn.disabled = false;
-  }
-});
-
-// ---- coupon share links ----
-$('btnCoupons').addEventListener('click', () => {
-  $('modalCoupons').classList.remove('hidden');
-  loadCouponShares();
-  fillCouponAccounts();
-  loadCouponList();
-});
-$('couponsClose').addEventListener('click', () => $('modalCoupons').classList.add('hidden'));
-$('cpnAccount').addEventListener('change', loadCouponList);
-
-function fillCouponAccounts() {
-  const sel = $('cpnAccount');
-  sel.innerHTML = '';
-  accounts.forEach(a => {
-    const o = document.createElement('option');
-    o.value = a.name;
-    o.textContent = a.name;
-    sel.appendChild(o);
-  });
-}
-
-async function loadCouponList() {
-  const box = $('cpnCoupons');
-  const name = $('cpnAccount').value;
-  if (!name) { box.innerHTML = '<p class="muted">Выберите аккаунт…</p>'; return; }
-  box.innerHTML = '<p class="muted">Загрузка купонов…</p>';
-  try {
-    const r = await api(`/api/accounts/${encodeURIComponent(name)}/coupons`);
-    const cs = r.coupons || [];
-    if (!cs.length) { box.innerHTML = '<p class="muted">У аккаунта нет купонов</p>'; return; }
-    box.innerHTML = '<div class="cpn-grid">' + cs.map((c, i) => `
-      <div class="cpn-card">
-        ${c.image ? `<img class="cpn-img" src="${esc(c.image)}" alt="" onerror="this.style.display='none'">` : '<div class="cpn-img cpn-img-empty">🎟️</div>'}
-        <div class="cpn-info">
-          <div class="cpn-title">${esc(c.title || 'Купон')}</div>
-          <div class="muted" style="font-size:11.5px;margin-top:2px">
-            ${c.discount_value ? esc((c.discount_type === 'percentDiscount' ? '−' + c.discount_value + '%' : c.discount_value + ' ₽')) : ''}${c.code ? ' · ' + esc(c.code) : ''}
-          </div>
-          <div class="muted" style="font-size:11px;margin-top:1px">до ${esc(c.expiration_date || '—')}</div>
-          <button class="btn btn-primary btn-sm cpn-create" data-id="${esc(c.id)}" data-title="${esc(c.title || '')}">Создать ссылку</button>
-        </div>
-      </div>`).join('') + '</div>';
-    box.querySelectorAll('.cpn-create').forEach(b => b.addEventListener('click', () => createCouponShare(b.dataset.id, b.dataset.title, b)));
-  } catch (e) {
-    box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
-  }
-}
-
-async function createCouponShare(couponId, title, btn) {
-  btn.disabled = true;
-  try {
-    const r = await api('/api/coupons/shares', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        account: $('cpnAccount').value,
-        coupon_id: couponId,
-        hours: parseInt($('cpnHours').value, 10) || 24,
-        name: title,
-      }),
-    });
-    copyText(r.link, btn);
-    btn.textContent = '✓ Ссылка создана';
-    loadCouponShares();
-  } catch (e) {
-    alert(e.message);
-  } finally {
-    setTimeout(() => { if (btn) btn.disabled = false; }, 1500);
-  }
-}
-
-async function loadCouponShares() {
-  const box = $('cpnShares');
-  try {
-    const shares = await api('/api/coupons/shares');
-    const active = shares.filter(s => s.active);
-    if (!active.length) {
-      box.innerHTML = '<p class="muted" style="margin-top:8px">Ссылок на купоны нет</p>';
-      return;
-    }
-    box.innerHTML = active.map(s => `
-      <div class="session-row">
-        <div>
-          <div class="session-name">${esc(s.title || s.coupon_id)} <span class="session-account">${esc(s.account)}</span></div>
-          <div class="muted" style="font-size:11.5px;margin-top:3px">создано ${esc(s.created_at || '—')} · ссылка действует до ${esc(s.expires_at || '—')}</div>
-          <div class="session-link">${esc(s.link)}</div>
-        </div>
-        <div class="session-actions">
-          <button class="btn btn-ghost btn-sm" data-copy="${esc(s.link)}">Скопировать</button>
-          <button class="btn btn-danger btn-sm" data-revoke="${s.token}">Отозвать</button>
-        </div>
-      </div>`).join('');
-    box.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy, b)));
-    box.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
-      await api(`/api/coupons/shares/${b.dataset.revoke}`, { method: 'DELETE' });
-      loadCouponShares();
-    }));
-  } catch (e) {
-    box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
-  }
-}
-
-// ---- session details ----
+// ================= session detail modal =================
 $('sessClose').addEventListener('click', () => $('modalSess').classList.add('hidden'));
 $('modalSess').addEventListener('click', (e) => { if (e.target === $('modalSess')) $('modalSess').classList.add('hidden'); });
 
@@ -708,13 +756,6 @@ function statusBadge(code) {
   };
   const cls = map[code] || 'warn';
   return `<span class="sd-badge ${cls}">${esc(code)}</span>`;
-}
-
-function fmtDate(s) {
-  if (!s) return '—';
-  const d = new Date(s);
-  if (isNaN(d)) return esc(s);
-  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 async function openSessionDetail(token) {
@@ -811,145 +852,126 @@ function renderSessionDetail(s) {
   `;
 }
 
-// ---- Яндекс Еда: аккаунты и сессии ----
-$('btnEda').addEventListener('click', () => {
-  $('modalEda').classList.remove('hidden');
-  loadEdaAccounts();
-  loadEdaSessions();
-  fillEdaAccountSelect();
-});
-$('edaClose').addEventListener('click', () => $('modalEda').classList.add('hidden'));
+// ================= add account modal =================
+let addMode = 'register';
 
-$('edaTabAccs').addEventListener('click', () => {
-  $('edaTabAccs').classList.add('active');
-  $('edaTabSess').classList.remove('active');
-  $('edaPaneAccs').classList.remove('hidden');
-  $('edaPaneSess').classList.add('hidden');
-});
-$('edaTabSess').addEventListener('click', () => {
-  $('edaTabSess').classList.add('active');
-  $('edaTabAccs').classList.remove('active');
-  $('edaPaneSess').classList.remove('hidden');
-  $('edaPaneAccs').classList.add('hidden');
-});
-
-let edaAccounts = [];
-
-async function loadEdaAccounts() {
-  const box = $('edaAccounts');
-  try {
-    edaAccounts = await api('/api/eda/accounts');
-    if (!edaAccounts.length) {
-      box.innerHTML = '<p class="muted" style="margin-top:16px">Аккаунтов Я.Еды нет. Добавьте первый выше.</p>';
-      return;
-    }
-    box.innerHTML = edaAccounts.map(a => `
-      <div class="session-row">
-        <div>
-          <div class="session-name">${esc(a.name)} <span class="session-account">${a.has_token ? 'токен ✓' : 'без токена'}</span></div>
-          <div class="muted" style="font-size:11.5px;margin-top:3px">добавлен ${esc(a.added || '—')}${a.uid ? ' · uid ' + esc(a.uid) : ''}</div>
-        </div>
-        <div class="session-actions">
-          <button class="btn btn-danger btn-sm" data-del="${esc(a.name)}">Удалить</button>
-        </div>
-      </div>`).join('');
-    box.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
-      await api(`/api/eda/accounts/${encodeURIComponent(b.dataset.del)}`, { method: 'DELETE' });
-      loadEdaAccounts();
-      fillEdaAccountSelect();
-    }));
-  } catch (e) {
-    box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
-  }
+function setAddMode(mode) {
+  addMode = mode;
+  $('tabRegister').classList.toggle('active', mode === 'register');
+  $('tabToken').classList.toggle('active', mode === 'token');
+  $('tabLogin').classList.toggle('active', mode === 'login');
+  $('formAdd').classList.toggle('hidden', mode === 'token');
+  $('formToken').classList.toggle('hidden', mode !== 'token');
+  $('fieldsRegister').classList.toggle('hidden', mode !== 'register');
+  $('modalTitle').textContent =
+    mode === 'login' ? 'Вход в аккаунт' : mode === 'token' ? 'Добавить по токену' : 'Добавить аккаунт';
+  if (mode === 'register') $('addPhone').placeholder = '7 912 345-67-89';
 }
 
-function fillEdaAccountSelect() {
-  const sel = $('edaSessAccount');
-  sel.innerHTML = '';
-  edaAccounts.forEach(a => {
-    const o = document.createElement('option');
-    o.value = a.name;
-    o.textContent = a.name;
-    sel.appendChild(o);
-  });
-}
+$('tabRegister').addEventListener('click', () => setAddMode('register'));
+$('tabToken').addEventListener('click', () => setAddMode('token'));
+$('tabLogin').addEventListener('click', () => setAddMode('login'));
 
-$('edaAccAdd').addEventListener('click', async () => {
-  const btn = $('edaAccAdd');
-  btn.disabled = true;
+$('formToken').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('modalError').classList.add('hidden');
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Проверка токена…';
   try {
-    await api('/api/eda/accounts', {
+    await api('/api/accounts/from-token', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: $('edaName').value.trim(),
-        token: $('edaToken').value.trim(),
-        yandexuid: $('edaUid').value.trim(),
-      }),
+      body: JSON.stringify({ name: $('tokName').value, refresh_token: $('tokRefresh').value, event_id: $('tokEvent').value }),
     });
-    $('edaName').value = '';
-    $('edaToken').value = '';
-    $('edaUid').value = '';
-    loadEdaAccounts();
-    fillEdaAccountSelect();
-  } catch (e) {
-    alert(e.message);
+    $('modalAdd').classList.add('hidden');
+    $('tokName').value = '';
+    $('tokRefresh').value = '';
+    loadAdminAccounts();
+    loadOverview();
+  } catch (err) {
+    showModalError(err.message);
   } finally {
-    btn.disabled = false;
+    btn.disabled = false; btn.textContent = 'Добавить аккаунт';
   }
 });
 
-async function loadEdaSessions() {
-  const box = $('edaSessions');
+$('btnAdd').addEventListener('click', () => {
+  $('modalAdd').classList.remove('hidden');
+  $('stepConfirm').classList.add('hidden');
+  $('formAdd').classList.remove('hidden');
+  $('modalError').classList.add('hidden');
+  setAddMode('register');
+});
+$('modalClose').addEventListener('click', () => $('modalAdd').classList.add('hidden'));
+
+$('formAdd').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('modalError').classList.add('hidden');
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Отправка…';
   try {
-    const sess = await api('/api/eda/sessions');
-    const entries = Object.entries(sess).filter(([, v]) => v.active);
-    if (!entries.length) {
-      box.innerHTML = '<p class="muted" style="margin-top:16px">Активных сессий нет</p>';
-      return;
+    const data = { phone: $('addPhone').value };
+    if (addMode === 'register') {
+      data.name = $('addName').value;
+      data.first_name = $('addFirstName').value;
+      data.birth_date = $('addBirth').value;
+      data.event_id = $('addEvent').value;
     }
-    box.innerHTML = entries.map(([token, s]) => `
-      <div class="session-row">
-        <div>
-          <div class="session-name">${esc(s.name)} <span class="session-account">${esc(s.account)}</span></div>
-          <div class="muted" style="font-size:11.5px;margin-top:3px">до ${esc(s.expires_at || '—')} · последний вход: ${esc(s.last_seen || 'никогда')}</div>
-          <div class="session-link">${esc(location.origin + '/d/' + token)}</div>
-        </div>
-        <div class="session-actions">
-          <button class="btn btn-ghost btn-sm" data-copy="${esc(location.origin + '/d/' + token)}">Скопировать</button>
-          <button class="btn btn-danger btn-sm" data-revoke="${token}">Отозвать</button>
-        </div>
-      </div>`).join('');
-    box.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy, b)));
-    box.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
-      await api(`/api/eda/sessions/${b.dataset.revoke}`, { method: 'DELETE' });
-      loadEdaSessions();
-    }));
-  } catch (e) {
-    box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+    await api('/api/register/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    });
+    $('formAdd').classList.add('hidden');
+    $('stepConfirm').classList.remove('hidden');
+  } catch (err) {
+    showModalError(err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Отправить SMS';
   }
+});
+
+$('formConfirm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('modalError').classList.add('hidden');
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Проверка…';
+  try {
+    const body = addMode === 'login'
+      ? { phone: $('addPhone').value, code: $('confirmCode').value }
+      : { name: $('addName').value, code: $('confirmCode').value };
+    await api('/api/register/confirm', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    $('modalAdd').classList.add('hidden');
+    $('formAdd').classList.remove('hidden');
+    $('stepConfirm').classList.add('hidden');
+    $('confirmCode').value = '';
+    loadAdminAccounts();
+    loadOverview();
+  } catch (err) {
+    showModalError(err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Подтвердить';
+  }
+});
+
+function showModalError(msg) {
+  const el = $('modalError');
+  el.textContent = msg;
+  el.classList.remove('hidden');
 }
 
-$('edaSessCreate').addEventListener('click', async () => {
-  const btn = $('edaSessCreate');
-  btn.disabled = true;
+// ================= boot =================
+async function boot() {
+  loadOverview();
+  loadAdminAccounts();
+  loadEda();
   try {
-    const r = await api('/api/eda/sessions', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: $('edaSessName').value.trim(),
-        account: $('edaSessAccount').value,
-        hours: parseInt($('edaSessHours').value, 10) || 24,
-      }),
-    });
-    $('edaSessName').value = '';
-    copyText(location.origin + r.url, btn);
-    loadEdaSessions();
-  } catch (e) {
-    alert(e.message);
-  } finally {
-    btn.disabled = false;
-  }
-});
-
-loadAccounts();
-setInterval(loadAccounts, 6000);
+    accounts = await api('/api/accounts');
+  } catch (e) { /* ignore */ }
+}
+boot();
+setInterval(() => {
+  loadOverview();
+  const active = document.querySelector('#dbTabs .db-tab.active');
+  if (active && active.dataset.tab === 'accounts') loadAdminAccounts();
+}, 15000);

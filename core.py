@@ -1,4 +1,5 @@
 import requests, sys, json, os, re, uuid, hashlib, threading, time, sqlite3
+from concurrent.futures import ThreadPoolExecutor
 sys.stdout.reconfigure(encoding='utf-8')
 
 # Railway: данные в PostgreSQL (DATABASE_URL) + файлы в каталоге DATA_DIR (Volume).
@@ -30,6 +31,9 @@ s = requests.Session()
 # от других запросов (refresh, купоны и т.п.) ломает OTP -> untrustedDevice.
 otp_s = requests.Session()
 otp_s.cookies.clear()
+
+# Сериализует ротацию refreshToken между потоками.
+_refresh_lock = threading.Lock()
 
 
 # ---------- prizes database (SQLite locally, PostgreSQL on Railway) ----------
@@ -189,6 +193,11 @@ def norm_phone(p):
 # ---------- magnit auth ----------
 
 def refresh_magnit_token(acc):
+    with _refresh_lock:
+        return _refresh_magnit_token(acc)
+
+
+def _refresh_magnit_token(acc):
     r = s.post('https://id.magnit.ru/v1/auth/token/refresh',
                headers={**dev_headers(acc), 'Content-Type': 'application/json; charset=UTF-8'},
                data=json.dumps({'aud': 'loyalty-mobile', 'refreshToken': acc['refresh_token']}), timeout=20)
@@ -678,10 +687,13 @@ def sync_game_rewards(acc, log=print):
             conn.close()
         if dup:
             continue
+        is_barcode = bool(p.get('is_barcode'))
+        display_type = 'barcode' if is_barcode else 'text'
         save_prize(name, '', 0, p, barcode=code, coupon_id=code,
-                   display_type='barcode' if p.get('is_barcode') else 'text')
+                   display_type=display_type)
         added += 1
-        log(f'   + {code or "?"} {p.get("info", {}).get("name", "")[:50]}')
+        log(f'   + ВЫИГРЫШ [{prize_category(display_type)}]: '
+            f'{p.get("info", {}).get("name", "")[:60]}' + (f', код {code}' if code else ''))
     log(f'добавлено выигрышей: {added}')
     return added
 
@@ -719,6 +731,28 @@ def play_account(acc, log=print):
     return play_prizoleto_account(acc, log)
 
 
+PRIZE_LABELS = {
+    'promocode': 'КУПОН',
+    'coupon': 'КУПОН',
+    'barcode': 'КУПОН',
+    'postcard': 'ОТКРЫТКА',
+    'booster': 'БУСТЕР',
+    'bonus': 'БОНУС',
+    'text': 'ТЕКСТ',
+}
+
+
+def prize_category(ptype, extra=None):
+    """Человекочитаемая категория приза для лога (купоны/открытки/прочее)."""
+    label = PRIZE_LABELS.get((ptype or '').lower(), 'ПРОЧЕЕ')
+    if label == 'ПРОЧЕЕ' and extra:
+        for k, v in PRIZE_LABELS.items():
+            if v != 'ПРОЧЕЕ' and k in str(extra).lower():
+                label = v
+                break
+    return label
+
+
 def play_prizoleto_account(acc, log=print):
     name = acc.get('name', '?')
     log(f'=== {name} ===')
@@ -738,6 +772,7 @@ def play_prizoleto_account(acc, log=print):
         log(f'   после забора задач: {attempts} attempts')
     level = prof.get('last_finished_map_level', 0) + 1
     games = 0
+    won = {}
     while attempts > 0:
         try:
             game = start_game(h, level)
@@ -751,9 +786,16 @@ def play_prizoleto_account(acc, log=print):
         log(f'   game {gid}: board {cols}x{rows} target {target}')
         fin = finish_game(h, gid, turns=1, victory=True)
         log(f'   finish -> {fin.get("attempt_type")}')
-        for p in fin.get('rewards_preview', {}).get('current', []):
+        rewards = fin.get('rewards_preview', {}).get('current', []) or []
+        if not rewards:
+            log('   выигрыша нет')
+        for p in rewards:
+            pname = (p.get('info') or {}).get('name', '') or ''
+            ptype = 'barcode' if p.get('is_barcode') else ('text' if (p.get('info') or {}).get('is_text') else 'other')
+            cat = prize_category(ptype)
             st = pick_reward(h, p['id'])
-            log(f'   reward {p["id"]} {p.get("info", {}).get("name", "")[:40]} -> {st}')
+            won[cat] = won.get(cat, 0) + 1
+            log(f'   ВЫИГРЫШ [{cat}]: {pname or "(без названия)"} (выбор -> {st})')
         if fin.get('attempt_type') == 'conditional':
             level += 1
         attempts -= 1
@@ -766,6 +808,9 @@ def play_prizoleto_account(acc, log=print):
     prof2 = s.get('https://magnit-prizoleto.ru/api/v1/profile', headers=h, timeout=20).json()
     log(f'   done: {games} games, remaining {prof2.get("attempts", {}).get("total_count")}, '
         f'last level {prof2.get("last_finished_map_level")}')
+    if won:
+        parts = ', '.join(f'{cat}: {n}' for cat, n in won.items())
+        log(f'   выигрышей за сессию: {sum(won.values())} ({parts})')
     return games
 
 
@@ -790,6 +835,7 @@ def play_monstro_account(acc, log=print):
             log(f'   task {tid} reward: +{got} attempts')
             attempts += got
     games = 0
+    won = {}
     while attempts > 0:
         try:
             st = start_game_monstro(h)
@@ -806,21 +852,160 @@ def play_monstro_account(acc, log=print):
         dur = 2000
         fin = finish_game_monstro(h, ts, dur)
         log(f'   finish: remaining attempts {fin.get("attempts_count")}, type {fin.get("attempts_type")}')
-        for p in fin.get('prizes', []):
-            title = p.get('title', '')
+        prizes = fin.get('prizes') or []
+        if not prizes:
+            log('   выигрыша нет')
+        for p in prizes:
+            title = (p.get('title') or '').strip()
             ptype = p.get('type', 'text')
+            cat = prize_category(ptype, p.get('discount_type'))
             # промокод/купон несёт код в value; посткарта — просто открытка без кода
-            code = str(p.get('value') or '') or (str(p.get('id', '')) if ptype in ('promocode', 'barcode') else '')
+            code = str(p.get('value') or '').strip() or (str(p.get('id', '')) if ptype in ('promocode', 'coupon', 'barcode') else '')
             fake = {'id': p.get('id'), 'info': {'name': title, 'icon_ref': (p.get('image_url') or [''])[0]},
                     'expiration_date': '', 'is_barcode': ptype == 'barcode', 'is_button': False, 'items': []}
             save_prize(name, acc.get('event_id'), level or 0, fake, barcode=code or None, coupon_id=code or None,
                        display_type=ptype)
-            log(f'   prize {p.get("id")} [{ptype}] {title[:50]}')
+            won[cat] = won.get(cat, 0) + 1
+            extra = f', код {code}' if code and ptype in ('promocode', 'coupon', 'barcode') else ''
+            log(f'   ВЫИГРЫШ [{cat}]: {title or "(без названия)"}{extra}')
         attempts = fin.get('attempts_count', attempts - 1)
         games += 1
         time.sleep(0.5)
     log(f'   done: {games} games')
+    if won:
+        parts = ', '.join(f'{cat}: {n}' for cat, n in won.items())
+        log(f'   выигрышей за сессию: {sum(won.values())} ({parts})')
     return games
 
 
 runs = RunManager()
+
+
+# ---------- admin panel aggregation ----------
+
+def account_rows():
+    """Данные для таблицы аккаунтов: по каждому аккаунту собираются обе игры
+    и баланс (параллельно). Медленные аккаунты не блокируют остальные."""
+    accs = load_accounts()
+    running = set(runs.running())
+    rows = []
+
+    def worker(acc):
+        row = {
+            'name': acc.get('name'),
+            'event_id': acc.get('event_id'),
+            'device_id': acc.get('device_id', '')[:8] + '...',
+            'running': acc.get('name') in running,
+            'prizes': prize_stats(acc.get('name')).get('count', 0),
+        }
+        try:
+            at = refresh_magnit_token(acc)
+        except Exception as e:
+            row['error'] = str(e)[:160]
+            return row
+        games = {}
+        try:
+            rs = get_game_token(acc, at, event_id='wX8CoYBu0OQzsA6DBwqlU')
+            login = login_game(rs)
+            h = game_headers(login['token'], login['external_id'])
+            prof = s.get('https://magnit-prizoleto.ru/api/v1/profile', headers=h, timeout=20).json()
+            games['wX8CoYBu0OQzsA6DBwqlU'] = {
+                'game': 'Призолето',
+                'attempts': prof.get('attempts', {}).get('total_count') or 0,
+                'last_level': prof.get('last_finished_map_level'),
+            }
+        except Exception as e:
+            games['wX8CoYBu0OQzsA6DBwqlU'] = {'game': 'Призолето', 'error': str(e)[:160]}
+        try:
+            rs = get_game_token(acc, at, event_id='At99RuZXsCpnFRhpmEZCK')
+            data = auth_game_monstro(rs)
+            games['At99RuZXsCpnFRhpmEZCK'] = {
+                'game': 'Монстро-планетяне',
+                'attempts': (data.get('user') or {}).get('attempts_count') or 0,
+                'last_level': None,
+            }
+        except Exception as e:
+            games['At99RuZXsCpnFRhpmEZCK'] = {'game': 'Монстро-планетяне', 'error': str(e)[:160]}
+        row['games'] = games
+        try:
+            row['balance'] = get_balance(acc, at).get('total', 0)
+        except Exception:
+            row['balance'] = None
+        return row
+
+    with ThreadPoolExecutor(max_workers=max(len(accs), 1)) as ex:
+        for row in ex.map(worker, accs):
+            rows.append(row)
+    return rows
+
+
+def admin_purchases(limit=200):
+    """Объединённая лента «покупок»: заказы Самовывоза по всем аккаунтам
+    + выигранные призы из БД, отсортированные по дате (свежие сверху)."""
+    accs = load_accounts()
+    items = []
+
+    def orders(acc):
+        try:
+            import pickup
+            hist = pickup.order_history(acc.get('name'), limit=50)
+            for o in hist:
+                o['account'] = acc.get('name')
+                o['kind'] = 'order'
+            return hist
+        except Exception as e:
+            return [{'kind': 'order', 'account': acc.get('name'), 'error': str(e)}]
+
+    with ThreadPoolExecutor(max_workers=max(len(accs), 1)) as ex:
+        for res in ex.map(orders, accs):
+            items.extend(res)
+
+    for p in list_prizes(limit=limit):
+        items.append({
+            'kind': 'prize',
+            'account': p.get('account'),
+            'name': p.get('name'),
+            'display_type': p.get('display_type'),
+            'barcode': p.get('barcode'),
+            'coupon_id': p.get('coupon_id'),
+            'obtained_at': p.get('obtained_at'),
+        })
+
+    def dt(item):
+        return item.get('created_at') or item.get('obtained_at') or ''
+    items.sort(key=dt, reverse=True)
+    return items[:limit]
+
+
+def admin_coupons():
+    """Купоны по всем аккаунтам (одна таблица)."""
+    accs = load_accounts()
+    out = []
+
+    def worker(acc):
+        try:
+            import pickup
+            cs = pickup.coupons(acc.get('name'))
+        except Exception as e:
+            return [{'account': acc.get('name'), 'error': str(e)}]
+        rows = []
+        for c in cs:
+            it = (c.get('items') or [{}])[0]
+            rows.append({
+                'account': acc.get('name'),
+                'id': c.get('favoriteId'),
+                'title': c.get('title') or '',
+                'subtitle': c.get('subtitle') or '',
+                'code': (it or {}).get('couponCode') or c.get('favoriteId') or '',
+                'display_type': c.get('displayType'),
+                'discount_value': (it or {}).get('discountValue'),
+                'discount_type': (it or {}).get('discountType'),
+                'expiration_date': c.get('expirationDate'),
+                'image': c.get('smallImageUrl') or c.get('largeImageUrl') or c.get('promoImageUrl') or '',
+            })
+        return rows
+
+    with ThreadPoolExecutor(max_workers=max(len(accs), 1)) as ex:
+        for res in ex.map(worker, accs):
+            out.extend(res)
+    return out

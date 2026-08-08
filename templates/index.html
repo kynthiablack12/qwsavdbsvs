@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Магнит Призолето — панель</title>
+<title>Магнит — админ-панель</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
@@ -15,25 +15,22 @@
   <div class="orb orb-2"></div>
 </div>
 
-<div class="container">
+<div class="container wide">
   <header class="header">
     <div class="logo">
-      <div class="logo-badge">П</div>
+      <div class="logo-badge">М</div>
       <div>
-        <h1>Призолето <span class="tag">автопилот</span></h1>
-        <p class="subtitle">Играйте за все аккаунты Магнит автоматически</p>
+        <h1>Админ-панель <span class="tag">база данных</span></h1>
+        <p class="subtitle">Аккаунты · покупки · купоны · призы · сессии · доставка</p>
       </div>
     </div>
     <div class="header-btns">
-      <button class="btn btn-ghost" id="btnPrizes">🏆 Все призы</button>
-      <button class="btn btn-ghost" id="btnCoupons">🎟️ Купоны</button>
-      <button class="btn btn-ghost" id="btnEda">🚚 Доставка</button>
-      <button class="btn btn-ghost" id="btnAccess">🔑 Доступ</button>
+      <button class="btn btn-ghost" id="btnRefresh">↻ Обновить</button>
       <button class="btn btn-primary" id="btnAdd">+ Добавить аккаунт</button>
     </div>
   </header>
 
-  <section class="stats-row">
+  <section class="stats-row stats-4">
     <div class="stat-card">
       <div class="stat-icon">👤</div>
       <div>
@@ -49,25 +46,218 @@
       </div>
     </div>
     <div class="stat-card">
-      <div class="stat-icon blue">🎁</div>
+      <div class="stat-icon blue">🏆</div>
       <div>
         <div class="stat-num" id="statPrizes">–</div>
         <div class="stat-label">всего призов</div>
       </div>
     </div>
+    <div class="stat-card">
+      <div class="stat-icon" style="background:var(--green-soft);border-color:rgba(47,209,124,.25)">🛒</div>
+      <div>
+        <div class="stat-num" id="statOrders">–</div>
+        <div class="stat-label">заказов (архив)</div>
+      </div>
+    </div>
   </section>
 
-  <div class="section-title">
-    <h2>Аккаунты</h2>
-  </div>
+  <nav class="db-tabs" id="dbTabs">
+    <button class="db-tab active" data-tab="accounts">👤 Аккаунты</button>
+    <button class="db-tab" data-tab="purchases">🛒 Покупки</button>
+    <button class="db-tab" data-tab="coupons">🎟️ Купоны</button>
+    <button class="db-tab" data-tab="prizes">🏆 Призы</button>
+    <button class="db-tab" data-tab="sessions">🔑 Сессии</button>
+    <button class="db-tab" data-tab="eda">🚚 ЕДА</button>
+  </nav>
 
-  <main class="accounts" id="accounts"></main>
+  <!-- ================= Аккаунты ================= -->
+  <section class="db-pane active" id="pane-accounts">
+    <div class="db-toolbar">
+      <input type="search" id="accSearch" class="db-search" placeholder="Поиск по имени или устройству…">
+      <select id="accGameFilter" class="db-search" style="max-width:200px">
+        <option value="">Все игры</option>
+        <option value="wX8CoYBu0OQzsA6DBwqlU">Призолето</option>
+        <option value="At99RuZXsCpnFRhpmEZCK">Монстро-планетяне</option>
+      </select>
+      <span class="db-count" id="accCount"></span>
+      <span class="db-spacer"></span>
+      <button class="btn btn-primary btn-sm" id="accPlayAll">▶ Играть на всех</button>
+      <button class="btn btn-ghost btn-sm" id="accCsv">Скачать CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table" id="accTable">
+        <thead>
+          <tr>
+            <th>Аккаунт</th>
+            <th>Игра</th>
+            <th>Попытки</th>
+            <th>Уровень</th>
+            <th>Бонусы</th>
+            <th>Призов</th>
+            <th>Статус</th>
+            <th class="col-actions">Действия</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
 
-  <div id="empty" class="empty hidden">
-    <div class="empty-icon">🎁</div>
-    <p>Пока нет аккаунтов</p>
-    <p class="muted">Добавьте первый аккаунт, чтобы начать</p>
-  </div>
+  <!-- ================= Покупки ================= -->
+  <section class="db-pane" id="pane-purchases">
+    <div class="db-toolbar">
+      <span class="db-count" id="purCount"></span>
+      <span class="db-spacer"></span>
+      <button class="btn btn-ghost btn-sm" id="purCsv">Скачать CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table" id="purTable">
+        <thead>
+          <tr>
+            <th>Дата</th>
+            <th>Аккаунт</th>
+            <th>Тип</th>
+            <th>Название</th>
+            <th>Статус / категория</th>
+            <th>Сумма / код</th>
+            <th class="col-actions">Действия</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= Купоны ================= -->
+  <section class="db-pane" id="pane-coupons">
+    <div class="db-toolbar">
+      <span class="db-count" id="cpnCount"></span>
+      <span class="db-spacer"></span>
+      <button class="btn btn-ghost btn-sm" id="cpnCsv">Скачать CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table" id="cpnTable">
+        <thead>
+          <tr>
+            <th>Аккаунт</th>
+            <th>Купон</th>
+            <th>Код</th>
+            <th>Скидка</th>
+            <th>Действует до</th>
+            <th class="col-actions">Действия</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="sd-section"><h3>Создать ссылку на купон</h3>
+      <div class="access-form">
+        <label>Аккаунт
+          <select id="cpnAccount"></select>
+        </label>
+        <label>Купон (favoriteId)
+          <input type="text" id="cpnId" placeholder="или код из списка выше">
+        </label>
+        <label>Срок, часов
+          <input type="number" id="cpnHours" value="24" min="1">
+        </label>
+        <button class="btn btn-primary" id="cpnCreate">Создать ссылку</button>
+      </div>
+    </div>
+    <div class="sd-section"><h3>Созданные ссылки</h3><div id="cpnShares" class="sessions-list"></div></div>
+  </section>
+
+  <!-- ================= Призы ================= -->
+  <section class="db-pane" id="pane-prizes">
+    <div class="db-toolbar">
+      <span class="db-count" id="przCount"></span>
+      <span class="db-spacer"></span>
+      <button class="btn btn-ghost btn-sm" id="przCsv">Скачать CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table" id="przTable">
+        <thead>
+          <tr>
+            <th>Получен</th>
+            <th>Аккаунт</th>
+            <th>Приз</th>
+            <th>Категория</th>
+            <th>Код</th>
+            <th>Уровень</th>
+            <th class="col-actions">Действия</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= Сессии ================= -->
+  <section class="db-pane" id="pane-sessions">
+    <div class="sd-section"><h3>Новая сессия доступа (самовывоз)</h3>
+      <div class="access-form">
+        <label>Имя человека
+          <input type="text" id="accName" placeholder="например: Вася">
+        </label>
+        <label>Аккаунт Магнита
+          <select id="accAccount"></select>
+        </label>
+        <label>Срок действия, часов
+          <input type="number" id="accHours" value="24" min="1">
+        </label>
+        <button class="btn btn-primary" id="accCreate">Создать сессию</button>
+      </div>
+    </div>
+    <div class="sd-section"><h3>Активные сессии</h3><div id="sessionsList" class="sessions-list"></div></div>
+  </section>
+
+  <!-- ================= ЕДА ================= -->
+  <section class="db-pane" id="pane-eda">
+    <div class="db-tabs sub">
+      <button class="db-tab active" data-tab="edaAccs">Аккаунты Еды</button>
+      <button class="db-tab" data-tab="edaSess">Сессии Еды</button>
+    </div>
+    <div class="db-pane active" id="pane-edaAccs">
+      <div class="eda-add">
+        <label>Имя аккаунта
+          <input type="text" id="edaName" placeholder="например: omsk1" autocomplete="off">
+        </label>
+        <label>Bearer-токен
+          <input type="text" id="edaToken" placeholder="2.uid.token или webviewtoken=..." autocomplete="off">
+        </label>
+        <label>yandexuid (можно пусто)
+          <input type="text" id="edaUid" placeholder="passport uid" autocomplete="off">
+        </label>
+        <button class="btn btn-primary" id="edaAccAdd">Добавить аккаунт</button>
+      </div>
+      <div class="table-wrap" style="margin-top:16px">
+        <table class="data-table" id="edaAccTable">
+          <thead><tr><th>Имя</th><th>Токен</th><th>uid</th><th>Добавлен</th><th class="col-actions">Действия</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="db-pane" id="pane-edaSess">
+      <div class="access-form">
+        <label>Имя человека
+          <input type="text" id="edaSessName" placeholder="например: Вася" autocomplete="off">
+        </label>
+        <label>Аккаунт Я.Еды
+          <select id="edaSessAccount"></select>
+        </label>
+        <label>Срок действия, часов
+          <input type="number" id="edaSessHours" value="24" min="1">
+        </label>
+        <button class="btn btn-primary" id="edaSessCreate">Создать сессию</button>
+      </div>
+      <div class="table-wrap" style="margin-top:16px">
+        <table class="data-table" id="edaSessTable">
+          <thead><tr><th>Имя</th><th>Аккаунт</th><th>Ссылка</th><th>Истекает</th><th class="col-actions">Действия</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 </div>
 
 <!-- Add account modal -->
@@ -152,92 +342,6 @@
     </div>
     <div class="prizes-stats" id="prizesStats"></div>
     <div class="prizes-list" id="prizesList"></div>
-  </div>
-</div>
-
-<!-- Access modal -->
-<div class="modal-overlay hidden" id="modalAccess">
-  <div class="modal modal-wide">
-    <button class="modal-close" id="accessClose">×</button>
-    <h2>Доступ для сторонних</h2>
-    <p class="muted">Сессия даёт человеку доступ <b>только к разделу «Самовывоз»</b> одного аккаунта по ссылке. Токены наружу не выдаются, отзыв в один клик.</p>
-    <div class="access-form">
-      <label>Имя человека
-        <input type="text" id="accName" placeholder="например: Вася">
-      </label>
-      <label>Аккаунт Магнита
-        <select id="accAccount"></select>
-      </label>
-      <label>Срок действия, часов
-        <input type="number" id="accHours" value="24" min="1">
-      </label>
-      <button class="btn btn-primary" id="accCreate">Создать сессию</button>
-    </div>
-    <div class="sessions-list" id="sessionsList"></div>
-  </div>
-</div>
-
-<!-- Coupon shares modal -->
-<div class="modal-overlay hidden" id="modalCoupons">
-  <div class="modal modal-wide">
-    <button class="modal-close" id="couponsClose">×</button>
-    <h2>🎟️ Ссылки на купоны</h2>
-    <p class="muted">Создайте отдельную ссылку на купон аккаунта. Страница купона выглядит как в приложении Магнит — со штрих-кодом и описанием. Ссылка действует заданное число часов.</p>
-    <div class="access-form">
-      <label>Аккаунт Магнита
-        <select id="cpnAccount"></select>
-      </label>
-      <label>Срок действия ссылки, часов
-        <input type="number" id="cpnHours" value="24" min="1">
-      </label>
-    </div>
-    <div class="coupons-list" id="cpnCoupons"><p class="muted">Выберите аккаунт…</p></div>
-    <div class="sd-section" style="margin-top:20px"><h3>Созданные ссылки</h3>
-      <div id="cpnShares"><p class="muted">Загрузка…</p></div>
-    </div>
-  </div>
-</div>
-
-<!-- EDA (Яндекс Еда) modal -->
-<div class="modal-overlay hidden" id="modalEda">
-  <div class="modal modal-wide">
-    <button class="modal-close" id="edaClose">×</button>
-    <h2>🚚 Яндекс Еда — доставка</h2>
-    <p class="muted">Сессия даёт человеку доступ к мобильной копии Я.Еды по ссылке <code>/d/&lt;token&gt;</code>. Токены аккаунтов наружу не выдаются.</p>
-    <div class="eda-tabs">
-      <button class="tab active" id="edaTabAccs">Аккаунты</button>
-      <button class="tab" id="edaTabSess">Сессии</button>
-    </div>
-    <div id="edaPaneAccs">
-      <div class="eda-add">
-        <label>Имя аккаунта
-          <input type="text" id="edaName" placeholder="например: omsk1" autocomplete="off">
-        </label>
-        <label>Bearer-токен
-          <input type="text" id="edaToken" placeholder="2.uid.token или webviewtoken=..." autocomplete="off">
-        </label>
-        <label>yandexuid (можно пусто)
-          <input type="text" id="edaUid" placeholder="passport uid" autocomplete="off">
-        </label>
-        <button class="btn btn-primary" id="edaAccAdd">Добавить аккаунт</button>
-      </div>
-      <div class="eda-accounts" id="edaAccounts"><p class="muted">Загрузка…</p></div>
-    </div>
-    <div id="edaPaneSess" class="hidden">
-      <div class="access-form">
-        <label>Имя человека
-          <input type="text" id="edaSessName" placeholder="например: Вася" autocomplete="off">
-        </label>
-        <label>Аккаунт Я.Еды
-          <select id="edaSessAccount"></select>
-        </label>
-        <label>Срок действия, часов
-          <input type="number" id="edaSessHours" value="24" min="1">
-        </label>
-        <button class="btn btn-primary" id="edaSessCreate">Создать сессию</button>
-      </div>
-      <div class="sessions-list" id="edaSessions"></div>
-    </div>
   </div>
 </div>
 

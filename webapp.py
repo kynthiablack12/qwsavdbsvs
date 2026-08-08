@@ -222,6 +222,25 @@ def api_play(name):
     return jsonify({'ok': True})
 
 
+@app.route('/api/accounts/play-all', methods=['POST'])
+def api_play_all():
+    """Запустить автоплей одновременно на всех аккаунтах."""
+    accs = core.load_accounts()
+    if not accs:
+        return jsonify({'error': 'нет аккаунтов'}), 400
+    results = []
+    for a in accs:
+        name = a.get('name')
+        started, err = core.runs.start(name)
+        if err:
+            results.append({'name': name, 'status': 'already_running'})
+            continue
+        push_log(name, '--- started (all) ---')
+        threading.Thread(target=run_in_thread, args=(name,), daemon=True).start()
+        results.append({'name': name, 'status': 'started'})
+    return jsonify({'ok': True, 'results': results})
+
+
 @app.route('/api/accounts/<name>/rewards/claim', methods=['POST'])
 def api_claim_daily(name):
     accs = core.load_accounts()
@@ -446,6 +465,74 @@ def api_prizes():
 def api_prizes_stats():
     account = request.args.get('account')
     return jsonify(core.prize_stats(account))
+
+
+# ---------- admin panel (database-style tables) ----------
+
+@app.route('/api/admin/overview')
+def api_admin_overview():
+    """Сводка для верхней панели: счётчики аккаунтов, призов, купонов, заказов."""
+    accs = core.load_accounts()
+    prizes = core.prize_stats()
+    running = core.runs.running()
+    out = {
+        'accounts': len(accs),
+        'running': len(running),
+        'prizes': prizes.get('count', 0),
+        'games': prizes.get('games', 0),
+    }
+    try:
+        out['coupons'] = len(core.admin_coupons())
+    except Exception:
+        out['coupons'] = None
+    try:
+        import pickup
+        out['orders'] = sum(len(pickup.order_history(a.get('name'), limit=50)) for a in accs)
+    except Exception:
+        out['orders'] = None
+    return jsonify(out)
+
+
+@app.route('/api/admin/accounts')
+def api_admin_accounts():
+    return jsonify(core.account_rows())
+
+
+@app.route('/api/admin/purchases')
+def api_admin_purchases():
+    return jsonify(core.admin_purchases())
+
+
+@app.route('/api/admin/coupons')
+def api_admin_coupons():
+    return jsonify(core.admin_coupons())
+
+
+@app.route('/api/admin/accounts/<name>/coupons')
+def api_admin_account_coupons(name):
+    accs = core.load_accounts()
+    if not any(a.get('name') == name for a in accs):
+        return jsonify({'error': 'not found'}), 404
+    try:
+        import pickup
+        cs = pickup.coupons(name)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    out = []
+    for c in cs:
+        it = (c.get('items') or [{}])[0]
+        out.append({
+            'id': c.get('favoriteId'),
+            'title': c.get('title') or '',
+            'subtitle': c.get('subtitle') or '',
+            'code': (it or {}).get('couponCode') or c.get('favoriteId') or '',
+            'display_type': c.get('displayType'),
+            'discount_value': (it or {}).get('discountValue'),
+            'discount_type': (it or {}).get('discountType'),
+            'expiration_date': c.get('expirationDate'),
+            'image': c.get('smallImageUrl') or c.get('largeImageUrl') or c.get('promoImageUrl') or '',
+        })
+    return jsonify({'ok': True, 'coupons': out})
 
 
 # ---------- access sessions (pickup for third parties) ----------
