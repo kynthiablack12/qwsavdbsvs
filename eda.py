@@ -1,4 +1,4 @@
-import sys, os, json, uuid, time, re, urllib.parse
+import sys, os, json, uuid, time, re, urllib.parse, html
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
 import requests
@@ -780,10 +780,16 @@ SP_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
          '(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36')
 
 
+def sp_clean(text):
+    """Развернуть HTML-сущности (&nbsp;, &laquo;…) и убрать лишние пробелы."""
+    if not text:
+        return ''
+    return re.sub(r'\s+', ' ', html.unescape(str(text))).strip()
+
+
 def sp_session_id(acc):
     """Сырой Session_id для API «Свои Плюсы»."""
     return (acc.get('session_id') or '').strip() or (acc.get('cookies') or {}).get('Session_id', '')
-
 
 def sp_headers(acc):
     """Браузерные заголовки для egw-API «Свои Плюсы» (с кукой Session_id)."""
@@ -856,8 +862,8 @@ def sp_daily_layout(acc):
                             status = it.get('text')
                 rewards.append({
                     'reward_id': rid,
-                    'title': (sh.get('title') or '').strip(),
-                    'subtitle': (sh.get('subtitle') or '').strip(),
+                    'title': sp_clean(sh.get('title')),
+                    'subtitle': sp_clean(sh.get('subtitle')),
                     'status': status,
                 })
     return rewards
@@ -912,8 +918,8 @@ def sp_present_options(detail):
             'id': o.get('id'),
             'type': o.get('type'),
             'service_id': svc.get('serviceId'),
-            'service_name': svc.get('serviceName') or svc.get('servicePrettyName'),
-            'title': title,
+            'service_name': sp_clean(svc.get('serviceName') or svc.get('servicePrettyName')),
+            'title': sp_clean(title),
         })
     return out
 
@@ -946,7 +952,7 @@ def collect_sp_daily(account, claim=False, progress=None):
                 continue
             entry = {
                 'reward_id': rid,
-                'title': (detail or {}).get('popupTitle') or rw.get('title'),
+                'title': sp_clean((detail or {}).get('popupTitle')) or rw.get('title'),
                 'status': (detail or {}).get('displayStatus') or rw.get('status'),
                 'options': sp_present_options(detail),
                 'promocode': (detail or {}).get('promocode'),
