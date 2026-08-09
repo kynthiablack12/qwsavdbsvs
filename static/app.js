@@ -1043,10 +1043,12 @@ async function runSpDaily() {
     const cells = [];
     rows.forEach(r => {
       (r.rewards || []).forEach(rw => {
+        const opts = (rw.options || []).map(o =>
+          `<span class="sd-badge">${esc(o.service_name || o.title || o.id || '')}</span>`).join(' ');
         cells.push(`
           <tr>
             <td><b>${esc(r.name)}</b></td>
-            <td>${esc(rw.title || rw.reward_id)}</td>
+            <td>${esc(rw.title || rw.reward_id)}${opts ? `<div class="db-mut" style="margin-top:4px">${opts}</div>` : ''}</td>
             <td>${rw.error ? `<span class="sd-badge bad">${esc(rw.error)}</span>` : (rw.status === 'ACTIVATED' ? '<span class="sd-badge ok">активирован</span>' : esc(rw.status || ''))}</td>
             <td>${rw.promocode ? `<span class="sd-badge ok">${esc(rw.promocode)}</span>` : '<span class="db-mut">—</span>'}</td>
             <td>${fmtDate(rw.expires_at)}</td>

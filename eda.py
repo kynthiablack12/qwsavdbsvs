@@ -899,18 +899,21 @@ def sp_claim_reward(acc, reward_id, chosen_reward_id):
 
 
 def sp_present_options(detail):
-    """Список вариантов подарка из detail (id + сервис)."""
+    """Список вариантов подарка из detail (id + сервис + название)."""
     out = []
     for o in (detail or {}).get('presentOptions') or []:
         if not isinstance(o, dict):
             continue
         svc = (o.get('service') or {}) if isinstance(o.get('service'), dict) else {}
+        # название варианта — в разных полях у разных сервисов
+        title = (o.get('title') or o.get('subtitle') or o.get('popupTitle')
+                 or o.get('description') or '')
         out.append({
             'id': o.get('id'),
             'type': o.get('type'),
             'service_id': svc.get('serviceId'),
             'service_name': svc.get('serviceName') or svc.get('servicePrettyName'),
-            'title': o.get('title') or o.get('subtitle') or '',
+            'title': title,
         })
     return out
 
@@ -950,7 +953,15 @@ def collect_sp_daily(account, claim=False, progress=None):
                 'expires_at': (detail or {}).get('expiresAt'),
                 'error': None,
             }
-            if claim and entry['status'] == 'REACHED' and entry['options']:
+            # для неактивированного подарка (REACHED) layout даёт заголовок карточки
+            # «Выбирайте, что забирать» — вместо него показываем первый вариант
+            opts = entry['options']
+            if entry['status'] == 'REACHED' and opts:
+                first = opts[0]
+                opt_title = first.get('service_name') or first.get('title') or ''
+                if opt_title:
+                    entry['title'] = opt_title
+            if claim and entry['status'] == 'REACHED' and opts:
                 if progress:
                     progress(f'Активация {rid}: {entry["options"][0].get("id")}', 0.65 + 0.3 * i / total)
                 try:
@@ -959,6 +970,8 @@ def collect_sp_daily(account, claim=False, progress=None):
                     entry['status'] = cl.get('displayStatus') or entry['status']
                     entry['promocode'] = cl.get('promocode')
                     entry['expires_at'] = cl.get('expiresAt')
+                    if cl.get('popupTitle'):
+                        entry['title'] = cl.get('popupTitle')
                 except Exception as e:
                     entry['error'] = str(e)
             out['rewards'].append(entry)
