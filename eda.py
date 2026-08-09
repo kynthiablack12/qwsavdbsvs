@@ -961,12 +961,17 @@ def collect_sp_daily(account, claim=False, progress=None):
                 opt_title = first.get('service_name') or first.get('title') or ''
                 if opt_title:
                     entry['title'] = opt_title
-            if claim and entry['status'] == 'REACHED' and opts:
+            # забираем только Перекрёсток (perekrestok), если он доступен
+            perek = next((o for o in opts
+                          if 'perekrestok' in str(o.get('service_id') or '')
+                          or 'perekrestok' in str(o.get('service_name') or '').lower()
+                          or 'perekrestok' in str(o.get('title') or '').lower()), None)
+            if claim and entry['status'] == 'REACHED' and perek:
                 if progress:
-                    progress(f'Активация {rid}: {entry["options"][0].get("id")}', 0.65 + 0.3 * i / total)
+                    progress(f'Активация {rid}: {perek.get("id")}', 0.65 + 0.3 * i / total)
                 try:
-                    cl = sp_claim_reward(acc, rid, entry['options'][0]['id'])
-                    entry['chosen'] = entry['options'][0].get('id')
+                    cl = sp_claim_reward(acc, rid, perek['id'])
+                    entry['chosen'] = perek.get('id')
                     entry['status'] = cl.get('displayStatus') or entry['status']
                     entry['promocode'] = cl.get('promocode')
                     entry['expires_at'] = cl.get('expiresAt')
@@ -974,6 +979,9 @@ def collect_sp_daily(account, claim=False, progress=None):
                         entry['title'] = cl.get('popupTitle')
                 except Exception as e:
                     entry['error'] = str(e)
+            elif claim and entry['status'] == 'REACHED' and opts and not perek:
+                entry['status'] = 'SKIPPED'
+                entry['error'] = 'Перекрёсток недоступен — подарок не забран'
             out['rewards'].append(entry)
     except Exception as e:
         out['error'] = str(e)
