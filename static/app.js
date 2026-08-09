@@ -715,6 +715,45 @@ $('skAccAdd').addEventListener('click', async () => {
   }
 });
 
+$('skSmsSend').addEventListener('click', async () => {
+  const btn = $('skSmsSend');
+  btn.disabled = true;
+  try {
+    await api('/api/samokat/sms/send', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: $('skPhone').value.trim() }),
+    });
+    alert('Код отправлен на ' + $('skPhone').value.trim());
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('skSmsConfirm').addEventListener('click', async () => {
+  const btn = $('skSmsConfirm');
+  btn.disabled = true;
+  try {
+    await api('/api/samokat/sms/confirm', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('skName').value.trim() || 'sms',
+        phone: $('skPhone').value.trim(),
+        code: $('skSmsCode').value.trim(),
+      }),
+    });
+    $('skName').value = '';
+    $('skPhone').value = '';
+    $('skSmsCode').value = '';
+    loadSamokat();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 async function loadSkSessions() {
   try {
     const sess = await api('/api/samokat/sessions');

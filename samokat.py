@@ -161,6 +161,127 @@ def is_token_expired(access_token_expires):
         return True
 
 
+# ---------- вход по номеру + SMS-коду ----------
+#
+# Flow (снят с веба api-web.samokat.ru):
+#   1. GET  /api/auth/session          -> accessToken (анонимный, если не вошёл)
+#   2. POST /confirmation/code         -> {phoneNumber}  -> отправляет SMS
+#   3. GET  /api/auth/csrf             -> csrfToken
+#   4. POST /api/auth/callback/smsCode -> phone, code, anonymousAccessToken, csrfToken
+#   5. GET  /api/auth/session          -> уже вошёл: accessToken/refreshToken
+#
+# Между шагами держим "запрос кода" в памяти: {phone -> {name, token}}.
+
+_PENDING_CODES = {}
+
+
+def _web_session(cookies=None):
+    """GET /api/auth/session: сырой dict токенов (может быть пустым до входа)."""
+    hdrs = dict(WEB_HEADERS)
+    if cookies:
+        hdrs['Cookie'] = _cookie_header(cookies)
+    try:
+        r = core.s.get(AUTH_SESSION_URL, headers=hdrs, timeout=30)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Самокат: сеть (auth/session): {e}')
+    if r.status_code == 401:
+        raise RuntimeError('Самокат: 401 в auth/session')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Самокат: auth/session HTTP {r.status_code}: {r.text[:300]}')
+    try:
+        return r.json() or {}
+    except Exception:
+        return {}
+
+
+def request_sms_code(phone):
+    """Шаг 1-2: получить accessToken и отправить SMS-код на номер.
+
+    Возвращает {'ok': True} либо кидает RuntimeError.
+    """
+    phone = (phone or '').strip()
+    if not phone:
+        raise RuntimeError('введите номер телефона')
+    data = _web_session()
+    token = data.get('accessToken', '')
+    if not token:
+        raise RuntimeError('Самокат: нет accessToken — зайдите на samokat.ru в браузере (анонимная сессия)')
+    h = dict(APP)
+    h['authorization'] = 'Bearer ' + token
+    jwt = _jwt_payload(token)
+    h['deviceid'] = jwt.get('device_id') or ''
+    h['origin'] = SAMOKAT_WEB
+    h['referer'] = SAMOKAT_WEB + '/'
+    try:
+        r = core.s.post(API_HOST + '/confirmation/code', headers=h,
+                        data=json.dumps({'phoneNumber': phone}), timeout=25)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Самокат: сеть (confirmation/code): {e}')
+    if r.status_code == 401:
+        raise RuntimeError('Самокат: 401 — анонимный токен истёк, обновите страницу samokat.ru')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Самокат: confirmation/code HTTP {r.status_code}: {r.text[:300]}')
+    _PENDING_CODES[phone] = {'token': token}
+    return {'ok': True}
+
+
+def confirm_sms_code(phone, code):
+    """Шаги 3-5: подтвердить код и вернуть свежие токены (dict).
+
+    Возвращает dict с accessToken/refreshToken и прочим — как get_tokens.
+    """
+    phone = (phone or '').strip()
+    code = (code or '').strip()
+    if not phone or not code:
+        raise RuntimeError('номер и код обязательны')
+    pend = _PENDING_CODES.get(phone)
+    if not pend:
+        raise RuntimeError('сначала отправьте код на этот номер')
+    token = pend['token']
+    # 3. csrf
+    try:
+        r = core.s.get(SAMOKAT_WEB + '/api/auth/csrf', headers=dict(WEB_HEADERS), timeout=25)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Самокат: сеть (auth/csrf): {e}')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Самокат: auth/csrf HTTP {r.status_code}: {r.text[:300]}')
+    csrf = (r.json() or {}).get('csrfToken', '')
+    if not csrf:
+        raise RuntimeError('Самокат: не получен csrfToken')
+    # 4. callback/smsCode
+    h = dict(WEB_HEADERS)
+    h['Content-Type'] = 'application/x-www-form-urlencoded'
+    h['Origin'] = SAMOKAT_WEB
+    h['Referer'] = SAMOKAT_WEB + '/'
+    try:
+        r = core.s.post(SAMOKAT_WEB + '/api/auth/callback/smsCode', headers=h,
+                        data={
+                            'redirect': 'false',
+                            'callbackUrl': '/',
+                            'phone': phone,
+                            'code': code,
+                            'anonymousAccessToken': token,
+                            'csrfToken': csrf,
+                            'json': 'true',
+                        }, timeout=30)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Самокат: сеть (callback/smsCode): {e}')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Самокат: callback/smsCode HTTP {r.status_code}: {r.text[:300]}')
+    try:
+        j = r.json()
+    except Exception:
+        j = {}
+    if j.get('url'):
+        pass
+    # 5. сессия уже вошла
+    data = _web_session()
+    if not data.get('accessToken'):
+        raise RuntimeError('Самокат: вход не прошёл (нет accessToken после кода) — проверьте код')
+    _PENDING_CODES.pop(phone, None)
+    return data
+
+
 # ---------- аккаунты ----------
 
 def load_samokat_accounts():
@@ -204,6 +325,36 @@ def add_samokat_account(name, cookies_raw):
     acc = {
         'name': name,
         'cookies': _pick_cookies(cookies),
+        'refresh_token': data.get('refreshToken', ''),
+        'access_token': data.get('accessToken', ''),
+        'session_token': data.get('sessionToken', ''),
+        'access_token_expires': data.get('accessTokenExpires', 0),
+        'expires': data.get('expires', ''),
+        'user': data.get('user', {}),
+        'user_id': str(jwt.get('sub') or (data.get('user') or {}).get('userId') or ''),
+        'device_id': str(jwt.get('device_id') or ''),
+        'added': time.strftime('%Y-%m-%d %H:%M:%S'),
+    }
+    accs = load_samokat_accounts()
+    if any(a.get('name') == name for a in accs):
+        raise RuntimeError(f'аккаунт "{name}" уже существует')
+    accs.append(acc)
+    save_samokat_accounts(accs)
+    return accs
+
+
+def add_samokat_account_by_tokens(name, data):
+    """Создать аккаунт из токенов, полученных после ввода SMS-кода.
+
+    data — ответ GET /api/auth/session после успешного входа.
+    """
+    name = (name or '').strip()
+    if not name:
+        raise RuntimeError('имя аккаунта обязательно')
+    jwt = _jwt_payload(data.get('accessToken', ''))
+    acc = {
+        'name': name,
+        'cookies': {},
         'refresh_token': data.get('refreshToken', ''),
         'access_token': data.get('accessToken', ''),
         'session_token': data.get('sessionToken', ''),

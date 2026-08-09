@@ -1545,6 +1545,30 @@ def api_samokat_accounts_add():
     return jsonify({'ok': True})
 
 
+@app.route('/api/samokat/sms/send', methods=['POST'])
+def api_samokat_sms_send():
+    data = request.get_json(silent=True) or {}
+    try:
+        samokat.request_sms_code(data.get('phone', ''))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True})
+
+
+@app.route('/api/samokat/sms/confirm', methods=['POST'])
+def api_samokat_sms_confirm():
+    data = request.get_json(silent=True) or {}
+    try:
+        toks = samokat.confirm_sms_code(data.get('phone', ''), data.get('code', ''))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    try:
+        samokat.add_samokat_account_by_tokens(data.get('name', ''), toks)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True})
+
+
 @app.route('/api/samokat/accounts/<name>', methods=['DELETE'])
 def api_samokat_accounts_delete(name):
     samokat.delete_samokat_account(name)
