@@ -3,6 +3,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
 import pickup
 import eda
+import samokat
 from flask import Flask, jsonify, request, render_template, Response, session, redirect, url_for
 import time
 
@@ -1514,6 +1515,278 @@ def api_eda_order_cancel(token, oid):
     try:
         eda.cancel_order(s['account'], oid)
         return jsonify({'ok': True})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ---------- Самокат: аккаунты и сессии ----------
+
+@app.route('/api/samokat/accounts')
+def api_samokat_accounts():
+    return jsonify([{'name': a.get('name'),
+                     'added': a.get('added'),
+                     'user': a.get('user') or {},
+                     'token_ok': bool(a.get('access_token')),
+                     'expires': a.get('expires', ''),
+                     'access_expires': a.get('access_token_expires', 0),
+                     'session_token': bool(a.get('session_token'))}
+                    for a in samokat.load_samokat_accounts()])
+
+
+@app.route('/api/samokat/accounts', methods=['POST'])
+def api_samokat_accounts_add():
+    data = request.get_json(silent=True) or {}
+    try:
+        samokat.add_samokat_account(data.get('name', ''), data.get('cookies', ''))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True})
+
+
+@app.route('/api/samokat/accounts/<name>', methods=['DELETE'])
+def api_samokat_accounts_delete(name):
+    samokat.delete_samokat_account(name)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/samokat/accounts/<name>/refresh', methods=['POST'])
+def api_samokat_accounts_refresh(name):
+    try:
+        acc = samokat.refresh_samokat_account(name)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'expires': acc.get('expires'),
+                    'access_expires': acc.get('access_token_expires')})
+
+
+@app.route('/api/samokat/accounts/<name>/profile')
+def api_samokat_profile(name):
+    acc = samokat.get_samokat_account(name)
+    if not acc:
+        return jsonify({'error': 'not found'}), 404
+    try:
+        return jsonify({'ok': True, 'profile': samokat.profile(acc)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/samokat/accounts/<name>/addresses')
+def api_samokat_addresses(name):
+    acc = samokat.get_samokat_account(name)
+    if not acc:
+        return jsonify({'error': 'not found'}), 404
+    try:
+        return jsonify({'ok': True, 'addresses': samokat.addresses(acc)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/samokat/sessions')
+def api_samokat_sessions_list():
+    return jsonify(samokat.load_samokat_sessions())
+
+
+@app.route('/api/samokat/sessions', methods=['POST'])
+def api_samokat_sessions_create():
+    data = request.get_json(silent=True) or {}
+    try:
+        token = samokat.create_samokat_session(data.get('name', ''),
+                                               data.get('account', ''),
+                                               int(data.get('hours', 24)))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'token': token,
+                    'link': f'http://{request.host}/s/{token}'})
+
+
+@app.route('/api/samokat/sessions/<token>', methods=['DELETE'])
+def api_samokat_sessions_revoke(token):
+    samokat.revoke_samokat_session(token)
+    return jsonify({'ok': True})
+
+
+def samokat_session(token):
+    """Возвращает сессию Самоката либо бросает RuntimeError."""
+    s = samokat.get_samokat_session(token)
+    if not s:
+        raise RuntimeError('сессия не найдена, истекла или отозвана')
+    samokat.touch_samokat_session(token)
+    return s
+
+
+@app.route('/s/<token>')
+def samokat_client_page(token):
+    if not samokat.get_samokat_session(token):
+        return render_template('samokat.html', token=token, invalid=True), 403
+    return render_template('samokat.html', token=token, invalid=False)
+
+
+@app.route('/api/samokat/<token>/info')
+def api_samokat_info(token):
+    try:
+        s = samokat_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    return jsonify({'name': s['name'], 'account': s['account'],
+                    'expires_at': s['expires_at']})
+
+
+@app.route('/api/samokat/<token>/profile')
+def api_samokat_client_profile(token):
+    try:
+        s = samokat_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    acc = samokat.get_samokat_account(s['account'])
+    try:
+        return jsonify({'ok': True, 'profile': samokat.profile(acc)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/samokat/<token>/addresses')
+def api_samokat_client_addresses(token):
+    try:
+        s = samokat_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    acc = samokat.get_samokat_account(s['account'])
+    try:
+        return jsonify({'ok': True, 'addresses': samokat.addresses(acc)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/samokat/<token>/showcases')
+def api_samokat_showcases(token):
+    try:
+        s = samokat_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    acc = samokat.get_samokat_account(s['account'])
+    try:
+        return jsonify({'ok': True, 'showcases': samokat.showcase_list(acc)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/samokat/<token>/categories')
+def api_samokat_categories(token):
+    try:
+        s = samokat_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    acc = samokat.get_samokat_account(s['account'])
+    try:
+        return jsonify({'ok': True, 'categories': samokat.categories(
+            acc, request.args.get('showcase_id'))})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/samokat/<token>/catalog')
+def api_samokat_catalog(token):
+    try:
+        s = samokat_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    acc = samokat.get_samokat_account(s['account'])
+    try:
+        return jsonify({'ok': True, 'goods': samokat.goods(
+            acc, request.args.get('showcase_id'),
+            category_id=request.args.get('category_id'),
+            term=request.args.get('term'))})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/samokat/<token>/cart')
+def api_samokat_cart(token):
+    try:
+        s = samokat_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    acc = samokat.get_samokat_account(s['account'])
+    try:
+        return jsonify({'ok': True, 'cart': samokat.cart(acc)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/samokat/<token>/cart/item', methods=['POST'])
+def api_samokat_cart_item(token):
+    try:
+        s = samokat_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    acc = samokat.get_samokat_account(s['account'])
+    d = request.get_json(silent=True) or {}
+    try:
+        return jsonify({'ok': True, 'cart': samokat.set_cart_item(
+            acc, d.get('item'), int(d.get('qty', 1)))})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/samokat/<token>/checkout')
+def api_samokat_checkout(token):
+    try:
+        s = samokat_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    acc = samokat.get_samokat_account(s['account'])
+    try:
+        return jsonify({'ok': True, 'checkout': samokat.checkout_info(acc)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/samokat/<token>/order', methods=['POST'])
+def api_samokat_order(token):
+    try:
+        s = samokat_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    acc = samokat.get_samokat_account(s['account'])
+    d = request.get_json(silent=True) or {}
+    try:
+        return jsonify({'ok': True, 'order': samokat.place_order(
+            acc, d.get('address_id'), slots=d.get('slots'))})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/samokat/<token>/orders')
+def api_samokat_orders(token):
+    try:
+        s = samokat_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    acc = samokat.get_samokat_account(s['account'])
+    try:
+        return jsonify({'ok': True, 'orders': samokat.orders(acc)})
     except NotImplementedError as e:
         return jsonify({'error': str(e)}), 501
     except Exception as e:

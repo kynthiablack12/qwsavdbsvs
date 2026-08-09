@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Самокат — доставка</title>
+<link rel="stylesheet" href="/static/samokat.css">
+</head>
+<body>
+<div class="phone">
+
+  <div id="invalid" class="hidden">
+    <div class="err">Ссылка недействительна, истекла или отозвана.</div>
+  </div>
+
+  <!-- ================= ГЛАВНАЯ ================= -->
+  <div class="screen active" id="home">
+    <header class="top">
+      <button class="avatar" onclick="showView('orders')" title="Заказы">С</button>
+      <button class="addr" onclick="openAddress()">
+        <span class="addr-line">Адрес доставки</span>
+        <strong id="addrCity">Укажите адрес</strong>
+      </button>
+      <button class="cab" onclick="showView('orders')" title="Заказы">🧾</button>
+    </header>
+
+    <div class="search">
+      <i>🔍</i>
+      <input id="searchInput" type="text" placeholder="Найти товары" autocomplete="off">
+      <button class="clear hidden" id="searchClear">✕</button>
+    </div>
+
+    <div class="mini" id="miniCats"></div>
+
+    <section>
+      <div class="head"><h2>Магазины рядом</h2></div>
+      <div id="shopsRow" class="shops"><div class="hint">Загрузка…</div></div>
+    </section>
+
+    <section>
+      <div class="head"><h2 id="resultsTitle">Хиты</h2></div>
+      <div id="restList"></div>
+    </section>
+
+    <nav class="bottom" id="bottomNav">
+      <button class="b active" data-v="home"><span class="b-ico">🏠</span>Главная</button>
+      <button class="b" data-v="orders"><span class="b-ico">🧾</span>Заказы</button>
+      <button class="b" data-v="cart"><span class="b-ico">🛒</span>Корзина<span class="b-dot hidden" id="cartDot">0</span></button>
+    </nav>
+  </div>
+
+  <!-- ================= МАГАЗИН / КАТЕГОРИИ ================= -->
+  <div class="screen with-rb" id="shop">
+    <div class="shophead">
+      <button class="back-btn" onclick="showView('home')">‹</button>
+      <span class="t" id="shopTitle">Магазин<span class="tt" id="shopSub"></span></span>
+    </div>
+
+    <button class="search2" onclick="toggleSearch()"><i>🔍</i>Поиск в магазине</button>
+
+    <div id="shopSearchPanel" class="hidden">
+      <div class="search" style="margin:0 16px 8px">
+        <i>🔍</i>
+        <input id="shopSearchInput" placeholder="Найти товары">
+        <button class="clear" onclick="closeShopSearch()">✕</button>
+      </div>
+      <div id="searchResults"><div class="hint">Начните вводить запрос</div></div>
+    </div>
+
+    <div class="catsec-title">Категории</div>
+    <div id="shopCatsList" class="catgrid"><div class="hint">Загрузка…</div></div>
+
+    <div id="shopCatBox" class="hidden">
+      <div class="catsec-title" id="shopCatTitle">Товары</div>
+      <div id="shopDeals" class="goods"><div class="hint">Загрузка…</div></div>
+    </div>
+
+    <div class="rest-bottom" id="shopBottom">
+      <div class="rb-text" id="shopRbText"><b>Выберите товары</b><small>Доставим за 15–30 минут</small></div>
+      <button class="rb-go hidden" id="shopRbGo" onclick="showView('cart')">Корзина ›</button>
+    </div>
+  </div>
+
+  <!-- ================= КОРЗИНА ================= -->
+  <div class="screen" id="cart">
+    <button class="backlink" onclick="showView('home')">‹</button>
+    <div class="vhead"><h2>Корзина</h2><p id="cartSub">Содержимое корзины</p></div>
+    <div id="cartBox"><div class="hint">Загрузка…</div></div>
+  </div>
+
+  <!-- ================= ОФОРМЛЕНИЕ ================= -->
+  <div class="screen" id="checkout">
+    <button class="backlink" onclick="showView('cart')">‹</button>
+    <div class="vhead"><h2>Оформление заказа</h2><p>Проверьте данные и подтвердите</p></div>
+    <div id="checkoutBox"><div class="hint">Загрузка…</div></div>
+  </div>
+
+  <!-- ================= ЗАКАЗЫ ================= -->
+  <div class="screen" id="orders">
+    <button class="backlink" onclick="showView('home')">‹</button>
+    <div class="vhead"><h2>Заказы</h2><p>Активные и последние заказы</p></div>
+    <div id="ordersBox"><div class="hint">Загрузка…</div></div>
+  </div>
+
+  <!-- ================= ВЫБОР АДРЕСА ================= -->
+  <div class="screen" id="address">
+    <div class="addr-top">
+      <button class="backlink" onclick="closeAddress()">‹</button>
+      <div class="search addr-search">
+        <i>🔍</i>
+        <input id="addrInput" type="text" placeholder="Куда доставить?" autocomplete="off">
+      </div>
+    </div>
+    <div id="addrSuggest" class="addr-suggest hidden"></div>
+    <div id="addrSaved" class="addr-saved"></div>
+    <div class="addr-panel">
+      <div class="ap-main">
+        <div class="ap-line" id="addrLine1">Доставка</div>
+        <div class="ap-line2" id="addrLine2">Выберите адрес из сохранённых</div>
+      </div>
+      <div class="ap-fields">
+        <label class="ap-field"><span>Квартира</span><input id="addrFlat" type="text" inputmode="numeric" placeholder="Кв."></label>
+        <label class="ap-field"><span>Этаж</span><input id="addrFloor" type="text" inputmode="numeric" placeholder="—"></label>
+        <label class="ap-field"><span>Подъезд</span><input id="addrEntrance" type="text" inputmode="numeric" placeholder="—"></label>
+      </div>
+      <button class="btn-main" onclick="addrApply()">Доставка сюда</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const TOKEN = "{{ token if token else '' }}";
+const INVALID = {{ 'true' if invalid else 'false' }};
+
+if (INVALID) {
+  document.getElementById('invalid').classList.remove('hidden');
+  document.getElementById('home').classList.remove('active');
+}
+
+const $ = id => document.getElementById(id);
+
+const state = {
+  account: null,
+  showcases: [],
+  showcase: null,
+  cats: [],
+  catKey: null,
+  cart: null,
+  orders: [],
+  address: null,
+};
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function fmtRub(v) {
+  return (Number(v || 0) / 100).toLocaleString('ru-RU', {style:'currency', currency:'RUB'});
+}
+
+function toast(m) { alert(m); }
+
+async function api(url, opts) {
+  const r = await fetch(url, Object.assign({}, opts, {
+    headers: Object.assign({'Content-Type':'application/json'}, (opts || {}).headers),
+  }));
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+
+function showView(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  $(name).classList.add('active');
+  document.querySelectorAll('.bottom .b').forEach(b => b.classList.toggle('active', b.dataset.v === name));
+  window.scrollTo(0, 0);
+}
+
+function imgUrl(uri) {
+  if (!uri) return '';
+  if (String(uri).startsWith('http')) return uri;
+  return 'https://images.samokat.ru/' + String(uri).replace(/^\//, '');
+}
+
+// ---------- каталог / категории ----------
+
+async function loadHome() {
+  try {
+    const info = await api(`/api/samokat/${TOKEN}/info`);
+    state.account = info.account;
+    const shows = await api(`/api/samokat/${TOKEN}/showcases`);
+    state.showcases = (shows.showcases || []);
+    renderShops();
+  } catch (e) {
+    $('shopsRow').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function renderShops() {
+  const row = $('shopsRow');
+  if (!state.showcases.length) { row.innerHTML = '<div class="hint">Нет доступных магазинов</div>'; return; }
+  row.innerHTML = state.showcases.map((s, i) => `
+    <div class="shop-card" onclick="openShop(${i})">
+      <div class="shop-logo" style="background:${s.logoBg || '#00D87F'}">${esc((s.name || 'М')[0])}</div>
+      <span class="shop-name">${esc(s.name || 'Магазин')}</span>
+      <span class="shop-time">${s.deliveryTime || '15–30 мин'}</span>
+    </div>`).join('');
+}
+
+function openShop(idx) {
+  state.showcase = state.showcases[idx];
+  $('shopTitle').textContent = state.showcase.name || 'Магазин';
+  $('shopSub').textContent = state.showcase.deliveryTime || '';
+  showView('shop');
+  loadCats();
+}
+
+async function loadCats() {
+  try {
+    const d = await api(`/api/samokat/${TOKEN}/categories?showcase_id=${encodeURIComponent(state.showcase.id)}`);
+    state.cats = d.categories || [];
+    renderCats();
+  } catch (e) {
+    $('shopCatsList').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function renderCats() {
+  const box = $('shopCatsList');
+  if (!state.cats.length) { box.innerHTML = '<div class="hint">Категории недоступны</div>'; return; }
+  box.innerHTML = state.cats.map((c, i) => `
+    <div class="cat-card" onclick="openCat(${i})">
+      <img src="${imgUrl(c.image)}" onerror="this.style.visibility='hidden'">
+      <span>${esc(c.name)}</span>
+    </div>`).join('');
+}
+
+async function openCat(idx) {
+  const c = state.cats[idx];
+  $('shopCatTitle').textContent = c.name;
+  $('shopCatBox').classList.remove('hidden');
+  $('shopDeals').innerHTML = '<div class="hint">Загрузка…</div>';
+  try {
+    const d = await api(`/api/samokat/${TOKEN}/catalog?showcase_id=${encodeURIComponent(state.showcase.id)}&category_id=${encodeURIComponent(c.id)}`);
+    renderGoods(d.goods || []);
+  } catch (e) {
+    $('shopDeals').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function renderGoods(goods) {
+  const box = $('shopDeals');
+  if (!goods.length) { box.innerHTML = '<div class="hint">Товары не найдены</div>'; return; }
+  box.innerHTML = goods.map(g => `
+    <div class="good">
+      <div class="good-img"><img src="${imgUrl(g.image)}" onerror="this.style.visibility='hidden'"></div>
+      <div class="good-info">
+        <span class="good-name">${esc(g.name)}</span>
+        <span class="good-desc">${esc(g.description || '')}</span>
+        <div class="good-buy">
+          <span class="good-price">${fmtRub(g.price)}</span>
+          <button class="add" onclick="addItem(${JSON.stringify(g.id)}, ${g.price}, '${esc(g.name).replace(/'/g, "\\'")}')">+</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+async function addItem(id, price, name) {
+  try {
+    const d = await api(`/api/samokat/${TOKEN}/cart/item`, { method:'POST', body: JSON.stringify({ item: id, qty: 1 }) });
+    state.cart = d.cart;
+    updateRb();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+// ---------- поиск ----------
+
+function toggleSearch() {
+  $('shopSearchPanel').classList.toggle('hidden');
+  if (!$('shopSearchPanel').classList.contains('hidden')) $('shopSearchInput').focus();
+}
+
+function closeShopSearch() {
+  $('shopSearchPanel').classList.add('hidden');
+}
+
+async function runSearch() {
+  const q = $('shopSearchInput').value.trim();
+  if (!q) return;
+  $('searchResults').innerHTML = '<div class="hint">Поиск…</div>';
+  try {
+    const d = await api(`/api/samokat/${TOKEN}/catalog?showcase_id=${encodeURIComponent(state.showcase.id)}&term=${encodeURIComponent(q)}`);
+    renderSearchGoods(d.goods || []);
+  } catch (e) {
+    $('searchResults').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function renderSearchGoods(goods) {
+  const box = $('searchResults');
+  if (!goods.length) { box.innerHTML = '<div class="hint">Ничего не найдено</div>'; return; }
+  box.innerHTML = goods.map(g => `
+    <div class="good">
+      <div class="good-img"><img src="${imgUrl(g.image)}" onerror="this.style.visibility='hidden'"></div>
+      <div class="good-info">
+        <span class="good-name">${esc(g.name)}</span>
+        <div class="good-buy">
+          <span class="good-price">${fmtRub(g.price)}</span>
+          <button class="add" onclick="addItem(${JSON.stringify(g.id)}, ${g.price}, '${esc(g.name).replace(/'/g, "\\'")}')">+</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+// ---------- корзина ----------
+
+function updateRb() {
+  const n = (state.cart && state.cart.items_count) || 0;
+  const sum = (state.cart && state.cart.total) || 0;
+  const dot = $('cartDot');
+  if (n) { dot.textContent = n; dot.classList.remove('hidden'); }
+  else dot.classList.add('hidden');
+  $('shopRbGo').classList.toggle('hidden', !n);
+  $('shopRbText').querySelector('b').textContent = n ? `${n} товаров · ${fmtRub(sum)}` : 'Выберите товары';
+}
+
+async function loadCart() {
+  try {
+    const d = await api(`/api/samokat/${TOKEN}/cart`);
+    state.cart = d.cart;
+    renderCart();
+    updateRb();
+  } catch (e) {
+    $('cartBox').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function renderCart() {
+  const box = $('cartBox');
+  const items = (state.cart && state.cart.items) || [];
+  if (!items.length) { box.innerHTML = '<div class="hint">Корзина пуста</div>'; return; }
+  box.innerHTML = `
+    <div class="cart-list">
+      ${items.map(it => `
+        <div class="cart-item">
+          <div class="cart-info">
+            <span class="good-name">${esc(it.name)}</span>
+            <span class="good-price">${fmtRub(it.price)}</span>
+          </div>
+          <div class="qty">
+            <button onclick="setQty(${JSON.stringify(it.id)}, ${it.qty - 1})">−</button>
+            <span>${it.qty}</span>
+            <button onclick="setQty(${JSON.stringify(it.id)}, ${it.qty + 1})">+</button>
+          </div>
+        </div>`).join('')}
+    </div>
+    <div class="cart-total">
+      <span>Итого</span><b>${fmtRub(state.cart.total)}</b>
+    </div>
+    <button class="btn-main" onclick="goCheckout()">Оформить заказ</button>`;
+}
+
+async function setQty(id, qty) {
+  try {
+    const d = await api(`/api/samokat/${TOKEN}/cart/item`, { method:'POST', body: JSON.stringify({ item: id, qty }) });
+    state.cart = d.cart;
+    renderCart();
+    updateRb();
+  } catch (e) { toast(e.message); }
+}
+
+// ---------- оформление / заказ ----------
+
+async function goCheckout() {
+  if (!state.address) { toast('Сначала выберите адрес доставки'); openAddress(); return; }
+  showView('checkout');
+  $('checkoutBox').innerHTML = '<div class="hint">Загрузка…</div>';
+  try {
+    const d = await api(`/api/samokat/${TOKEN}/checkout`);
+    renderCheckout(d.checkout || {});
+  } catch (e) {
+    $('checkoutBox').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function renderCheckout(ck) {
+  const box = $('checkoutBox');
+  const slots = (ck.slots || []).map(s => `
+    <label class="slot"><input type="radio" name="slot" value="${esc(s.id)}" ${s.available ? '' : 'disabled'}>${esc(s.label)}</label>`).join('') || '<div class="hint">Слоты недоступны</div>';
+  box.innerHTML = `
+    <div class="co-block">
+      <h3>Адрес</h3>
+      <p>${esc(state.address.text || '')}</p>
+    </div>
+    <div class="co-block">
+      <h3>Время доставки</h3>
+      <div class="slots">${slots}</div>
+    </div>
+    <div class="co-block">
+      <h3>Оплата</h3>
+      <p>${esc(ck.payment_text || 'Оплата при получении')}</p>
+    </div>
+    <div class="cart-total"><span>Итого</span><b>${fmtRub(state.cart.total)}</b></div>
+    <button class="btn-main" onclick="placeOrder()">Подтвердить заказ</button>`;
+  $('checkoutBox').dataset.slots = JSON.stringify((ck.slots || []).map(s => ({id: s.id, available: s.available})));
+}
+
+async function placeOrder() {
+  const slots = JSON.parse($('checkoutBox').dataset.slots || '[]');
+  const chosen = document.querySelector('input[name="slot"]:checked');
+  const slot = chosen ? chosen.value : (slots.find(s => s.available) || {}).id;
+  try {
+    const d = await api(`/api/samokat/${TOKEN}/order`, { method:'POST', body: JSON.stringify({ address_id: state.address.id, slots: slot }) });
+    toast('Заказ оформлен!');
+    state.cart = null;
+    state.address = null;
+    showView('orders');
+    loadOrders();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+// ---------- заказы ----------
+
+async function loadOrders() {
+  $('ordersBox').innerHTML = '<div class="hint">Загрузка…</div>';
+  try {
+    const d = await api(`/api/samokat/${TOKEN}/orders`);
+    state.orders = d.orders || [];
+    renderOrders();
+  } catch (e) {
+    $('ordersBox').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function renderOrders() {
+  const box = $('ordersBox');
+  if (!state.orders.length) { box.innerHTML = '<div class="hint">Заказов пока нет</div>'; return; }
+  box.innerHTML = state.orders.map(o => `
+    <div class="order-card">
+      <div class="order-head"><b>Заказ ${esc(o.id || '')}</b><span>${esc(o.status || '')}</span></div>
+      <p>${esc(o.summary || '')}</p>
+    </div>`).join('');
+}
+
+// ---------- адрес ----------
+
+async function openAddress() {
+  showView('address');
+  const saved = $('addrSaved');
+  saved.innerHTML = '<div class="hint">Загрузка адресов…</div>';
+  try {
+    const d = await api(`/api/samokat/${TOKEN}/addresses`);
+    const list = (d.addresses && d.addresses.items) || (d.addresses || []);
+    if (!list.length) { saved.innerHTML = '<div class="hint">Сохранённых адресов нет</div>'; return; }
+    saved.innerHTML = list.map(a => `
+      <button class="addr-saved-item" onclick="useAddress('${esc(a.id)}', '${esc(a.text || a.title || '')}')">
+        <span class="addr-pin">📍</span>${esc(a.text || a.title || '')}
+      </button>`).join('');
+  } catch (e) {
+    saved.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function useAddress(id, text) {
+  state.address = { id: id, text: text };
+  $('addrCity').textContent = text;
+  closeAddress();
+}
+
+function closeAddress() {
+  showView('home');
+  $('addrSuggest').classList.add('hidden');
+  $('addrInput').value = '';
+}
+
+async function addrDoSearch(q) {
+  const box = $('addrSuggest');
+  if (!q) { box.classList.add('hidden'); return; }
+  try {
+    const d = await api(`/api/samokat/${TOKEN}/addresses?query=${encodeURIComponent(q)}`);
+    const list = (d.addresses && d.addresses.items) || (d.addresses || []);
+    if (!list.length) { box.innerHTML = '<div class="hint">Ничего не найдено</div>'; box.classList.remove('hidden'); return; }
+    box.innerHTML = list.map(a => `
+      <button class="addr-suggest-item" onclick="useAddress('${esc(a.id)}', '${esc(a.text || a.title || '')}')">
+        <span class="addr-pin">📍</span>${esc(a.text || a.title || '')}
+      </button>`).join('');
+    box.classList.remove('hidden');
+  } catch (e) {
+    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    box.classList.remove('hidden');
+  }
+}
+
+function addrApply() {
+  toast('Выберите адрес из списка сохранённых');
+}
+
+// ---------- инициализация ----------
+
+if (!INVALID) {
+  loadHome();
+  $('searchInput').addEventListener('input', e => {
+    $('searchClear').classList.toggle('hidden', !e.target.value);
+  });
+  $('searchClear').addEventListener('click', () => {
+    $('searchInput').value = ''; $('searchClear').classList.add('hidden');
+  });
+  $('shopSearchInput').addEventListener('input', () => runSearch());
+  $('addrInput').addEventListener('input', e => addrDoSearch(e.target.value));
+  document.querySelectorAll('.bottom .b').forEach(b =>
+    b.addEventListener('click', () => {
+      const v = b.dataset.v;
+      if (v === 'cart') loadCart();
+      if (v === 'orders') loadOrders();
+      showView(v);
+    }));
+}
+</script>
+</body>
+</html>

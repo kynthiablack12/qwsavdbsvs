@@ -1,0 +1,135 @@
+/* ============ Самокат: клиентская страница ============ */
+@font-face{font-family:'SB Sans';font-weight:400;font-style:normal;font-display:swap;src:url('https://cdn.samokat.ru/assets/fonts/SBSansText-Regular.woff2') format('woff2')}
+@font-face{font-family:'SB Sans';font-weight:700;font-style:normal;font-display:swap;src:url('https://cdn.samokat.ru/assets/fonts/SBSansText-Bold.woff2') format('woff2')}
+
+:root{
+  --bg:#F5F7F6; --card:#FFFFFF; --ink:#16233F; --ink54:rgba(22,35,63,.54); --ink45:rgba(22,35,63,.45);
+  --green:#00D87F; --green-d:#00B86B; --green-soft:#E6FFF4;
+  --red:#E52322; --chip:#EEF1EF; --line:#E9EEEC;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{background:#fff}
+body{font-family:'SB Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#fff;color:var(--ink);font-weight:400}
+.phone{max-width:480px;margin:0 auto;background:var(--bg);min-height:100vh;position:relative}
+.screen{display:none;padding-bottom:108px}
+.screen.active{display:block}
+.screen.with-rb{padding-bottom:132px}
+.no-bar{scrollbar-width:none;-ms-overflow-style:none}
+.no-bar::-webkit-scrollbar{display:none}
+.hidden{display:none!important}
+.hint{text-align:center;color:var(--ink45);font-size:14px;padding:34px 0}
+.err{color:var(--red);font-size:13px;padding:14px;background:#fff;border:1px solid #f3d2d6;border-radius:14px;margin:14px}
+h1,h2,h3{font-family:'SB Sans',sans-serif;font-weight:700}
+
+/* ---------- Шапка ---------- */
+.top{position:sticky;top:0;z-index:20;background:var(--card);display:flex;align-items:center;gap:10px;padding:10px 16px 12px;border-radius:0 0 24px 24px;box-shadow:0 2px 12px rgba(22,35,63,.05)}
+.avatar{width:38px;height:38px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:700;flex-shrink:0;border:none;cursor:pointer}
+.addr{flex:1;min-width:0;text-align:left;cursor:pointer;background:none;border:none;font-family:inherit}
+.addr-line{display:block;color:var(--ink45);font-size:12px;margin-bottom:2px}
+.addr strong{font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;color:var(--ink)}
+.cab{width:38px;height:38px;border-radius:50%;background:var(--green-soft);display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;font-size:16px;flex-shrink:0}
+
+/* ---------- Поиск ---------- */
+.search{margin:12px 16px 4px;background:#fff;border:1px solid var(--line);border-radius:1000px;padding:0 16px;display:flex;align-items:center;gap:10px;color:var(--ink);font-size:15px;min-height:46px;cursor:text}
+.search input{flex:1;min-width:0;background:none;border:none;outline:none;font-size:15px;color:var(--ink);font-family:inherit}
+.search input::placeholder{color:var(--ink45)}
+.search .clear{border:none;background:rgba(22,35,63,.08);color:var(--ink);font-size:12px;width:24px;height:24px;border-radius:50%;cursor:pointer;font-family:inherit}
+
+/* ---------- Мини-категории ---------- */
+.mini{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:18px 16px 4px;text-align:center}
+.m{cursor:pointer}
+.m span{font-size:12.5px;font-weight:400;color:var(--ink)}
+.m-img{width:64px;height:64px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;margin:0 auto 8px;box-shadow:0 2px 10px rgba(22,35,63,.06)}
+.m-img img{width:100%;height:100%;object-fit:cover}
+
+/* ---------- Заголовки секций ---------- */
+.head{display:flex;justify-content:space-between;align-items:baseline;padding:20px 16px 10px}
+.head h2{font-size:20px;font-weight:700;letter-spacing:-.2px}
+
+/* ---------- Магазины ---------- */
+.shops{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;padding:4px 16px 10px}
+.shop-card{background:var(--card);border-radius:20px;padding:14px;cursor:pointer;box-shadow:0 2px 10px rgba(22,35,63,.05)}
+.shop-logo{width:44px;height:44px;border-radius:14px;color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;margin-bottom:10px}
+.shop-name{display:block;font-size:14px;font-weight:700;margin-bottom:2px}
+.shop-time{display:block;font-size:12px;color:var(--ink45)}
+
+/* ---------- Магазин: категории и товары ---------- */
+.shophead{position:sticky;top:0;z-index:20;background:#fff;display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.back-btn,.backlink{background:none;border:none;font-size:24px;color:var(--ink);cursor:pointer;line-height:1;padding:0}
+.t{font-size:17px;font-weight:700}
+.tt{display:block;font-size:12px;color:var(--ink45);font-weight:400}
+.search2{margin:14px 16px 6px;background:var(--chip);border-radius:1000px;padding:0 16px;display:flex;align-items:center;gap:10px;font-size:15px;min-height:44px;width:calc(100% - 32px);cursor:pointer;border:none;color:var(--ink);text-align:left;font-family:inherit}
+.catsec-title{font-size:18px;font-weight:700;padding:18px 16px 8px}
+.catgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;padding:4px 16px 10px}
+.cat-card{background:var(--card);border-radius:20px;padding:12px;cursor:pointer;box-shadow:0 2px 10px rgba(22,35,63,.05)}
+.cat-card img{width:100%;height:96px;object-fit:cover;border-radius:14px;margin-bottom:8px}
+.cat-card span{font-size:14px;font-weight:700}
+
+/* ---------- Товары ---------- */
+.goods{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;padding:4px 16px 10px}
+.good{background:var(--card);border-radius:20px;padding:10px;box-shadow:0 2px 10px rgba(22,35,63,.05);display:flex;flex-direction:column}
+.good-img{width:100%;height:96px;border-radius:14px;overflow:hidden;background:var(--chip);display:flex;align-items:center;justify-content:center;margin-bottom:8px}
+.good-img img{width:100%;height:100%;object-fit:cover}
+.good-info{display:flex;flex-direction:column;flex:1}
+.good-name{font-size:13px;font-weight:700;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.good-desc{font-size:12px;color:var(--ink45);margin:2px 0 8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.good-buy{display:flex;align-items:center;justify-content:space-between;margin-top:auto}
+.good-price{font-size:15px;font-weight:700}
+.add{width:34px;height:34px;border-radius:12px;background:var(--green);color:#fff;border:none;font-size:20px;cursor:pointer;font-weight:700;line-height:1}
+
+/* ---------- Нижняя панель (корзина) ---------- */
+.bottom{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:#fff;display:flex;border-radius:20px 20px 0 0;box-shadow:0 -4px 20px rgba(22,35,63,.08);z-index:30}
+.bottom .b{flex:1;background:none;border:none;padding:10px 0 12px;font-size:11px;color:var(--ink54);cursor:pointer;font-family:inherit;position:relative}
+.bottom .b.active{color:var(--green-d);font-weight:700}
+.b-ico{display:block;font-size:19px;margin-bottom:2px}
+.b-dot{position:absolute;top:6px;right:calc(50% - 20px);background:var(--green);color:#fff;font-size:11px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px}
+.rest-bottom{position:fixed;bottom:68px;left:50%;transform:translateX(-50%);width:calc(100% - 24px);max-width:456px;background:var(--ink);color:#fff;border-radius:16px;display:flex;align-items:center;justify-content:space-between;padding:12px 16px;z-index:29;box-shadow:0 6px 24px rgba(22,35,63,.2)}
+.rb-text b{display:block;font-size:14px}
+.rb-text small{font-size:12px;color:rgba(255,255,255,.7)}
+.rb-go{background:var(--green);color:#fff;border:none;border-radius:12px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit}
+
+/* ---------- Общие экраны ---------- */
+.vhead{padding:18px 16px 6px}
+.vhead h2{font-size:22px}
+.vhead p{font-size:13px;color:var(--ink45);margin-top:2px}
+.cart-list{background:var(--card);border-radius:20px;margin:14px 16px;padding:4px 14px;box-shadow:0 2px 10px rgba(22,35,63,.05)}
+.cart-item{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--line)}
+.cart-info{display:flex;flex-direction:column;flex:1;min-width:0}
+.qty{display:flex;align-items:center;gap:12px;background:var(--chip);border-radius:1000px;padding:4px 10px}
+.qty button{background:none;border:none;font-size:18px;cursor:pointer;color:var(--ink);line-height:1}
+.qty span{min-width:16px;text-align:center;font-weight:700}
+.cart-total{display:flex;align-items:center;justify-content:space-between;background:var(--card);border-radius:20px;margin:0 16px 14px;padding:14px 16px;box-shadow:0 2px 10px rgba(22,35,63,.05)}
+.cart-total b{font-size:16px}
+.btn-main{display:block;width:calc(100% - 32px);margin:0 16px 16px;background:var(--green);color:#fff;border:none;border-radius:14px;padding:15px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit}
+.btn-main:hover{background:var(--green-d)}
+
+/* ---------- Оформление ---------- */
+.co-block{background:var(--card);border-radius:20px;margin:10px 16px;padding:14px 16px;box-shadow:0 2px 10px rgba(22,35,63,.05)}
+.co-block h3{font-size:14px;margin-bottom:6px}
+.co-block p{font-size:14px;color:var(--ink54)}
+.slots{display:flex;flex-direction:column;gap:8px}
+.slot{display:flex;align-items:center;gap:10px;background:var(--chip);border-radius:12px;padding:10px 12px;font-size:14px;cursor:pointer}
+.slot input{accent-color:var(--green)}
+
+/* ---------- Заказы ---------- */
+.order-card{background:var(--card);border-radius:20px;margin:10px 16px;padding:14px 16px;box-shadow:0 2px 10px rgba(22,35,63,.05)}
+.order-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.order-head span{font-size:12px;color:var(--green-d);background:var(--green-soft);padding:3px 10px;border-radius:100px}
+.order-card p{font-size:13px;color:var(--ink54)}
+
+/* ---------- Адрес ---------- */
+.addr-top{position:sticky;top:0;z-index:20;background:#fff;display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.addr-search{margin:0;flex:1;min-width:0}
+.addr-saved{padding:6px 16px}
+.addr-saved-item,.addr-suggest-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:8px;font-size:14px;cursor:pointer;color:var(--ink);font-family:inherit}
+.addr-pin{font-size:16px}
+.addr-suggest{padding:6px 16px}
+.addr-panel{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:#fff;border-radius:24px 24px 0 0;box-shadow:0 -4px 20px rgba(22,35,63,.1);padding:18px 16px calc(18px + env(safe-area-inset-bottom));z-index:40}
+.ap-main{margin-bottom:12px}
+.ap-line{font-size:16px;font-weight:700}
+.ap-line2{font-size:13px;color:var(--ink45);margin-top:2px}
+.ap-fields{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.ap-field{display:flex;flex-direction:column;gap:4px}
+.ap-field span{font-size:12px;color:var(--ink45)}
+.ap-field input{border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:10px 12px;font-family:inherit;font-size:15px;color:var(--ink);width:100%}
+.ap-field input:focus{outline:none;border-color:var(--green);background:#fff}

@@ -78,14 +78,14 @@ function switchTab(name) {
 document.querySelectorAll('#dbTabs .db-tab').forEach(b => b.addEventListener('click', () => {
   switchTab(b.dataset.tab);
   const loaders = { accounts: loadAdminAccounts, purchases: loadPurchases, coupons: loadCoupons,
-    prizes: loadPrizes, sessions: loadSessions, eda: loadEda };
+    prizes: loadPrizes, sessions: loadSessions, eda: loadEda, samokat: loadSamokat };
   if (loaders[b.dataset.tab]) loaders[b.dataset.tab]();
 }));
 
 $('btnRefresh').addEventListener('click', () => {
   const active = document.querySelector('#dbTabs .db-tab.active');
   const loaders = { accounts: loadAdminAccounts, purchases: loadPurchases, coupons: loadCoupons,
-    prizes: loadPrizes, sessions: loadSessions, eda: loadEda };
+    prizes: loadPrizes, sessions: loadSessions, eda: loadEda, samokat: loadSamokat };
   loadOverview();
   if (active && loaders[active.dataset.tab]) loaders[active.dataset.tab]();
 });
@@ -630,6 +630,134 @@ $('edaSessCreate').addEventListener('click', async () => {
     $('edaSessName').value = '';
     copyText(location.origin + r.url, btn);
     loadEdaSessions();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ================= САМОКАТ =================
+let skAccounts = [];
+
+function switchSkTab(name) {
+  document.querySelectorAll('#pane-samokat .db-tabs.sub .db-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  $('pane-skAccs').classList.toggle('active', name === 'skAccs');
+  $('pane-skSess').classList.toggle('active', name === 'skSess');
+}
+document.querySelectorAll('#pane-samokat .db-tabs.sub .db-tab').forEach(b => b.addEventListener('click', () => switchSkTab(b.dataset.tab)));
+
+async function loadSamokat() {
+  await loadSkAccounts();
+  await loadSkSessions();
+  fillSkAccountSelect();
+}
+
+async function loadSkAccounts() {
+  try {
+    skAccounts = await api('/api/samokat/accounts');
+    const tb = $('skAccTable').querySelector('tbody');
+    tb.innerHTML = skAccounts.map(a => `
+      <tr>
+        <td><b>${esc(a.name)}</b></td>
+        <td>${esc((a.user && (a.user.name || a.user.email || a.user.phone)) || '—')}</td>
+        <td>${a.token_ok ? '<span class="sd-badge ok">есть токен</span>' : '<span class="db-mut">нет</span>'}</td>
+        <td class="num">${esc(a.added || '—')}</td>
+        <td class="col-actions"><div class="row-actions">
+          <button class="btn btn-ghost btn-sm" data-ref="${esc(a.name)}">Обновить</button>
+          <button class="btn btn-danger btn-sm" data-del="${esc(a.name)}">Удалить</button>
+        </div></td>
+      </tr>`).join('') || '<tr><td colspan="5" class="db-empty">Аккаунтов Самоката нет</td></tr>';
+    tb.querySelectorAll('[data-ref]').forEach(b => b.addEventListener('click', async () => {
+      try {
+        await api(`/api/samokat/accounts/${encodeURIComponent(b.dataset.ref)}/refresh`, { method: 'POST' });
+        loadSkAccounts();
+      } catch (e) { alert(e.message); }
+    }));
+    tb.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+      await api(`/api/samokat/accounts/${encodeURIComponent(b.dataset.del)}`, { method: 'DELETE' });
+      loadSamokat();
+    }));
+  } catch (e) {
+    $('skAccTable').querySelector('tbody').innerHTML = `<tr><td colspan="5" class="db-empty">${esc(e.message)}</td></tr>`;
+  }
+}
+
+function fillSkAccountSelect() {
+  const sel = $('skSessAccount');
+  sel.innerHTML = '';
+  skAccounts.forEach(a => {
+    const o = document.createElement('option');
+    o.value = a.name;
+    o.textContent = a.name;
+    sel.appendChild(o);
+  });
+}
+
+$('skAccAdd').addEventListener('click', async () => {
+  const btn = $('skAccAdd');
+  btn.disabled = true;
+  try {
+    await api('/api/samokat/accounts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('skName').value.trim(),
+        cookies: $('skCookies').value.trim(),
+      }),
+    });
+    $('skName').value = '';
+    $('skCookies').value = '';
+    loadSamokat();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function loadSkSessions() {
+  try {
+    const sess = await api('/api/samokat/sessions');
+    const entries = Object.entries(sess).filter(([, v]) => v.active);
+    const tb = $('skSessTable').querySelector('tbody');
+    tb.innerHTML = entries.map(([token, s]) => `
+      <tr>
+        <td><b>${esc(s.name)}</b></td>
+        <td><b>${esc(s.account)}</b></td>
+        <td><span class="mono db-mut">${esc(location.origin + '/s/' + token)}</span></td>
+        <td class="num">${esc(s.expires_at || '—')}</td>
+        <td class="col-actions">
+          <div class="row-actions">
+            <button class="btn btn-ghost btn-sm" data-copy="${esc(location.origin + '/s/' + token)}">Копировать</button>
+            <button class="btn btn-danger btn-sm" data-revoke="${token}">Отозвать</button>
+          </div>
+        </td>
+      </tr>`).join('') || '<tr><td colspan="5" class="db-empty">Активных сессий Самоката нет</td></tr>';
+    tb.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy, b)));
+    tb.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
+      await api(`/api/samokat/sessions/${b.dataset.revoke}`, { method: 'DELETE' });
+      loadSkSessions();
+    }));
+  } catch (e) {
+    $('skSessTable').querySelector('tbody').innerHTML = `<tr><td colspan="5" class="db-empty">${esc(e.message)}</td></tr>`;
+  }
+}
+
+$('skSessCreate').addEventListener('click', async () => {
+  const btn = $('skSessCreate');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/samokat/sessions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('skSessName').value.trim(),
+        account: $('skSessAccount').value,
+        hours: parseInt($('skSessHours').value, 10) || 24,
+      }),
+    });
+    $('skSessName').value = '';
+    copyText(r.link, btn);
+    loadSkSessions();
   } catch (e) {
     alert(e.message);
   } finally {

@@ -70,6 +70,7 @@
     <button class="db-tab" data-tab="eda">🚚 ЕДА</button>
     <button class="db-tab" data-tab="edaPromo">🎁 Промокоды</button>
     <button class="db-tab" data-tab="sp">🅿 Свои Плюсы</button>
+    <button class="db-tab" data-tab="samokat">🛴 Самокат</button>
   </nav>
 
   <!-- ================= Аккаунты ================= -->
@@ -301,10 +302,45 @@
         <tbody></tbody>
       </table>
     </div>
-    <div class="sd-section" style="margin-top:18px"><h3>История получения</h3>
-      <div class="table-wrap">
-        <table class="data-table" id="spGiftTable">
-          <thead><tr><th>Аккаунт</th><th>Подарок</th><th>Статус</th><th>Промокод</th><th>Действует до</th><th>Получен</th></tr></thead>
+  <!-- ================= Самокат ================= -->
+  <section class="db-pane" id="pane-samokat">
+    <div class="db-tabs sub">
+      <button class="db-tab active" data-tab="skAccs">Аккаунты Самоката</button>
+      <button class="db-tab" data-tab="skSess">Сессии Самоката</button>
+    </div>
+    <div class="db-pane active" id="pane-skAccs">
+      <div class="eda-add">
+        <label>Имя аккаунта
+          <input type="text" id="skName" placeholder="например: omsk1" autocomplete="off">
+        </label>
+        <label>Куки веб-сессии samokat.ru
+          <textarea id="skCookies" rows="4" placeholder="__Secure-next-auth.session-token=...; spjs=...; DEVICE_ID_KEY=... (куки из браузера, весь заголовок Cookie)" autocomplete="off"></textarea>
+        </label>
+        <button class="btn btn-primary" id="skAccAdd">Добавить аккаунт</button>
+      </div>
+      <div class="table-wrap" style="margin-top:16px">
+        <table class="data-table" id="skAccTable">
+          <thead><tr><th>Имя</th><th>Пользователь</th><th>Сессия</th><th>Добавлен</th><th class="col-actions">Действия</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="db-pane" id="pane-skSess">
+      <div class="access-form">
+        <label>Имя человека
+          <input type="text" id="skSessName" placeholder="например: Вася" autocomplete="off">
+        </label>
+        <label>Аккаунт Самоката
+          <select id="skSessAccount"></select>
+        </label>
+        <label>Срок действия, часов
+          <input type="number" id="skSessHours" value="24" min="1">
+        </label>
+        <button class="btn btn-primary" id="skSessCreate">Создать сессию</button>
+      </div>
+      <div class="table-wrap" style="margin-top:16px">
+        <table class="data-table" id="skSessTable">
+          <thead><tr><th>Имя</th><th>Аккаунт</th><th>Ссылка</th><th>Истекает</th><th class="col-actions">Действия</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
