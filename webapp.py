@@ -410,6 +410,7 @@ def api_eda_accounts():
     return jsonify([{'name': a.get('name'),
                      'added': a.get('added'),
                      'has_token': bool(eda._extract_bearer(a)),
+                     'has_sid': bool(eda.sp_session_id(a)),
                      'uid': a.get('yandexuid', ''),
                      'profile_name': a.get('profile_name', ''),
                      'plus_balance': a.get('plus_balance'),
@@ -504,6 +505,80 @@ def api_eda_promos_status(task_id):
         return jsonify({'error': 'task not found'}), 404
     return jsonify({'state': t['state'], 'progress': t['progress'],
                     'message': t['message'], 'result': t['result']})
+
+
+# Задачи сбора «Свои Плюсы» (ежедневные подарки).
+SP_TASKS = {}
+_SP_LOCK = threading.Lock()
+
+
+@app.route('/api/sp/daily', methods=['POST'])
+def api_sp_daily():
+    """Собрать ежедневные подарки «Свои Плюсы» по аккаунтам с Session_id."""
+    data = request.get_json(silent=True) or {}
+    names = data.get('names') or None
+    claim = bool(data.get('claim', False))
+    task_id = hashlib.md5(os.urandom(16)).hexdigest()[:12]
+    with _SP_LOCK:
+        SP_TASKS[task_id] = {'state': 'running', 'progress': 0, 'message': 'Запуск…', 'result': None}
+
+    def _run():
+        try:
+            accounts = eda.load_eda_accounts()
+            if names:
+                accounts = [a for a in accounts if a.get('name') in names]
+            accounts = [a for a in accounts if eda.sp_session_id(a)]
+            result = []
+            total = max(len(accounts), 1)
+            for idx, a in enumerate(accounts):
+                acc_progress = {'frac': 0.0, 'msg': ''}
+
+                def _cb(msg, frac, _idx=idx, _a=a, _acc_progress=acc_progress):
+                    _acc_progress['frac'] = frac
+                    _acc_progress['msg'] = msg
+                    pct = int(((_idx + frac) / total) * 100)
+                    with _SP_LOCK:
+                        t = SP_TASKS[task_id]
+                        t['progress'] = pct
+                        t['message'] = f'{_a.get("name")}: {msg}'
+
+                try:
+                    r = eda.collect_sp_daily(a, claim=claim, progress=_cb)
+                except Exception as e:
+                    r = {'rewards': [], 'error': str(e)}
+                if claim:
+                    for rw in r.get('rewards') or []:
+                        if rw.get('promocode') or rw.get('error') or rw.get('status'):
+                            eda.record_sp_gift(a, rw)
+                result.append({'name': a.get('name'), **r})
+            with _SP_LOCK:
+                SP_TASKS[task_id]['state'] = 'done'
+                SP_TASKS[task_id]['progress'] = 100
+                SP_TASKS[task_id]['message'] = 'Готово'
+                SP_TASKS[task_id]['result'] = result
+        except Exception as e:
+            with _SP_LOCK:
+                SP_TASKS[task_id]['state'] = 'error'
+                SP_TASKS[task_id]['message'] = str(e)
+                SP_TASKS[task_id]['result'] = None
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({'task_id': task_id})
+
+
+@app.route('/api/sp/daily/<task_id>', methods=['GET'])
+def api_sp_daily_status(task_id):
+    with _SP_LOCK:
+        t = SP_TASKS.get(task_id)
+    if not t:
+        return jsonify({'error': 'task not found'}), 404
+    return jsonify({'state': t['state'], 'progress': t['progress'],
+                    'message': t['message'], 'result': t['result']})
+
+
+@app.route('/api/sp/gifts', methods=['GET'])
+def api_sp_gifts():
+    return jsonify(eda.load_sp_gifts())
 
 
 @app.route('/api/eda/sessions', methods=['GET'])

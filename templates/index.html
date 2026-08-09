@@ -69,6 +69,7 @@
     <button class="db-tab" data-tab="sessions">🔑 Сессии</button>
     <button class="db-tab" data-tab="eda">🚚 ЕДА</button>
     <button class="db-tab" data-tab="edaPromo">🎁 Промокоды</button>
+    <button class="db-tab" data-tab="sp">🅿 Свои Плюсы</button>
   </nav>
 
   <!-- ================= Аккаунты ================= -->
@@ -278,6 +279,35 @@
         <thead><tr><th>Аккаунт</th><th>Промокоды</th><th>Ошибка</th></tr></thead>
         <tbody></tbody>
       </table>
+    </div>
+  </section>
+
+  <!-- ================= Свои Плюсы: ежедневные подарки ================= -->
+  <section class="db-pane" id="pane-sp">
+    <div class="db-toolbar">
+      <button class="btn btn-primary btn-sm" id="spRun">🎁 Собрать подарки</button>
+      <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="spClaim" checked> активировать промокоды</label>
+      <span class="db-count" id="spCount"></span>
+      <span class="db-spacer"></span>
+      <button class="btn btn-ghost btn-sm" id="spCsv">Скачать CSV</button>
+    </div>
+    <div class="eda-promo-progress hidden" id="spProgress">
+      <div class="eda-promo-bar"><div class="eda-promo-fill" id="spFill"></div></div>
+      <span class="db-mut" id="spMsg"></span>
+    </div>
+    <div class="table-wrap" style="margin-top:16px">
+      <table class="data-table" id="spTable">
+        <thead><tr><th>Аккаунт</th><th>Подарок</th><th>Статус</th><th>Промокод</th><th>Действует до</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="sd-section" style="margin-top:18px"><h3>История получения</h3>
+      <div class="table-wrap">
+        <table class="data-table" id="spGiftTable">
+          <thead><tr><th>Аккаунт</th><th>Подарок</th><th>Статус</th><th>Промокод</th><th>Действует до</th><th>Получен</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
   </section>
 </div>

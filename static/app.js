@@ -1013,6 +1013,93 @@ async function runEdaPromos() {
 
 $('edaPromoRun').addEventListener('click', runEdaPromos);
 
+// ================= «Свои Плюсы»: ежедневные подарки =================
+async function runSpDaily() {
+  const btn = $('spRun');
+  const tb = $('spTable').querySelector('tbody');
+  const prog = $('spProgress');
+  btn.disabled = true;
+  tb.innerHTML = '<tr><td colspan="5" class="db-empty">Собираю подарки «Свои Плюсы»…</td></tr>';
+  $('spCount').textContent = '';
+  try {
+    const { task_id } = await api('/api/sp/daily', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ claim: $('spClaim').checked }),
+    });
+    prog.classList.remove('hidden');
+    const render = (st) => {
+      $('spFill').style.width = `${st.progress || 0}%`;
+      $('spMsg').textContent = `${st.progress || 0}% — ${st.message || ''}`;
+    };
+    for (;;) {
+      const st = await api(`/api/sp/daily/${task_id}`);
+      render(st);
+      if (st.state === 'done' || st.state === 'error') break;
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    const st = await api(`/api/sp/daily/${task_id}`);
+    prog.classList.add('hidden');
+    const rows = st.result || [];
+    const cells = [];
+    rows.forEach(r => {
+      (r.rewards || []).forEach(rw => {
+        cells.push(`
+          <tr>
+            <td><b>${esc(r.name)}</b></td>
+            <td>${esc(rw.title || rw.reward_id)}</td>
+            <td>${rw.error ? `<span class="sd-badge bad">${esc(rw.error)}</span>` : (rw.status === 'ACTIVATED' ? '<span class="sd-badge ok">активирован</span>' : esc(rw.status || ''))}</td>
+            <td>${rw.promocode ? `<span class="sd-badge ok">${esc(rw.promocode)}</span>` : '<span class="db-mut">—</span>'}</td>
+            <td>${fmtDate(rw.expires_at)}</td>
+          </tr>`);
+      });
+      if (!r.rewards || !r.rewards.length) {
+        cells.push(`<tr><td><b>${esc(r.name)}</b></td><td colspan="4" class="db-mut">${esc(r.error || 'подарков нет')}</td></tr>`);
+      }
+    });
+    tb.innerHTML = cells.join('') || '<tr><td colspan="5" class="db-empty">Аккаунтов с Session_id нет</td></tr>';
+    $('spCount').textContent = `подарков: ${cells.length}`;
+    loadSpGifts();
+  } catch (e) {
+    prog.classList.add('hidden');
+    tb.innerHTML = `<tr><td colspan="5" class="db-empty">${esc(e.message)}</td></tr>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadSpGifts() {
+  try {
+    const gifts = await api('/api/sp/gifts');
+    const tb = $('spGiftTable').querySelector('tbody');
+    tb.innerHTML = gifts.slice().reverse().map(g => `
+      <tr>
+        <td><b>${esc(g.account)}</b></td>
+        <td>${esc(g.title || g.reward_id)}</td>
+        <td>${g.error ? `<span class="sd-badge bad">${esc(g.error)}</span>` : (g.status === 'ACTIVATED' ? '<span class="sd-badge ok">активирован</span>' : esc(g.status || ''))}</td>
+        <td>${g.promocode ? `<span class="sd-badge ok">${esc(g.promocode)}</span>` : '<span class="db-mut">—</span>'}</td>
+        <td>${fmtDate(g.expires_at)}</td>
+        <td class="num">${esc(g.collected_at || '')}</td>
+      </tr>`).join('') || '<tr><td colspan="6" class="db-empty">Пока ничего не собрано</td></tr>';
+  } catch (e) { /* ignore */ }
+}
+
+function spCsv() {
+  const rows = [['Аккаунт', 'Подарок', 'Статус', 'Промокод', 'Действует до', 'Получен']];
+  $('spGiftTable').querySelectorAll('tbody tr').forEach(tr => {
+    rows.push(Array.from(tr.children).map(td => td.textContent.trim().replace(/\s+/g, ' ')));
+  });
+  const csv = rows.map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(';')).join('\r\n');
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'sp_gifts.csv';
+  a.click();
+}
+
+$('spRun').addEventListener('click', runSpDaily);
+$('spCsv').addEventListener('click', spCsv);
+loadSpGifts();
+
 // ================= boot =================
 async function boot() {
   loadOverview();

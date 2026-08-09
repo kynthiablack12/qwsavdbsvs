@@ -11,6 +11,7 @@ prizes.db
 *.db-shm
 eda_accounts.json
 eda_sessions.json
+sp_gifts.json
 
 # Logs
 *.log

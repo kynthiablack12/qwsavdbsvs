@@ -1,4 +1,4 @@
-import sys, os, json, uuid, time, re
+import sys, os, json, uuid, time, re, urllib.parse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
 import requests
@@ -15,6 +15,11 @@ import requests
 
 EDA_ACCOUNTS_FILE = os.path.join(core.DATA_DIR, 'eda_accounts.json')
 EDA_SESSIONS_FILE = os.path.join(core.DATA_DIR, 'eda_sessions.json')
+
+# «Свои Плюсы»: ежедневные подарки (sp.yandex.ru/daily).
+SP_GIFTS_FILE = os.path.join(core.DATA_DIR, 'sp_gifts.json')
+SP_GRAPHQL_URL = 'https://egw.sp.plet.yandex.ru/graphql'
+SP_DAILY_BASE = 'https://egw.daily.plus.yandex.ru'
 
 EDA_HOST = 'https://eda.yandex.ru'
 
@@ -151,6 +156,10 @@ def add_eda_account(name, cookies_raw, token=None, yandexuid='', session_id=''):
     # если передан token отдельно — берём его
     if token:
         acc['token'] = token.strip()
+    # сырой Session_id храним отдельно — нужен для «Свои Плюсы» (sp.yandex.ru/daily)
+    raw_sid = session_id.strip() if session_id else ck.get('Session_id', '')
+    if raw_sid:
+        acc['session_id'] = raw_sid
     if yandexuid:
         acc['yandexuid'] = yandexuid.strip()
     elif ck.get('yandexuid'):
@@ -718,3 +727,276 @@ def find_promocodes(account, lat=None, lon=None, progress=None):
     acc = get_eda_account(account) if isinstance(account, str) else account
     lat, lon = _coords(acc, lat, lon)
     return _promo_items(acc, lat, lon, progress)
+
+
+# ============================================================
+#  Свои Плюсы: ежедневные подарки (sp.yandex.ru/daily).
+#
+#  Авторизация — cookie Session_id (+ yandexuid), без капчи.
+#  Layout приходит из GraphQL egw.sp.plet.yandex.ru (operation
+#  pageableSectionGroups — только POST, тело строго из whitelist).
+#  Детали и получение подарка — REST egw.daily.plus.yandex.ru.
+# ============================================================
+
+# Полная операция GraphQL pageableSectionGroups (должна совпадать с whitelist).
+SP_LAYOUT_QUERY = '''\n    query pageableSectionGroups($targeting: TargetingInput!, $attributes: AdditionalAttributesInput, $weightType: SHORTCUT_WEIGHT_TYPE!, $isSDK: Boolean!, $isAllWeightType: Boolean = false) {\n  pageableLayout(\n    input: {targetingWithPagination: {targeting: $targeting, attributes: $attributes}, weightType: $weightType}\n  ) {\n    baseBackgroundColor\n    id\n    name\n    style\n    sectionGroups {\n      sections {\n        id\n        name\n        type\n        hasHeavyMetaShortcuts @skip(if: $isAllWeightType)\n        hasHeavyShortcuts @skip(if: $isAllWeightType)\n        hasMoreShortcuts\n        metaShortcuts {\n          ...BaseShortcut\n        }\n        popupScrollingIsEnabled\n        shortcuts {\n          ...BaseShortcut\n        }\n        shouldHaveViewStatus\n        additionalData\n      }\n    }\n  }\n}\n    \n    fragment BaseShortcut on Shortcut {\n  __typename\n  id\n  type\n  title\n  subtitle\n  actions {\n    ...BaseAction\n  }\n  background {\n    __typename\n    color\n    imageUrl\n    mobileImageUrl\n    lottieUrl\n    lottiePlayType\n    mobileLottieUrl\n    mobileLottiePlayType\n  }\n  textStyle {\n    __typename\n    color\n  }\n  iconUrl\n  iconLottieUrl\n  iconLottiePlayType\n  commonOverlays {\n    ...Overlays\n  }\n  popups @include(if: $isSDK) {\n    id\n  }\n  popups @skip(if: $isSDK) {\n    ...BasePopup\n  }\n  name\n  serviceName\n  subscriptionProductsTarget\n  additionalData\n  hasBeenRead\n  completed\n}\n    \n\n    fragment BaseAction on Action {\n  __typename\n  actionType\n  customSubtype\n  afishaSettings {\n    ...AfishaAction\n  }\n  applicationLink\n  deeplink\n  url\n  inApp\n  subscriptionButtonType\n  subscriptionPaymentMethod\n  subscriptionProductFeatures\n  subscriptionWidgetType\n  text\n  backgroundColor\n  textColor\n  useModalWindow\n  useSmartWebView\n  offerId\n  silent\n  acquisitionPlatformSubscriptionProperties {\n    ...AcquisitionPlatform\n  }\n  modalWindow {\n    ...ModalWindowPopup\n  }\n}\n    \n\n    fragment AfishaAction on AfishaSettings {\n  clientKey\n  dealerId\n  dealerType\n  regionId\n  urlQueryParams\n}\n    \n\n    fragment AcquisitionPlatform on AcquisitionPlatformSubscriptionProperties {\n  page\n  places\n  restrictions\n}\n    \n\n    fragment ModalWindowPopup on ModalWindowActionProperties {\n  popupId\n  height\n  sizeUnit\n}\n    \n\n    fragment Overlays on Overlay {\n  __typename\n  shape\n  text\n  textColor\n  imageUrl\n  imageTag\n  lottieUrl\n  lottiePlayType\n  background {\n    color\n    imageUrl\n    imageTag\n  }\n  attributedText {\n    items {\n      ...ImageProperties\n      ...StyledTextProperties\n      ...TextIconProperties\n      ...TextProperties\n    }\n  }\n}\n    \n\n    fragment ImageProperties on ImageProperties {\n  __typename\n  color\n  metaColor\n  width\n  imageTag\n  name\n}\n    \n\n    fragment StyledTextProperties on StyledTextProperties {\n  __typename\n  id\n  isBold\n  isItalic\n  text\n  textColor {\n    rawValue\n  }\n}\n    \n\n    fragment TextIconProperties on TextIconProperties {\n  __typename\n  id\n  url\n  fallbackText\n}\n    \n\n    fragment TextProperties on TextProperties {\n  __typename\n  color\n  text\n  name\n}\n    \n\n    fragment BasePopup on Popup {\n  id\n  name\n  background {\n    color\n    imageTag\n    imageUrl\n  }\n  buttons {\n    action {\n      ...BaseAction\n    }\n    backgroundColor\n    text\n    textColor\n    subscriptionProductTarget\n  }\n  commonOverlays {\n    ...Overlays\n  }\n  disclaimer\n  iconUrl\n  legal {\n    action {\n      ...BaseAction\n    }\n    text\n  }\n  subtitle\n  textColor\n  title\n  additionalData\n}\n    \n'''
+
+SP_LAYOUT_VARIABLES = {
+    'targeting': {
+        'appMetricaUUID': None,
+        'sdkVersion': None,
+        'appVersion': None,
+        'consumer': None,
+        'consumerType': 'SP_PROMO_CODES',
+        'place': 'main',
+        'device': 'DESKTOP',
+        'flags': [],
+        'geoId': None,
+        'loyaltyInfo': None,
+        'message': None,
+        'platform': 'WEB_DESKTOP',
+        'plus': None,
+        'featureNames': None,
+        'segment': None,
+        'service': 'promocodes',
+        'target': None,
+        'language': 'ru',
+        'layoutId': None,
+        'location': {'geoId': None, 'coordinates': None, 'geoPinPosition': None},
+        'testIds': [],
+        'theme': 'LIGHT',
+        'restrictionMode': 'AUTO',
+        'isNativePaymentAvailable': False,
+        'inappCountryCode': None,
+        'subscriptionResumed': None,
+    },
+    'weightType': 'ALL',
+    'attributes': {'communicationId': None, 'movieId': None},
+    'isSDK': False,
+    'isAllWeightType': True,
+}
+
+SP_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+         '(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36')
+
+
+def sp_session_id(acc):
+    """Сырой Session_id для API «Свои Плюсы»."""
+    return (acc.get('session_id') or '').strip() or (acc.get('cookies') or {}).get('Session_id', '')
+
+
+def sp_headers(acc):
+    """Браузерные заголовки для egw-API «Свои Плюсы» (с кукой Session_id)."""
+    h = {
+        'Accept': 'application/json, text/plain, */*',
+        'Origin': 'https://sp.yandex.ru',
+        'Referer': 'https://sp.yandex.ru/',
+        'User-Agent': SP_UA,
+        'X-Forwarded-For': '92.124.160.8',
+        'X-Requested-With': 'XMLHttpRequest',
+    }
+    sid = sp_session_id(acc)
+    cookie = f'Session_id={sid}'
+    yuid = (acc.get('yandexuid') or (acc.get('cookies') or {}).get('yandexuid') or '').strip()
+    if yuid:
+        cookie += f'; yandexuid={yuid}'
+    h['Cookie'] = cookie
+    return h
+
+
+def sp_daily_layout(acc):
+    """Layout страницы daily: список подарков (reward_id + статус).
+
+    Возвращает список dict'ов: {reward_id, title, subtitle, status}.
+    """
+    sid = sp_session_id(acc)
+    if not sid:
+        raise RuntimeError('у аккаунта нет Session_id (нужен для sp.yandex.ru/daily)')
+    h = sp_headers(acc)
+    h['Content-Type'] = 'application/json'
+    url = SP_GRAPHQL_URL + '?query_name=web%3FpageableSectionGroups'
+    body = {
+        'query': SP_LAYOUT_QUERY,
+        'variables': SP_LAYOUT_VARIABLES,
+        'operationName': 'pageableSectionGroups',
+    }
+    try:
+        r = requests.post(url, headers=h, json=body, timeout=30)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Свои Плюсы: сеть (layout): {e}')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Свои Плюсы: HTTP {r.status_code} (layout): {r.text[:300]}')
+    try:
+        d = r.json()
+    except Exception:
+        raise RuntimeError(f'Свои Плюсы: ответ layout не JSON: {r.text[:200]}')
+    data = (d or {}).get('data') or {}
+    layout = data.get('pageableLayout') or {}
+    rewards = []
+    for sg in layout.get('sectionGroups') or []:
+        for s in sg.get('sections') or []:
+            if s.get('type') != 'HOME_DAILY_BIG_REWARDS':
+                continue
+            for sh in s.get('shortcuts') or []:
+                rid = None
+                for p in sh.get('popups') or []:
+                    if p.get('id'):
+                        rid = p['id']
+                        break
+                if not rid:
+                    m = re.search(r'id=([MPE0-9\-_]+)', json.dumps(sh.get('actions') or []))
+                    if m:
+                        rid = m.group(1)
+                if not rid:
+                    continue
+                status = None
+                for ov in sh.get('commonOverlays') or []:
+                    for it in (ov.get('attributedText') or {}).get('items') or []:
+                        if it.get('name') == 'status':
+                            status = it.get('text')
+                rewards.append({
+                    'reward_id': rid,
+                    'title': (sh.get('title') or '').strip(),
+                    'subtitle': (sh.get('subtitle') or '').strip(),
+                    'status': status,
+                })
+    return rewards
+
+
+def sp_reward_detail(acc, reward_id):
+    """Детали подарка: displayStatus, presentOptions (варианты), expiresAt."""
+    url = SP_DAILY_BASE + '/plusometer/v2/view/reward/detail'
+    params = {'reward_id': reward_id, 'ext_source': 'PLUSOMETER', 'theme': 'LIGHT'}
+    try:
+        r = requests.get(url, headers=sp_headers(acc), params=params, timeout=30)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Свои Плюсы: сеть (detail): {e}')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Свои Плюсы: HTTP {r.status_code} (detail): {r.text[:300]}')
+    try:
+        return r.json()
+    except Exception:
+        raise RuntimeError(f'Свои Плюсы: ответ detail не JSON: {r.text[:200]}')
+
+
+def sp_claim_reward(acc, reward_id, chosen_reward_id):
+    """Активировать подарок: выбираем вариант presentOption -> промокод.
+
+    Возвращает тело ответа (displayStatus=ACTIVATED, promocode, expiresAt).
+    """
+    url = (SP_DAILY_BASE + f'/plusometer/v2/view/reward/detail/{reward_id}/claim'
+           + '?chosenRewardId=' + urllib.parse.quote(chosen_reward_id) + '&theme=LIGHT')
+    try:
+        r = requests.post(url, headers=sp_headers(acc), data=b'', timeout=30)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Свои Плюсы: сеть (claim): {e}')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Свои Плюсы: HTTP {r.status_code} (claim): {r.text[:300]}')
+    try:
+        return r.json()
+    except Exception:
+        raise RuntimeError(f'Свои Плюсы: ответ claim не JSON: {r.text[:200]}')
+
+
+def sp_present_options(detail):
+    """Список вариантов подарка из detail (id + сервис)."""
+    out = []
+    for o in (detail or {}).get('presentOptions') or []:
+        if not isinstance(o, dict):
+            continue
+        svc = (o.get('service') or {}) if isinstance(o.get('service'), dict) else {}
+        out.append({
+            'id': o.get('id'),
+            'type': o.get('type'),
+            'service_id': svc.get('serviceId'),
+            'service_name': svc.get('serviceName') or svc.get('servicePrettyName'),
+            'title': o.get('title') or o.get('subtitle') or '',
+        })
+    return out
+
+
+def collect_sp_daily(account, claim=False, progress=None):
+    """Собрать ежедневные подарки «Свои Плюсы» на аккаунте.
+
+    Возвращает dict: {rewards: [{reward_id, title, status, options,
+    chosen, promocode, expires_at, error}], error: str|None}.
+    progress — callback(msg, frac 0..1).
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if not acc:
+        raise RuntimeError(f'аккаунт "{account}" не найден')
+    out = {'rewards': [], 'error': None}
+    try:
+        if progress:
+            progress('Загружаю layout', 0.0)
+        rewards = sp_daily_layout(acc)
+        total = max(len(rewards), 1)
+        for i, rw in enumerate(rewards):
+            rid = rw['reward_id']
+            if progress:
+                progress(f'Детали {rid} ({i + 1}/{total})', 0.05 + 0.55 * i / total)
+            try:
+                detail = sp_reward_detail(acc, rid)
+            except Exception as e:
+                out['rewards'].append({'reward_id': rid, 'title': rw.get('title'),
+                                       'status': rw.get('status'), 'error': str(e)})
+                continue
+            entry = {
+                'reward_id': rid,
+                'title': (detail or {}).get('popupTitle') or rw.get('title'),
+                'status': (detail or {}).get('displayStatus') or rw.get('status'),
+                'options': sp_present_options(detail),
+                'promocode': (detail or {}).get('promocode'),
+                'expires_at': (detail or {}).get('expiresAt'),
+                'error': None,
+            }
+            if claim and entry['status'] == 'REACHED' and entry['options']:
+                if progress:
+                    progress(f'Активация {rid}: {entry["options"][0].get("id")}', 0.65 + 0.3 * i / total)
+                try:
+                    cl = sp_claim_reward(acc, rid, entry['options'][0]['id'])
+                    entry['chosen'] = entry['options'][0].get('id')
+                    entry['status'] = cl.get('displayStatus') or entry['status']
+                    entry['promocode'] = cl.get('promocode')
+                    entry['expires_at'] = cl.get('expiresAt')
+                except Exception as e:
+                    entry['error'] = str(e)
+            out['rewards'].append(entry)
+    except Exception as e:
+        out['error'] = str(e)
+    if progress:
+        progress('Готово', 1.0)
+    return out
+
+
+# ---------- хранение полученных промокодов («Свои Плюсы») ----------
+
+def load_sp_gifts():
+    try:
+        with open(SP_GIFTS_FILE, encoding='utf-8') as f:
+            return json.load(f).get('gifts', [])
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def save_sp_gifts(items):
+    with open(SP_GIFTS_FILE, 'w', encoding='utf-8') as f:
+        json.dump({'gifts': items}, f, ensure_ascii=False, indent=2)
+
+
+def record_sp_gift(acc, reward):
+    """Записать полученный промокод (или статус) подарка в sp_gifts.json."""
+    items = load_sp_gifts()
+    entry = {
+        'account': acc.get('name', ''),
+        'reward_id': reward.get('reward_id'),
+        'title': reward.get('title'),
+        'chosen': reward.get('chosen'),
+        'status': reward.get('status'),
+        'promocode': reward.get('promocode'),
+        'expires_at': reward.get('expires_at'),
+        'error': reward.get('error'),
+        'collected_at': time.strftime('%Y-%m-%d %H:%M:%S'),
+    }
+    items.append(entry)
+    save_sp_gifts(items)
