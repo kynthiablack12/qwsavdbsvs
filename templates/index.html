@@ -313,23 +313,20 @@
         <label>Имя аккаунта
           <input type="text" id="skName" placeholder="например: omsk1" autocomplete="off">
         </label>
-        <details id="skBySms" open style="width:100%">
-          <summary style="cursor:pointer;margin-bottom:8px">Вход по номеру + SMS-код</summary>
-          <div class="eda-add" style="border:0;padding:0">
-            <label>Номер телефона
-              <input type="text" id="skPhone" placeholder="+7 912 345-67-89" autocomplete="off">
-            </label>
-            <button class="btn btn-primary" id="skSmsSend">Отправить код</button>
-            <label style="margin-top:8px">SMS-код
-              <input type="text" id="skSmsCode" placeholder="код из СМС" autocomplete="off">
-            </label>
-            <button class="btn btn-primary" id="skSmsConfirm">Подтвердить и сохранить аккаунт</button>
-          </div>
-        </details>
-        <label style="width:100%">или вставьте куки веб-сессии samokat.ru
+        <label>Номер телефона (вход по SMS)
+          <input type="text" id="skPhone" placeholder="+7 912 345-67-89" autocomplete="off">
+        </label>
+        <button class="btn btn-primary" id="skSmsSend">1. Отправить SMS-код</button>
+        <label>SMS-код
+          <input type="text" id="skSmsCode" placeholder="код из СМС" autocomplete="off">
+        </label>
+        <button class="btn btn-primary" id="skSmsConfirm">2. Подтвердить и сохранить аккаунт</button>
+      </div>
+      <div class="eda-add">
+        <label style="width:100%">Или вставьте куки веб-сессии samokat.ru
           <textarea id="skCookies" rows="4" placeholder="__Secure-next-auth.session-token=...; spjs=...; DEVICE_ID_KEY=... (куки из браузера, весь заголовок Cookie)" autocomplete="off"></textarea>
         </label>
-        <button class="btn btn-primary" id="skAccAdd">Добавить аккаунт</button>
+        <button class="btn btn-primary" id="skAccAdd">Добавить аккаунт по кукам</button>
       </div>
       <div class="table-wrap" style="margin-top:16px">
         <table class="data-table" id="skAccTable">
