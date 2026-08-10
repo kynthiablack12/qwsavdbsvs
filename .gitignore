@@ -12,6 +12,7 @@ prizes.db
 eda_accounts.json
 eda_sessions.json
 sp_gifts.json
+sp_wheel.json
 
 # Logs
 *.log

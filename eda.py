@@ -21,6 +21,11 @@ SP_GIFTS_FILE = os.path.join(core.DATA_DIR, 'sp_gifts.json')
 SP_GRAPHQL_URL = 'https://egw.sp.plet.yandex.ru/graphql'
 SP_DAILY_BASE = 'https://egw.daily.plus.yandex.ru'
 
+# «Свои Плюсы»: Колесо Фортуны (sp.yandex.ru/wheel).
+SP_WHEEL_FILE = os.path.join(core.DATA_DIR, 'sp_wheel.json')
+SP_WHEEL_PAGE = 'https://sp.yandex.ru/wheel?retRoute=internal'
+SP_WHEEL_API = 'https://egw.selo.plus.yandex.ru/api'
+
 EDA_HOST = 'https://eda.yandex.ru'
 
 # Дефолтная точка: Омск, проспект Мира, 33 (координаты из дампа).
@@ -1027,3 +1032,283 @@ def record_sp_gift(acc, reward):
     }
     items.append(entry)
     save_sp_gifts(items)
+
+
+# ---------- «Свои Плюсы»: Колесо Фортуны (sp.yandex.ru/wheel) ----------
+
+def _js_unescape(s):
+    """Распаковать JS-строку (экраны \\", \\\\, \\uXXXX) в обычный текст."""
+    out = []
+    i = 0
+    n = len(s)
+    while i < n:
+        c = s[i]
+        if c == '\\' and i + 1 < n:
+            nxt = s[i + 1]
+            if nxt == '"':
+                out.append('"'); i += 2; continue
+            if nxt == '\\':
+                out.append('\\'); i += 2; continue
+            if nxt == '/':
+                out.append('/'); i += 2; continue
+            if nxt == 'n':
+                out.append('\n'); i += 2; continue
+            if nxt == 't':
+                out.append('\t'); i += 2; continue
+            if nxt == 'r':
+                out.append('\r'); i += 2; continue
+            if nxt == 'b':
+                out.append('\b'); i += 2; continue
+            if nxt == 'f':
+                out.append('\f'); i += 2; continue
+            if nxt == 'u' and i + 5 < n:
+                try:
+                    out.append(chr(int(s[i + 2:i + 6], 16))); i += 6; continue
+                except ValueError:
+                    pass
+            out.append(c)
+        else:
+            out.append(c)
+        i += 1
+    return ''.join(out)
+
+
+def _rsc_object(text, start):
+    """Вернуть текст JSON-объекта от открывающей '{' до парной '}'."""
+    depth = 0
+    i = start
+    in_str = False
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if in_str:
+            if ch == '\\':
+                i += 2; continue
+            if ch == '"':
+                in_str = False
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    break
+        i += 1
+    return text[start:i + 1]
+
+
+def _rsc_value(text, key):
+    """Достать значение ключа key из распакованного RSC-текста страницы."""
+    k = '"' + key + '":'
+    p = text.find(k)
+    if p < 0:
+        return None
+    s = text[p + len(k):].lstrip()
+    if not s:
+        return None
+    if s[0] == '{':
+        return json.loads(_rsc_object(s, 0))
+    if s[0] == '[':
+        end = s.find(']')
+        return json.loads(s[:end + 1])
+    if s[0] == '"':
+        end = s.find('"', 1)
+        return json.loads(s[:end + 1])
+    end = 0
+    while end < len(s) and s[end] not in ',}]':
+        end += 1
+    return json.loads(s[:end])
+
+
+def wheel_page_state(acc):
+    """Скачать страницу колеса и разобрать RSC: signups, wheels, categoryMap.
+
+    Возвращает dict {signups, wheels, categoryMap}.
+    """
+    sid = sp_session_id(acc)
+    if not sid:
+        raise RuntimeError('у аккаунта нет Session_id (нужен для sp.yandex.ru/wheel)')
+    h = sp_headers(acc)
+    h['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    try:
+        r = requests.get(SP_WHEEL_PAGE, headers=h, timeout=30)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Колесо Фортуны: сеть: {e}')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Колесо Фортуны: HTTP {r.status_code}: {r.text[:300]}')
+    body = r.text
+    unesc = None
+    for m in re.finditer(r'self\.__next_f\.push\(\[1,"', body):
+        p = m.end()
+        end = body.find('"])', p)
+        u = _js_unescape(body[p:end])
+        if 'globalSelector' in u:
+            unesc = u
+            break
+    if unesc is None:
+        raise RuntimeError('Колесо Фортуны: не нашёл данные globalSelector на странице')
+    return {
+        'signups': _rsc_value(unesc, 'globalSelector').get('signups') or [],
+        'wheels': _rsc_value(unesc, 'wheels') or {},
+        'categoryMap': _rsc_value(unesc, 'categoryMap') or {},
+    }
+
+
+def wheel_signup(state):
+    """Взять signup Колеса Фортуны из состояния страницы."""
+    for su in state.get('signups') or []:
+        if su.get('offerType') == 'WheelOfFortune':
+            return su
+    return None
+
+
+def wheel_spin_category(su):
+    """Категория для спина: статус New у группы fortuna."""
+    for g in (su or {}).get('groups') or []:
+        for c in g.get('categories') or []:
+            if c.get('status') == 'New':
+                return c
+    return None
+
+
+def wheel_selected_category(su):
+    """Уже выбранная (выигранная) категория: статус Selected."""
+    for g in (su or {}).get('groups') or []:
+        for c in g.get('categories') or []:
+            if c.get('status') == 'Selected':
+                return c
+    return None
+
+
+def spin_wheel(acc, signup_id, category_id):
+    """Крутануть колесо: POST /api/v1/offers/signup.
+
+    Возвращает тело ответа (например {"data":{"show_super_screen":false}}).
+    """
+    uid = int(acc.get('yandexuid') or 0)
+    h = sp_headers(acc)
+    h['Content-Type'] = 'application/json'
+    h['Accept'] = 'application/json, text/plain, */*'
+    h['Accept-Language'] = 'ru_RU'
+    body = {'id': signup_id, 'categories': [{'id': category_id}], 'passport_id': uid}
+    try:
+        r = requests.post(SP_WHEEL_API + '/v1/offers/signup', headers=h, json=body, timeout=25)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Колесо Фортуны: сеть (спин): {e}')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Колесо Фортуны: HTTP {r.status_code} (спин): {r.text[:300]}')
+    try:
+        return r.json()
+    except Exception:
+        raise RuntimeError(f'Колесо Фортуны: ответ спина не JSON: {r.text[:200]}')
+
+
+def wheel_prize(state, su):
+    """Приз из categoryMap по выбранной категории."""
+    cat = wheel_selected_category(su)
+    if not cat:
+        return None
+    key = cat.get('categoryKey') or ''
+    entry = (state.get('categoryMap') or {}).get(key) or {}
+    return {
+        'category_key': key,
+        'title': sp_clean(entry.get('widgetTitle')) or sp_clean(entry.get('successTitle')),
+        'cashback': sp_clean(entry.get('cashbackText')),
+        'description': sp_clean(entry.get('widgetDescription')) or sp_clean(entry.get('successDescription')),
+        'icon': entry.get('icon'),
+        'expires_at': su.get('endDate'),
+    }
+
+
+def collect_sp_wheel(account, spin=False, progress=None):
+    """Проверить/крутануть Колесо Фортуны на аккаунте.
+
+    spin=False — только состояние и текущий приз.
+    spin=True — потратить попытку (если категория New) и вернуть выигрыш.
+
+    Возвращает dict {results: [{account, spun, status, prize, error}], error}.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if not acc:
+        raise RuntimeError(f'аккаунт "{account}" не найден')
+    out = {'results': [], 'error': None}
+    try:
+        if progress:
+            progress('Загружаю колесо', 0.1)
+        state = wheel_page_state(acc)
+        su = wheel_signup(state)
+        if su is None:
+            out['results'].append({'account': acc.get('name'), 'spun': False,
+                                   'status': 'нет колеса', 'error': 'signup WheelOfFortune не найден'})
+            return out
+        if su.get('endDate') and su['endDate'][:10] < time.strftime('%Y-%m-%d'):
+            out['results'].append({'account': acc.get('name'), 'spun': False,
+                                   'status': 'период закончился', 'endDate': su.get('endDate')})
+            return out
+        new_cat = wheel_spin_category(su)
+        if new_cat and spin:
+            if progress:
+                progress('Кручу колесо', 0.6)
+            try:
+                resp = spin_wheel(acc, su['id'], new_cat['id'])
+                if progress:
+                    progress('Узнаю приз', 0.85)
+                state = wheel_page_state(acc)
+                su = wheel_signup(state)
+            except Exception as e:
+                out['results'].append({'account': acc.get('name'), 'spun': True,
+                                       'status': 'ошибка спина', 'error': str(e)})
+                return out
+        prize = wheel_prize(state, su)
+        result = {
+            'account': acc.get('name'),
+            'spun': bool(new_cat and spin),
+            'status': su.get('status'),
+            'endDate': su.get('endDate'),
+            'prize': prize,
+            'error': None,
+        }
+        if prize is None and not new_cat:
+            result['status'] = 'уже кручено'
+        out['results'].append(result)
+    except Exception as e:
+        out['error'] = str(e)
+    if progress:
+        progress('Готово', 1.0)
+    return out
+
+
+# ---------- хранение результатов колеса ----------
+
+def load_sp_wheel():
+    try:
+        with open(SP_WHEEL_FILE, encoding='utf-8') as f:
+            return json.load(f).get('wheels', [])
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def save_sp_wheel(items):
+    with open(SP_WHEEL_FILE, 'w', encoding='utf-8') as f:
+        json.dump({'wheels': items}, f, ensure_ascii=False, indent=2)
+
+
+def record_sp_wheel(acc, result):
+    """Записать результат прокрутки колеса в sp_wheel.json."""
+    items = load_sp_wheel()
+    prize = result.get('prize') or {}
+    entry = {
+        'account': acc.get('name', ''),
+        'spun': bool(result.get('spun')),
+        'status': result.get('status'),
+        'endDate': result.get('endDate'),
+        'prize_title': prize.get('title'),
+        'cashback': prize.get('cashback'),
+        'description': prize.get('description'),
+        'error': result.get('error'),
+        'spinned_at': time.strftime('%Y-%m-%d %H:%M:%S'),
+    }
+    items.append(entry)
+    save_sp_wheel(items)

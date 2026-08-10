@@ -582,6 +582,78 @@ def api_sp_gifts():
     return jsonify(eda.load_sp_gifts())
 
 
+# Задачи «Колесо Фортуны».
+SP_WHEEL_TASKS = {}
+
+
+@app.route('/api/sp/wheel', methods=['POST'])
+def api_sp_wheel():
+    """Проверить/крутануть Колесо Фортуны по аккаунтам с Session_id."""
+    data = request.get_json(silent=True) or {}
+    names = data.get('names') or None
+    spin = bool(data.get('spin', False))
+    task_id = hashlib.md5(os.urandom(16)).hexdigest()[:12]
+    with _SP_LOCK:
+        SP_WHEEL_TASKS[task_id] = {'state': 'running', 'progress': 0, 'message': 'Запуск…', 'result': None}
+
+    def _run():
+        try:
+            accounts = eda.load_eda_accounts()
+            if names:
+                accounts = [a for a in accounts if a.get('name') in names]
+            accounts = [a for a in accounts if eda.sp_session_id(a)]
+            result = []
+            total = max(len(accounts), 1)
+            for idx, a in enumerate(accounts):
+                acc_progress = {'frac': 0.0, 'msg': ''}
+
+                def _cb(msg, frac, _idx=idx, _a=a, _acc_progress=acc_progress):
+                    _acc_progress['frac'] = frac
+                    _acc_progress['msg'] = msg
+                    pct = int(((_idx + frac) / total) * 100)
+                    with _SP_LOCK:
+                        t = SP_WHEEL_TASKS[task_id]
+                        t['progress'] = pct
+                        t['message'] = f'{_a.get("name")}: {msg}'
+
+                try:
+                    r = eda.collect_sp_wheel(a, spin=spin, progress=_cb)
+                except Exception as e:
+                    r = {'results': [], 'error': str(e)}
+                for res in r.get('results') or []:
+                    if res.get('spun') or res.get('prize') or res.get('error'):
+                        eda.record_sp_wheel(a, res)
+                result.append({'name': a.get('name'), **r})
+            with _SP_LOCK:
+                SP_WHEEL_TASKS[task_id]['state'] = 'done'
+                SP_WHEEL_TASKS[task_id]['progress'] = 100
+                SP_WHEEL_TASKS[task_id]['message'] = 'Готово'
+                SP_WHEEL_TASKS[task_id]['result'] = result
+        except Exception as e:
+            with _SP_LOCK:
+                SP_WHEEL_TASKS[task_id]['state'] = 'error'
+                SP_WHEEL_TASKS[task_id]['message'] = str(e)
+                SP_WHEEL_TASKS[task_id]['result'] = None
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({'task_id': task_id})
+
+
+@app.route('/api/sp/wheel/<task_id>', methods=['GET'])
+def api_sp_wheel_status(task_id):
+    with _SP_LOCK:
+        t = SP_WHEEL_TASKS.get(task_id)
+    if not t:
+        return jsonify({'error': 'task not found'}), 404
+    return jsonify({'state': t['state'], 'progress': t['progress'],
+                    'message': t['message'], 'result': t['result']})
+
+
+@app.route('/api/sp/wheel/history', methods=['GET'])
+def api_sp_wheel_history():
+    return jsonify(eda.load_sp_wheel())
+
+
 @app.route('/api/eda/sessions', methods=['GET'])
 def api_eda_sessions_list():
     return jsonify(eda.load_eda_sessions())

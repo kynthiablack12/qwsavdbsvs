@@ -1269,6 +1269,66 @@ $('spRun').addEventListener('click', runSpDaily);
 $('spCsv').addEventListener('click', spCsv);
 loadSpGifts();
 
+// ================= «Свои Плюсы»: Колесо Фортуны =================
+async function runSpWheel() {
+  const btn = $('spWheelRun');
+  const tb = $('spWheelTable').querySelector('tbody');
+  const prog = $('spWheelProgress');
+  btn.disabled = true;
+  tb.innerHTML = '<tr><td colspan="5" class="db-empty">Кручу колесо…</td></tr>';
+  $('spWheelCount').textContent = '';
+  try {
+    const { task_id } = await api('/api/sp/wheel', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spin: $('spWheelSpin').checked }),
+    });
+    prog.classList.remove('hidden');
+    const render = (st) => {
+      $('spWheelFill').style.width = `${st.progress || 0}%`;
+      $('spWheelMsg').textContent = `${st.progress || 0}% — ${st.message || ''}`;
+    };
+    for (;;) {
+      const st = await api(`/api/sp/wheel/${task_id}`);
+      render(st);
+      if (st.state === 'done' || st.state === 'error') break;
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    const st = await api(`/api/sp/wheel/${task_id}`);
+    prog.classList.add('hidden');
+    const rows = st.result || [];
+    const cells = [];
+    rows.forEach(r => {
+      (r.results || []).forEach(rw => {
+        const pr = rw.prize || {};
+        const prizeText = pr.title ? `${pr.title}${pr.cashback ? ` · ${pr.cashback}` : ''}` : '—';
+        const desc = pr.description ? `<div class="db-mut" style="margin-top:4px">${esc(pr.description)}</div>` : '';
+        cells.push(`
+          <tr>
+            <td><b>${esc(r.name)}</b></td>
+            <td>${esc(prizeText)}${desc}</td>
+            <td>${esc(pr.cashback || '—')}</td>
+            <td>${rw.error ? `<span class="sd-badge bad">${esc(rw.error)}</span>`
+              : (rw.spun ? '<span class="sd-badge ok">кручено</span>'
+                : (rw.prize ? '<span class="sd-badge ok">уже кручено</span>' : esc(rw.status || '')))}</td>
+            <td>${fmtDate(rw.endDate)}</td>
+          </tr>`);
+      });
+      if (!r.results || !r.results.length) {
+        cells.push(`<tr><td><b>${esc(r.name)}</b></td><td colspan="4" class="db-mut">${esc(r.error || 'нет данных')}</td></tr>`);
+      }
+    });
+    tb.innerHTML = cells.join('') || '<tr><td colspan="5" class="db-empty">Аккаунтов с Session_id нет</td></tr>';
+    $('spWheelCount').textContent = `результатов: ${cells.length}`;
+  } catch (e) {
+    prog.classList.add('hidden');
+    tb.innerHTML = `<tr><td colspan="5" class="db-empty">${esc(e.message)}</td></tr>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$('spWheelRun').addEventListener('click', runSpWheel);
+
 // ================= boot =================
 async function boot() {
   loadOverview();
