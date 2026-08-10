@@ -445,6 +445,51 @@ def api_eda_accounts_refresh(name):
     return jsonify({'ok': True, **res})
 
 
+# Проверка живости токенов/сессий всех аккаунтов.
+EDA_CHECK_TASKS = {}
+
+
+@app.route('/api/eda/accounts/check', methods=['POST'])
+def api_eda_accounts_check():
+    task_id = hashlib.md5(os.urandom(16)).hexdigest()[:12]
+    with _SP_LOCK:
+        EDA_CHECK_TASKS[task_id] = {'state': 'running', 'progress': 0, 'message': 'Запуск…', 'result': None}
+
+    def _run():
+        try:
+            reports = eda.check_eda_accounts(progress=lambda m, f: _progress(task_id, m, f))
+            with _SP_LOCK:
+                EDA_CHECK_TASKS[task_id]['state'] = 'done'
+                EDA_CHECK_TASKS[task_id]['progress'] = 100
+                EDA_CHECK_TASKS[task_id]['message'] = 'Готово'
+                EDA_CHECK_TASKS[task_id]['result'] = reports
+        except Exception as e:
+            with _SP_LOCK:
+                EDA_CHECK_TASKS[task_id]['state'] = 'error'
+                EDA_CHECK_TASKS[task_id]['message'] = str(e)
+                EDA_CHECK_TASKS[task_id]['result'] = None
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({'task_id': task_id})
+
+
+def _progress(task_id, msg, frac):
+    with _SP_LOCK:
+        t = EDA_CHECK_TASKS.get(task_id)
+        if t:
+            t['progress'] = int(frac * 100)
+            t['message'] = msg
+
+
+@app.route('/api/eda/accounts/check/<task_id>', methods=['GET'])
+def api_eda_accounts_check_status(task_id):
+    with _SP_LOCK:
+        t = EDA_CHECK_TASKS.get(task_id)
+    if not t:
+        return jsonify({'error': 'task not found'}), 404
+    return jsonify(t)
+
+
 # Промо-задачи: {task_id: {state, progress, message, result}}
 PROMO_TASKS = {}
 _PROMO_LOCK = threading.Lock()
@@ -1631,11 +1676,11 @@ def api_samokat_sms_send():
 def api_samokat_sms_confirm():
     data = request.get_json(silent=True) or {}
     try:
-        toks = samokat.confirm_sms_code(data.get('phone', ''), data.get('code', ''))
+        toks, sk_cookies = samokat.confirm_sms_code(data.get('phone', ''), data.get('code', ''))
     except Exception as e:
         return jsonify({'error': str(e)}), 400
     try:
-        samokat.add_samokat_account_by_tokens(data.get('name', ''), toks)
+        samokat.add_samokat_account_by_tokens(data.get('name', ''), toks, sk_cookies)
     except Exception as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True})

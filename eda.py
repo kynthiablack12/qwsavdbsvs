@@ -252,6 +252,95 @@ def refresh_eda_account(name):
     raise RuntimeError(f'аккаунт "{name}" не найден')
 
 
+def check_eda_accounts(progress=None):
+    """Проверить все аккаунты Я.Еды: токен и Session_id живы ли.
+
+    - Токен Я.Еды проверяется запросом профиля. Если он битый, но есть
+      Session_id — пробуем перевыпустить токен и проверить снова.
+    - Session_id проверяется загрузкой страницы Колеса Фортуны (жива ли
+      сессия для «Свои Плюсы»/колеса).
+    - Если токена нет, но Session_id живой — обмениваем на OAuth-токен
+      и проверяем; рабочий токен и недостающий uid сохраняются.
+
+    Возвращает список отчётов {name, ok, message, has_token, has_sid,
+    token, session}.
+    """
+    accs = load_eda_accounts()
+    reports = []
+    total = max(len(accs), 1)
+    for i, acc in enumerate(accs):
+        if progress:
+            progress(f'Проверяю {acc.get("name")}', i / total)
+        r = {'name': acc.get('name'), 'ok': False, 'message': '',
+             'has_token': bool(_extract_bearer(acc)), 'has_sid': bool(sp_session_id(acc)),
+             'token': '', 'session': ''}
+        try:
+            if sp_session_id(acc):
+                try:
+                    wheel_page_state(acc)
+                    r['session'] = 'ок'
+                except Exception as e:
+                    r['session'] = f'недоступна: {e}'
+            tok = _extract_bearer(acc)
+            if tok:
+                try:
+                    acc['profile_name'] = profile_name(acc)
+                    r['token'] = 'ок'
+                except Exception as e:
+                    r['token'] = str(e)
+                    if sp_session_id(acc):
+                        try:
+                            new_tok, new_uid = exchange_sessionid(sp_session_id(acc))
+                            probe = dict(acc)
+                            probe['token'] = new_tok
+                            if new_uid:
+                                probe['yandexuid'] = new_uid
+                            acc['profile_name'] = profile_name(probe)
+                            acc['token'] = new_tok
+                            if new_uid:
+                                acc['yandexuid'] = new_uid
+                            r['token'] = 'ок (перевыпущен из Session_id)'
+                        except Exception as e2:
+                            r['token'] += f'; обмен не помог: {e2}'
+            elif sp_session_id(acc):
+                try:
+                    new_tok, new_uid = exchange_sessionid(sp_session_id(acc))
+                    probe = dict(acc)
+                    probe['token'] = new_tok
+                    if new_uid:
+                        probe['yandexuid'] = new_uid
+                    acc['profile_name'] = profile_name(probe)
+                    acc['token'] = new_tok
+                    if new_uid:
+                        acc['yandexuid'] = new_uid
+                    r['token'] = 'ок (из Session_id)'
+                except Exception as e:
+                    r['token'] = f'Session_id не обменялся: {e}'
+            else:
+                r['token'] = 'нет токена и нет Session_id'
+            if _extract_bearer(acc):
+                try:
+                    pb = plus_balance(acc)
+                    acc['plus_balance'] = pb.get('balance')
+                    acc['plus_status'] = pb.get('status')
+                except Exception:
+                    pass
+            problems = []
+            if r['token'] and r['token'] not in ('ок', 'ок (из Session_id)', 'ок (перевыпущен из Session_id)'):
+                problems.append('токен: ' + r['token'])
+            if r['session'] and r['session'] != 'ок':
+                problems.append('сессия: ' + r['session'])
+            r['ok'] = not problems
+            r['message'] = '; '.join(problems) if problems else 'всё живо'
+        except Exception as e:
+            r['message'] = str(e)
+        reports.append(r)
+    save_eda_accounts(accs)
+    if progress:
+        progress('Готово', 1.0)
+    return reports
+
+
 def get_eda_account(name):
     return next((a for a in load_eda_accounts() if a.get('name') == name), None)
 
@@ -1157,18 +1246,29 @@ def wheel_page_state(acc):
 
 
 def wheel_signup(state):
-    """Взять signup Колеса Фортуны из состояния страницы."""
-    for su in state.get('signups') or []:
-        if su.get('offerType') == 'WheelOfFortune':
-            return su
-    return None
+    """Взять актуальный signup Колеса Фортуны (самый свежий период)."""
+    sups = [s for s in (state.get('signups') or []) if s.get('offerType') == 'WheelOfFortune']
+    if not sups:
+        return None
+    sups.sort(key=lambda s: s.get('endDate') or '', reverse=True)
+    return sups[0]
 
 
 def wheel_spin_category(su):
-    """Категория для спина: статус New у группы fortuna."""
+    """Категория для спина: статус New у группы fortuna.
+
+    Если статусов нет/другие — берём первую категорию группы fortuna,
+    которая ещё не Selected.
+    """
     for g in (su or {}).get('groups') or []:
-        for c in g.get('categories') or []:
+        cats = g.get('categories') or []
+        if not cats:
+            continue
+        for c in cats:
             if c.get('status') == 'New':
+                return c
+        for c in cats:
+            if c.get('status') != 'Selected':
                 return c
     return None
 
@@ -1182,21 +1282,49 @@ def wheel_selected_category(su):
     return None
 
 
+def _session_uid(acc):
+    """Верный passport uid из Session_id (через обмен на OAuth)."""
+    sid = sp_session_id(acc)
+    if not sid:
+        return ''
+    try:
+        _, uid = exchange_sessionid(sid)
+        return (uid or '').strip()
+    except Exception:
+        return ''
+
+
 def spin_wheel(acc, signup_id, category_id):
     """Крутануть колесо: POST /api/v1/offers/signup.
 
+    passport_id — это uid владельца Session_id. Если сохранённый yandexuid
+    пустой или не совпадает с сессией (HTTP 400 mismatch), берём uid из
+    самой Session_id и повторяем.
+
     Возвращает тело ответа (например {"data":{"show_super_screen":false}}).
     """
-    uid = int(acc.get('yandexuid') or 0)
+    uid = (acc.get('yandexuid') or '').strip()
+    if not uid:
+        uid = _session_uid(acc)
+    if not uid:
+        raise RuntimeError('Колесо Фортуны: нет yandexuid (passport uid) для спина')
     h = sp_headers(acc)
     h['Content-Type'] = 'application/json'
     h['Accept'] = 'application/json, text/plain, */*'
     h['Accept-Language'] = 'ru_RU'
-    body = {'id': signup_id, 'categories': [{'id': category_id}], 'passport_id': uid}
+    body = {'id': signup_id, 'categories': [{'id': category_id}], 'passport_id': int(uid)}
     try:
         r = requests.post(SP_WHEEL_API + '/v1/offers/signup', headers=h, json=body, timeout=25)
     except requests.RequestException as e:
         raise RuntimeError(f'Колесо Фортуны: сеть (спин): {e}')
+    if r.status_code == 400 and 'match request user' in r.text:
+        new_uid = _session_uid(acc)
+        if new_uid and new_uid != uid:
+            body['passport_id'] = int(new_uid)
+            try:
+                r = requests.post(SP_WHEEL_API + '/v1/offers/signup', headers=h, json=body, timeout=25)
+            except requests.RequestException as e:
+                raise RuntimeError(f'Колесо Фортуны: сеть (спин, повтор): {e}')
     if r.status_code >= 400:
         raise RuntimeError(f'Колесо Фортуны: HTTP {r.status_code} (спин): {r.text[:300]}')
     try:
@@ -1226,7 +1354,7 @@ def collect_sp_wheel(account, spin=False, progress=None):
     """Проверить/крутануть Колесо Фортуны на аккаунте.
 
     spin=False — только состояние и текущий приз.
-    spin=True — потратить попытку (если категория New) и вернуть выигрыш.
+    spin=True — потратить попытку (если signup NEW) и вернуть выигрыш.
 
     Возвращает dict {results: [{account, spun, status, prize, error}], error}.
     """
@@ -1234,20 +1362,28 @@ def collect_sp_wheel(account, spin=False, progress=None):
     if not acc:
         raise RuntimeError(f'аккаунт "{account}" не найден')
     out = {'results': [], 'error': None}
+
+    def _res(**kw):
+        return {'account': acc.get('name'), 'spun': False, 'status': '',
+                'endDate': None, 'prize': None, 'error': None, **kw}
+
     try:
         if progress:
             progress('Загружаю колесо', 0.1)
         state = wheel_page_state(acc)
         su = wheel_signup(state)
         if su is None:
-            out['results'].append({'account': acc.get('name'), 'spun': False,
-                                   'status': 'нет колеса', 'error': 'signup WheelOfFortune не найден'})
+            out['results'].append(_res(status='нет колеса',
+                                       error='signup WheelOfFortune не найден'))
             return out
         if su.get('endDate') and su['endDate'][:10] < time.strftime('%Y-%m-%d'):
-            out['results'].append({'account': acc.get('name'), 'spun': False,
-                                   'status': 'период закончился', 'endDate': su.get('endDate')})
+            out['results'].append(_res(status='период закончился', endDate=su.get('endDate')))
             return out
-        new_cat = wheel_spin_category(su)
+        new_cat = wheel_spin_category(su) if su.get('status') == 'NEW' else None
+        if new_cat is None and su.get('status') == 'NEW':
+            out['results'].append(_res(status='нет категории для спина', endDate=su.get('endDate'),
+                                       error='категория для спина не найдена'))
+            return out
         if new_cat and spin:
             if progress:
                 progress('Кручу колесо', 0.6)
@@ -1255,22 +1391,24 @@ def collect_sp_wheel(account, spin=False, progress=None):
                 resp = spin_wheel(acc, su['id'], new_cat['id'])
                 if progress:
                     progress('Узнаю приз', 0.85)
-                state = wheel_page_state(acc)
-                su = wheel_signup(state)
+                try:
+                    state = wheel_page_state(acc)
+                    su = wheel_signup(state) or su
+                except Exception as e:
+                    out['results'].append(_res(spun=True, status='спин сделан',
+                                               endDate=su.get('endDate'),
+                                               error=f'приз не определился: {e}'))
+                    return out
             except Exception as e:
-                out['results'].append({'account': acc.get('name'), 'spun': True,
-                                       'status': 'ошибка спина', 'error': str(e)})
+                out['results'].append(_res(spun=True, status='ошибка спина',
+                                           endDate=su.get('endDate'), error=str(e)))
                 return out
         prize = wheel_prize(state, su)
-        result = {
-            'account': acc.get('name'),
-            'spun': bool(new_cat and spin),
-            'status': su.get('status'),
-            'endDate': su.get('endDate'),
-            'prize': prize,
-            'error': None,
-        }
-        if prize is None and not new_cat:
+        result = _res(spun=bool(new_cat and spin), status=su.get('status'),
+                      endDate=su.get('endDate'), prize=prize)
+        if new_cat and not spin:
+            result['status'] = 'можно крутить'
+        elif prize is None and not new_cat:
             result['status'] = 'уже кручено'
         out['results'].append(result)
     except Exception as e:

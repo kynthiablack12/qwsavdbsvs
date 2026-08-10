@@ -539,17 +539,55 @@ async function loadEdaAccounts() {
         <td>${esc(a.profile_name || '—')}</td>
         <td>${a.plus_balance != null ? `<span class="sd-badge ok">${esc(String(a.plus_balance))}${esc(a.plus_status && a.plus_status !== 'NO_PLUS' ? ' 🅿' : '')}</span>` : '<span class="db-mut">—</span>'}</td>
         <td class="num">${esc(a.uid || '—')}</td>
+        <td>${a.has_token ? '<span class="sd-badge ok">есть</span>' : '<span class="db-mut">—</span>'}</td>
+        <td>${a.has_sid ? '<span class="sd-badge ok">есть</span>' : '<span class="db-mut">—</span>'}</td>
         <td class="num">${esc(a.added || '—')}</td>
         <td class="col-actions"><button class="btn btn-danger btn-sm" data-del="${esc(a.name)}">Удалить</button></td>
-      </tr>`).join('') || '<tr><td colspan="6" class="db-empty">Аккаунтов Я.Еды нет</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="8" class="db-empty">Аккаунтов Я.Еды нет</td></tr>';
     tb.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
       await api(`/api/eda/accounts/${encodeURIComponent(b.dataset.del)}`, { method: 'DELETE' });
       loadEda();
     }));
   } catch (e) {
-    $('edaAccTable').querySelector('tbody').innerHTML = `<tr><td colspan="5" class="db-empty">${esc(e.message)}</td></tr>`;
+    $('edaAccTable').querySelector('tbody').innerHTML = `<tr><td colspan="8" class="db-empty">${esc(e.message)}</td></tr>`;
   }
 }
+
+async function runEdaCheck() {
+  const btn = $('edaCheckRun');
+  const prog = $('edaCheckProgress');
+  const res = $('edaCheckResult');
+  btn.disabled = true;
+  prog.classList.remove('hidden');
+  res.innerHTML = '';
+  try {
+    const { task_id } = await api('/api/eda/accounts/check', { method: 'POST' });
+    const render = (st) => {
+      $('edaCheckFill').style.width = `${st.progress || 0}%`;
+      $('edaCheckMsg').textContent = `${st.progress || 0}% — ${st.message || ''}`;
+    };
+    for (;;) {
+      const st = await api(`/api/eda/accounts/check/${task_id}`);
+      render(st);
+      if (st.state === 'done' || st.state === 'error') break;
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    const st = await api(`/api/eda/accounts/check/${task_id}`);
+    res.innerHTML = (st.result || []).map(r =>
+      `<span class="sd-badge ${r.ok ? 'ok' : 'bad'}">${esc(r.name)}: ${r.ok ? 'OK' : esc(r.message)}</span>`).join(' ');
+    const okN = (st.result || []).filter(r => r.ok).length;
+    const badN = (st.result || []).length - okN;
+    $('edaCheckMsg2').textContent = `${okN} ок${badN ? `, ${badN} проблем` : ''}`;
+    loadEda();
+  } catch (e) {
+    res.innerHTML = `<span class="sd-badge bad">${esc(e.message)}</span>`;
+  } finally {
+    prog.classList.add('hidden');
+    btn.disabled = false;
+  }
+}
+
+$('edaCheckRun').addEventListener('click', runEdaCheck);
 
 function fillEdaAccountSelect() {
   const sel = $('edaSessAccount');
