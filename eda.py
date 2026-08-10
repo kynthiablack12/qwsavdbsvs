@@ -318,6 +318,12 @@ def check_eda_accounts(progress=None):
                     r['token'] = f'Session_id не обменялся: {e}'
             else:
                 r['token'] = 'нет токена и нет Session_id'
+            # если сессия жива, но uid не сохранён — достаём (обменом или
+            # через веб-паспорт) и сохраняем, чтобы спин работал без обмена.
+            if sp_session_id(acc) and not (acc.get('yandexuid') or '').strip():
+                uid = _session_uid(acc)
+                if uid:
+                    acc['yandexuid'] = uid
             if _extract_bearer(acc):
                 try:
                     pb = plus_balance(acc)
@@ -1282,16 +1288,41 @@ def wheel_selected_category(su):
     return None
 
 
+def _session_uid_web(acc):
+    """Получить passport uid по Session_id через веб-паспорт (без mobileproxy).
+
+    passport.yandex.ru/am/profile отдаёт HTML с uid владельца сессии
+    (var uid = N / data-uid="N"). Не использует mobileproxy, поэтому
+    работает и с датацентровых IP (Railway), где обмен может быть
+    заблокирован.
+    """
+    sid = sp_session_id(acc)
+    if not sid:
+        return ''
+    h = sp_headers(acc)
+    h['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    h['Accept-Language'] = 'ru'
+    try:
+        r = requests.get('https://passport.yandex.ru/am/profile', headers=h, timeout=20)
+    except requests.RequestException:
+        return ''
+    m = re.search(r'data-uid="(\d+)"', r.text) or re.search(r'var uid = (\d+)', r.text)
+    return m.group(1) if m else ''
+
+
 def _session_uid(acc):
-    """Верный passport uid из Session_id (через обмен на OAuth)."""
+    """Верный passport uid из Session_id (обмен на OAuth, иначе веб-паспорт)."""
     sid = sp_session_id(acc)
     if not sid:
         return ''
     try:
         _, uid = exchange_sessionid(sid)
-        return (uid or '').strip()
+        uid = (uid or '').strip()
+        if uid:
+            return uid
     except Exception:
-        return ''
+        pass
+    return _session_uid_web(acc)
 
 
 def spin_wheel(acc, signup_id, category_id):
@@ -1306,6 +1337,17 @@ def spin_wheel(acc, signup_id, category_id):
     uid = (acc.get('yandexuid') or '').strip()
     if not uid:
         uid = _session_uid(acc)
+        if uid:
+            acc['yandexuid'] = uid
+            try:
+                accs = load_eda_accounts()
+                for a in accs:
+                    if a.get('name') == acc.get('name'):
+                        a['yandexuid'] = uid
+                        break
+                save_eda_accounts(accs)
+            except Exception:
+                pass
     if not uid:
         raise RuntimeError('Колесо Фортуны: нет yandexuid (passport uid) для спина')
     h = sp_headers(acc)
