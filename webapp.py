@@ -1778,10 +1778,11 @@ def api_eda_az_checkout(name):
 
 @app.route('/api/eda/autozakaz/<name>/web-checkout', methods=['POST'])
 def api_eda_az_web_checkout(name):
-    """Оформление через веб-флоу (go-checkout) с выбором СБП.
+    """Оформление через веб-флоу (go-checkout).
 
-    Возвращает checkout + нормализованный payment: {id, type,
-    costForCustomer, offer_identity, requestId, cart_id}.
+    Возвращает checkout + normalized payment {id, type, title,
+    costForCustomer, offer_identity, requestId, cart_id} для выбранного
+    способа + available — список доступных способов оплаты.
     """
     try:
         eda_account_guard(name)
@@ -1794,7 +1795,7 @@ def api_eda_az_web_checkout(name):
         d = eda.web_checkout(name, data.get('place_slug'), data.get('address', {}),
                              lat=data.get('lat'), lon=data.get('lon'),
                              payment_id=payment_id, payment_type=payment_type)
-        offer, pp = eda.web_offer_sbp(d, payment_id)
+        offer, pp = eda.web_offer(d, payment_id, payment_type)
         payment = None
         if offer and pp:
             cfc = pp.get('costForCustomer') or {}
@@ -1810,7 +1811,8 @@ def api_eda_az_web_checkout(name):
                 'requestId': request_id,
                 'cart_id': request_id.split('.')[0] if '.' in request_id else '',
             }
-        return jsonify({'ok': True, 'checkout': d, 'payment': payment})
+        return jsonify({'ok': True, 'checkout': d, 'payment': payment,
+                        'available': eda.web_available_payments(d)})
     except NotImplementedError as e:
         return jsonify({'error': str(e)}), 501
     except Exception as e:
@@ -1874,12 +1876,17 @@ def api_eda_az_order_create(name):
         return jsonify({'error': 'place_slug обязателен'}), 400
     if not address:
         return jsonify({'error': 'address обязателен'}), 400
+    payment_id = data.get('payment_id') or 'sbp_qr'
+    payment_type = data.get('payment_type') or 'sbp'
     try:
         d = eda.web_checkout(name, slug, address,
-                             lat=data.get('lat'), lon=data.get('lon'))
-        offer, pp = eda.web_offer_sbp(d)
+                             lat=data.get('lat'), lon=data.get('lon'),
+                             payment_id=payment_id, payment_type=payment_type)
+        offer, pp = eda.web_offer(d, payment_id, payment_type)
         if not offer or not pp:
-            return jsonify({'error': 'СБП недоступно для этого заказа'}), 400
+            return jsonify({
+                'error': f'Способ оплаты {payment_id} недоступен для этого заказа',
+                'available': eda.web_available_payments(d)}), 400
         res = eda.web_create_order(
             name, slug, address, offer.get('offer_identity'), pp,
             phone=data.get('phone') or '',

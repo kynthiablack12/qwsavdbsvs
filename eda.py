@@ -994,13 +994,35 @@ def web_checkout(account, slug, address, lat=None, lon=None, payment_id='sbp_qr'
                      params={'longitude': lon, 'latitude': lat})
 
 
-def web_offer_sbp(d, payment_id='sbp_qr'):
-    """Оффер с СБП из go-checkout. Возвращает (offer, possiblePayment) или (None, None)."""
+def web_offer(d, payment_id='sbp_qr', payment_type=None):
+    """Оффер из go-checkout по способу оплаты. (offer, possiblePayment) или (None, None)."""
     for o in (d.get('offers') or []):
         pp = o.get('possiblePayment') or {}
-        if pp.get('id') == payment_id:
+        if pp.get('id') == payment_id or (payment_id and payment_id == pp.get('type')):
+            if payment_type and pp.get('type') not in (payment_type, payment_id):
+                continue
             return o, pp
     return None, None
+
+
+def web_offer_sbp(d, payment_id='sbp_qr'):
+    """Оффер с СБП из go-checkout. Возвращает (offer, possiblePayment) или (None, None)."""
+    return web_offer(d, payment_id, 'sbp')
+
+
+def web_available_payments(d):
+    """Способы оплаты из офферов go-checkout (id, type, title). Уникальные."""
+    out = []
+    seen = set()
+    for o in (d.get('offers') or []):
+        pp = o.get('possiblePayment') or {}
+        k = pp.get('id') or pp.get('type')
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        out.append({'id': pp.get('id'), 'type': pp.get('type'),
+                    'title': pp.get('title')})
+    return out
 
 
 def web_apply_promocode(account, slug, code, offer_identity='', lat=None, lon=None,

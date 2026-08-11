@@ -764,7 +764,7 @@ async function azSelectAddr() {
   const a = (az.addrs || []).find(x => x.id === az.addr);
   az.addrLoc = (a && a.location && a.location.latitude != null) ? a.location : null;
   az.restaurants = []; az.rest = null; az.menu = null; az.cart = null; az.checkout = null;
-  az.payment = null; az.promo = ''; az.phone = ''; az.orderNr = ''; az.addrData = null;
+  az.payment = null; az.available = []; az.promo = ''; az.phone = ''; az.orderNr = ''; az.addrData = null;
   await azLoadCart();
   $('azStatus').textContent = '';
   azRender('<div class="hint" style="padding:24px">Найдите ресторан или магазин через поиск</div>');
@@ -984,7 +984,7 @@ async function azShowCart() {
   }
 }
 
-async function azCheckout() {
+async function azCheckout(paymentId, paymentType) {
   if (!az.addr || !az.rest) return;
   $('azStatus').textContent = 'Оформляю…';
   try {
@@ -992,10 +992,16 @@ async function azCheckout() {
     az.addrData = addr;
     const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/web-checkout`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ place_slug: az.rest, address: addr, lat: az.addrLoc?.latitude, lon: az.addrLoc?.longitude }),
+      body: JSON.stringify({
+        place_slug: az.rest, address: addr,
+        lat: az.addrLoc?.latitude, lon: az.addrLoc?.longitude,
+        payment_id: paymentId || 'sbp_qr',
+        payment_type: paymentType || 'sbp',
+      }),
     });
     az.checkout = r.checkout;
     az.payment = r.payment;
+    az.available = r.available || [];
     azRenderCheckout(addr);
   } catch (e) {
     azRender(`<div class="err">${esc(e.message)}</div>`);
@@ -1031,7 +1037,6 @@ function azAddrComment(addr) {
 }
 
 function azRenderCheckout(addr) {
-  const p = az.payment || {};
   azRender(`
     <div class="db-toolbar">
       <button class="backlink" onclick="az.backToCart()">‹ Назад к корзине</button>
@@ -1039,10 +1044,8 @@ function azRenderCheckout(addr) {
     </div>
     <div class="hint">Доставка на: <b>${esc(addr ? addr.full_text : '')}</b>${addr && azAddrComment(addr) ? `<div class="db-mut">${esc(azAddrComment(addr))}</div>` : ''}</div>
     <div class="chk-block">
-      <h3>Оплата — СБП по QR</h3>
-      <div class="pay-opt"><span>🏦 ${esc(p.title || 'СБП')}</span>
-        <span class="st">${p.costForCustomer ? fmtRub(p.costForCustomer) : ''}</span></div>
-      ${p.offer_identity ? `<div class="db-mut">offer: ${esc(String(p.offer_identity).slice(0, 20))}…</div>` : ''}
+      <h3>Способ оплаты</h3>
+      ${azRenderPayOpts()}
     </div>
     <div class="chk-block">
       <h3>Промокод</h3>
@@ -1062,6 +1065,28 @@ function azRenderCheckout(addr) {
   $('azPromoGo').addEventListener('click', azApplyPromo);
   $('azPromo').addEventListener('keydown', (e) => { if (e.key === 'Enter') azApplyPromo(); });
   $('azOrderBtn').addEventListener('click', azOrder);
+}
+
+function azPayIcon(t) {
+  return t === 'sbp' ? '🏦' : t === 'add_new_card' ? '➕' : '💳';
+}
+
+function azRenderPayOpts() {
+  const cur = az.payment || {};
+  let avail = (az.available && az.available.length) ? az.available
+    : (cur.id || cur.type ? [{ id: cur.id, type: cur.type, title: cur.title }] : []);
+  avail = avail.filter((o) => o && o.type !== 'add_new_card');
+  const cards = avail.filter((o) => o.type === 'card');
+  const others = avail.filter((o) => o.type !== 'card');
+  const curId = cur.id || cur.type || '';
+  const row = (o) => `
+    <div class="pay-opt pay-select" onclick="azCheckout(${esc(JSON.stringify(o.id || o.type))}, ${esc(JSON.stringify(o.type))})">
+      <span>${azPayIcon(o.type)} ${esc(o.title || o.type)}</span>
+      <span class="st">${o.costForCustomer ? fmtRub(o.costForCustomer) : ''}</span>
+      ${curId === (o.id || o.type) ? '<span class="st">✓</span>' : ''}
+    </div>`;
+  return `<div id="azPayOpts">${others.map(row).join('')}${cards.map(row).join('')}</div>`
+    + `<div class="db-mut">Текущий: ${esc(cur.title || curId || 'не выбран')}${cur.offer_identity ? ` · offer ${esc(String(cur.offer_identity).slice(0, 20))}…` : ''}</div>`;
 }
 
 async function azApplyPromo() {
@@ -1098,7 +1123,7 @@ async function azOrder() {
   try {
     const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/order`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ place_slug: az.rest, address: az.addrData, phone, code: az.promo || undefined, lat: az.addrLoc?.latitude, lon: az.addrLoc?.longitude }),
+      body: JSON.stringify({ place_slug: az.rest, address: az.addrData, phone, code: az.promo || undefined, lat: az.addrLoc?.latitude, lon: az.addrLoc?.longitude, payment_id: (az.payment || {}).id || (az.payment || {}).type || 'sbp_qr', payment_type: (az.payment || {}).type || 'sbp' }),
     });
     az.orderNr = (r.order || {}).orderNr || '';
     azRenderOrder(r.order);
