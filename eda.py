@@ -818,6 +818,34 @@ def go_food_layout(acc, lat=None, lon=None):
         raise RuntimeError(f'Яндекс Go (Еда): ответ не JSON: {r.text[:200]}')
 
 
+def _go_layout_codes(d):
+    """Промокоды из всего лайаута вкладки «Еда» в Go.
+
+    Ловит все формы промо: deeplink eda.yandex://promocode?value=XXX
+    в url/app_link любого баннера (madv_hero_banners, banners_carousel),
+    informers_v2 (menu_informers) и коды activation_code (view.code.value).
+    """
+    codes = []
+
+    def walk(o):
+        if isinstance(o, dict):
+            if o.get('type') == 'activation_code':
+                cv = (o.get('code') or {}).get('value')
+                if cv:
+                    codes.append(str(cv).upper())
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+        elif isinstance(o, str):
+            for m in re.finditer(r'promocode\?value=([A-Z0-9_\-]+)', o, re.I):
+                codes.append(m.group(1).upper())
+
+    walk(d)
+    return codes
+
+
 def _go_informer_codes(d):
     """Промокоды из informers_v2 лайаута вкладки «Еда» в Go.
 
@@ -887,8 +915,7 @@ def _promo_items(acc, lat, lon, progress=None, max_restaurants=1):
             if progress:
                 progress('Вкладка «Еда» в Go (баннеры)', 0.12)
             go = go_food_layout(acc, lat=lat, lon=lon)
-            vals = _go_informer_codes(go)
-            _find_promo_values(go, vals)
+            vals = _go_layout_codes(go)
             res['codes'] += vals
         except Exception as e:
             if res['error']:
