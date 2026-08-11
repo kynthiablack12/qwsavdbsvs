@@ -982,6 +982,11 @@ def web_checkout(account, slug, address, lat=None, lon=None, payment_id='sbp_qr'
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     lat, lon = _coords(acc, lat, lon)
+    if isinstance(payment_id, dict):
+        payment_id = payment_id.get('id') or payment_id.get('type') or 'sbp_qr'
+        payment_type = payment_type or payment_id.get('type') or 'sbp'
+    if isinstance(payment_type, dict):
+        payment_type = payment_type.get('type') or payment_type.get('id') or 'sbp'
     body = {
         'address': address,
         'place_slug': slug,
