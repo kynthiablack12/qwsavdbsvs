@@ -555,6 +555,102 @@ def addresses(account, lat=None, lon=None):
     return _eda_call(acc, 'GET', '/api/v3/user/addresses', lat, lon)
 
 
+def saved_addresses(account, lat=None, lon=None):
+    """Сохранённые адреса аккаунта, нормализованные для UI и checkout.
+
+    Возвращает список {id, title, type, city, street, house, short_text,
+    full_text, location{latitude,longitude}, uri}. Ошибки полей отбрасываются.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    d = addresses(acc, lat=lat, lon=lon)
+    out = []
+    if not isinstance(d, list):
+        return out
+    for a in d:
+        if not isinstance(a, dict):
+            continue
+        loc = a.get('location') or {}
+        if not isinstance(loc, dict):
+            loc = {}
+        entry = {
+            'id': a.get('id') or '',
+            'title': a.get('title') or '',
+            'type': (a.get('type') or {}).get('name') if isinstance(a.get('type'), dict) else '',
+            'city': a.get('city') or '',
+            'street': a.get('street') or '',
+            'house': a.get('house') or '',
+            'short_text': a.get('short_text') or '',
+            'full_text': a.get('full_text') or '',
+            'uri': a.get('uri') or '',
+            'location': {
+                'latitude': loc.get('latitude'),
+                'longitude': loc.get('longitude'),
+            },
+        }
+        out.append(entry)
+    return out
+
+
+def saved_cities(account, lat=None, lon=None):
+    """Города из сохранённых адресов аккаунта.
+
+    Возвращает список {city, addresses: [...]}. Координаты города берутся
+    из первого адреса в нём (для поиска ресторанов).
+    """
+    addrs = saved_addresses(account, lat=lat, lon=lon)
+    cities = {}
+    order = []
+    for a in addrs:
+        c = (a.get('city') or '').strip() or 'Город'
+        if c not in cities:
+            cities[c] = []
+            order.append(c)
+        cities[c].append(a)
+    return [{'city': c, 'addresses': cities[c]} for c in order]
+
+
+def checkout_address(saved, flat='', entrance='', floor='', intercom='', comment=''):
+    """Собрать dict адреса для checkout из сохранённого адреса + полей квартиры.
+
+    Поля flat/entrance/floor/intercom/comment добавляются только если заданы
+    (Я.Еда их принимает как address.comment / address.house + доп. строки).
+    """
+    a = dict(saved or {})
+    loc = a.get('location') or {}
+    if not isinstance(loc, dict):
+        loc = {}
+    addr = {
+        'city': a.get('city') or 'Омск',
+        'street': a.get('street') or '',
+        'house': a.get('house') or '',
+        'country': a.get('country') or 'Россия',
+        'short_text': a.get('short_text') or '',
+        'full_text': a.get('full_text') or '',
+        'location': {
+            'latitude': loc.get('latitude') or DEFAULT_LAT,
+            'longitude': loc.get('longitude') or DEFAULT_LON,
+        },
+    }
+    if a.get('uri'):
+        addr['uri'] = a['uri']
+    if a.get('id'):
+        addr['id'] = a['id']
+    parts = []
+    if flat:
+        parts.append(f'кв {flat}')
+    if entrance:
+        parts.append(f'под {entrance}')
+    if floor:
+        parts.append(f'эт {floor}')
+    if intercom:
+        parts.append(f'домофон {intercom}')
+    if comment:
+        parts.append(comment)
+    if parts:
+        addr['comment'] = '; '.join(parts)
+    return addr
+
+
 def search_restaurants(account, query='', lat=None, lon=None):
     """Поиск ресторанов/каталог (full-text-search)."""
     acc = get_eda_account(account) if isinstance(account, str) else account

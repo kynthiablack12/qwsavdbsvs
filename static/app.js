@@ -78,14 +78,14 @@ function switchTab(name) {
 document.querySelectorAll('#dbTabs .db-tab').forEach(b => b.addEventListener('click', () => {
   switchTab(b.dataset.tab);
   const loaders = { accounts: loadAdminAccounts, purchases: loadPurchases, coupons: loadCoupons,
-    prizes: loadPrizes, sessions: loadSessions, eda: loadEda, samokat: loadSamokat };
+    prizes: loadPrizes, sessions: loadSessions, eda: loadEda, auto: loadAuto, samokat: loadSamokat };
   if (loaders[b.dataset.tab]) loaders[b.dataset.tab]();
 }));
 
 $('btnRefresh').addEventListener('click', () => {
   const active = document.querySelector('#dbTabs .db-tab.active');
   const loaders = { accounts: loadAdminAccounts, purchases: loadPurchases, coupons: loadCoupons,
-    prizes: loadPrizes, sessions: loadSessions, eda: loadEda, samokat: loadSamokat };
+    prizes: loadPrizes, sessions: loadSessions, eda: loadEda, auto: loadAuto, samokat: loadSamokat };
   loadOverview();
   if (active && loaders[active.dataset.tab]) loaders[active.dataset.tab]();
 });
@@ -674,6 +674,415 @@ $('edaSessCreate').addEventListener('click', async () => {
   } finally {
     btn.disabled = false;
   }
+});
+
+// ================= Автозаказ Я.Еды =================
+let az = { account: '', city: '', addr: null, addrs: [], addrLoc: null, restaurants: [], rest: null, menu: null, cart: null, checkout: null, items: {} };
+
+function fmtRub(n) {
+  const v = parseFloat(n);
+  return isNaN(v) ? '—' : v.toLocaleString('ru-RU', { minimumFractionDigits: v % 1 ? 2 : 0 }) + ' ₽';
+}
+
+async function loadAuto() {
+  if (!$('azAccount')) return;
+  try {
+    const accs = await api('/api/eda/autozakaz/accounts');
+    const sel = $('azAccount');
+    sel.innerHTML = '';
+    accs.forEach(a => {
+      const o = document.createElement('option');
+      o.value = a.name;
+      o.textContent = a.profile_name ? `${a.name} (${a.profile_name})` : a.name;
+      sel.appendChild(o);
+    });
+    if (az.account && accs.some(a => a.name === az.account)) sel.value = az.account;
+    else if (accs.length) sel.value = accs[0].name;
+    if (sel.value) await azSelectAccount();
+    else azRender('<div class="hint" style="padding:24px">Аккаунтов Я.Еды нет — добавьте их на вкладке «ЕДА»</div>');
+  } catch (e) {
+    azRender(`<div class="err">${esc(e.message)}</div>`);
+  }
+}
+
+async function azSelectAccount() {
+  az.account = $('azAccount').value;
+  az.city = ''; az.addr = null; az.restaurants = []; az.rest = null;
+  az.menu = null; az.cart = null; az.checkout = null;
+  $('azStatus').textContent = 'Загружаю адреса…';
+  try {
+    const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/cities`);
+    const cities = r.cities || [];
+    az.addrs = [];
+    cities.forEach(c => (c.addresses || []).forEach(a => az.addrs.push(a)));
+    const citySel = $('azCity');
+    citySel.innerHTML = '';
+    cities.forEach(c => {
+      const o = document.createElement('option');
+      o.value = c.city;
+      o.textContent = `${c.city} (${c.addresses.length})`;
+      citySel.appendChild(o);
+    });
+    if (az.city && cities.some(c => c.city === az.city)) citySel.value = az.city;
+    else if (cities.length) citySel.value = cities[0].city;
+    if (cities.length) azSelectCity();
+    else azRender('<div class="hint" style="padding:24px">У аккаунта нет сохранённых адресов</div>');
+  } catch (e) {
+    azRender(`<div class="err">${esc(e.message)}</div>`);
+  }
+}
+
+async function azSelectCity() {
+  az.city = $('azCity').value;
+  az.addr = null; az.restaurants = []; az.rest = null; az.menu = null; az.cart = null;
+  try {
+    const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/cities`);
+    const city = (r.cities || []).find(c => c.city === az.city);
+    const sel = $('azAddr');
+    sel.innerHTML = '';
+    (city ? city.addresses : []).forEach(a => {
+      const o = document.createElement('option');
+      o.value = a.id;
+      o.textContent = `${a.short_text}${a.type ? ' — ' + a.type : ''}`;
+      sel.appendChild(o);
+    });
+    if (sel.options.length) {
+      sel.selectedIndex = 0;
+      az.addr = sel.options[sel.selectedIndex].value;
+      az.addrLoc = city && city.addresses[0] ? city.addresses[0].location : null;
+      azSelectAddr();
+    } else {
+      azRender('<div class="hint" style="padding:24px">В этом городе нет адресов</div>');
+    }
+  } catch (e) {
+    azRender(`<div class="err">${esc(e.message)}</div>`);
+  }
+}
+
+async function azSelectAddr() {
+  az.addr = $('azAddr').value;
+  const a = (az.addrs || []).find(x => x.id === az.addr);
+  az.addrLoc = (a && a.location && a.location.latitude != null) ? a.location : null;
+  az.restaurants = []; az.rest = null; az.menu = null; az.cart = null; az.checkout = null;
+  await azLoadCart();
+  $('azStatus').textContent = '';
+  azRender('<div class="hint" style="padding:24px">Найдите ресторан или магазин через поиск</div>');
+}
+
+async function azLoadCart() {
+  if (!az.account || !az.addr) return;
+  try {
+    const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/cart?place_slug=${encodeURIComponent(az.rest || '')}`);
+    az.cart = r.cart && r.cart.cart ? r.cart.cart : (r.cart || {});
+    renderAzCartTotal();
+  } catch (e) { /* молча */ }
+}
+
+function renderAzCartTotal() {
+  const c = az.cart || {};
+  const total = parseFloat(c.total);
+  const items = (c.items || []).length;
+  $('azCartTotal').textContent = items
+    ? `🛒 ${items} поз. · ${fmtRub(isNaN(total) ? 0 : total)}`
+    : '';
+}
+
+async function azSearch() {
+  const q = $('azSearch').value.trim();
+  if (!az.addr) { alert('Сначала выберите адрес'); return; }
+  $('azStatus').textContent = 'Ищу…';
+  const lat = az.addrLoc ? az.addrLoc.latitude : undefined;
+  const lon = az.addrLoc ? az.addrLoc.longitude : undefined;
+  try {
+    const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/restaurants?query=${encodeURIComponent(q)}&lat=${lat || ''}&lon=${lon || ''}`);
+    az.restaurants = extractPlaces(r.restaurants);
+    azRenderPlaces();
+  } catch (e) {
+    azRender(`<div class="err">${esc(e.message)}</div>`);
+  }
+}
+
+function extractPlaces(d) {
+  const out = [];
+  const walk = (o) => {
+    if (Array.isArray(o)) { o.forEach(walk); return; }
+    if (!o || typeof o !== 'object') return;
+    if (o.payload && Array.isArray(o.payload)) {
+      o.payload.forEach(p => { if (p && p.slug && !out.some(x => x.slug === p.slug)) out.push(p); });
+    }
+    Object.values(o).forEach(walk);
+  };
+  walk(d);
+  return out;
+}
+
+function azRender(html) {
+  const box = $('azBody');
+  if (box) box.innerHTML = html;
+}
+
+function azRenderPlaces() {
+  const list = az.restaurants;
+  if (!list.length) { azRender('<div class="hint" style="padding:24px">Ничего не найдено</div>'); return; }
+  azRender(`<div class="az-grid">
+    ${list.map(p => {
+      const price = p.price_cat === 'price_high' ? '💰💰💰' : p.price_cat === 'price_mid' ? '💰💰' : '💰';
+      const tags = (p.tags || []).filter(t => t && typeof t === 'string').slice(0, 3).map(t => `<span class="az-tag">${esc(t)}</span>`).join('');
+      return `<div class="az-card" data-slug="${esc(p.slug)}" data-name="${esc(p.title || p.brand || p.slug)}">
+        <div class="az-card-head"><b>${esc(p.brand || p.title || p.slug)}</b><span class="az-price">${price}</span></div>
+        ${p.title ? `<div class="az-card-sub">${esc(p.title)}</div>` : ''}
+        ${tags ? `<div class="az-tags">${tags}</div>` : ''}
+        <div class="az-card-foot">
+          <span class="db-mut">${p.business === 'shop' ? 'магазин' : 'ресторан'}${p.available === false ? ' · недоступен' : ''}</span>
+          <button class="btn btn-primary btn-sm">Меню</button>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`);
+  document.querySelectorAll('#azBody .az-card').forEach(card => {
+    card.addEventListener('click', () => azOpenMenu(card.dataset.slug));
+  });
+}
+
+async function azOpenMenu(slug) {
+  az.rest = slug;
+  $('azStatus').textContent = 'Загружаю меню…';
+  try {
+    const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/menu/${encodeURIComponent(slug)}`);
+    az.menu = r.menu;
+    az.items = {};
+    azRenderMenu();
+    await azLoadCart();
+  } catch (e) {
+    azRender(`<div class="err">${esc(e.message)}</div>`);
+  }
+}
+
+function menuCategories(d) {
+  const cats = [];
+  const walk = (o, depth) => {
+    if (Array.isArray(o)) { o.forEach(v => walk(v, depth)); return; }
+    if (!o || typeof o !== 'object') return;
+    const payload = o.payload;
+    if (payload && Array.isArray(payload.categories)) {
+      payload.categories.forEach(c => {
+        if (c && typeof c === 'object' && (c.items || []).length) cats.push(c);
+        else if (c && c.categories) walk(c.categories, depth + 1);
+      });
+    }
+    Object.values(o).forEach(v => walk(v, depth));
+  };
+  walk(d, 0);
+  return cats;
+}
+
+function collectItems(cats) {
+  const out = [];
+  cats.forEach(c => {
+    (c.items || []).forEach(it => {
+      if (it && typeof it === 'object' && it.id != null) out.push({ cat: c.name, ...it });
+    });
+    if (c.categories) collectItems(c.categories).forEach(x => out.push({ cat: c.name + ' → ' + x.cat, ...x }));
+  });
+  return out;
+}
+
+function azRenderMenu() {
+  const items = collectItems(menuCategories(az.menu));
+  if (!items.length) { azRender('<div class="hint" style="padding:24px">Меню пустое или не разобралось</div>'); return; }
+  azRender(`
+    <div class="db-toolbar">
+      <button class="backlink" onclick="az.backToPlaces()">‹ Назад к ресторанам</button>
+      <span class="db-count">${esc(az.restaurants.find(p => p.slug === az.rest)?.title || az.rest)}</span>
+    </div>
+    <div class="db-toolbar">
+      <input type="search" id="azItemSearch" class="db-search" placeholder="Поиск по меню…" style="max-width:300px">
+    </div>
+    <div class="az-grid" id="azMenuGrid">
+    ${items.map(it => {
+      const opt = (it.optionsGroups || []).length;
+      return `<div class="az-card" data-id="${it.id}" ${it.available === false ? 'style="opacity:.5"' : ''}>
+        <div class="az-card-head"><b>${esc(it.name || 'Товар')}</b><span class="az-price">${fmtRub(it.price ?? it.decimalPrice ?? 0)}</span></div>
+        ${it.description ? `<div class="az-card-sub">${esc(it.description)}</div>` : ''}
+        ${opt ? `<div class="db-mut">⚠ ${opt} опц.</div>` : ''}
+        <div class="az-card-foot">
+          <span class="db-mut">${it.measure || ''}</span>
+          <div class="az-qty"><button class="btn btn-ghost btn-sm" data-dec="${it.id}">−</button>
+            <b data-qty="${it.id}">0</b>
+            <button class="btn btn-primary btn-sm" data-inc="${it.id}">+</button></div>
+        </div>
+      </div>`;
+    }).join('')}
+    </div>`);
+  bindAzMenuClicks();
+  $('azItemSearch').addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    document.querySelectorAll('#azMenuGrid .az-card').forEach(card => {
+      card.style.display = q && !card.textContent.toLowerCase().includes(q) ? 'none' : '';
+    });
+  });
+}
+
+function bindAzMenuClicks() {
+  document.querySelectorAll('#azMenuGrid [data-inc]').forEach(b => b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await azAddItem(b.dataset.inc, 1);
+  }));
+  document.querySelectorAll('#azMenuGrid [data-dec]').forEach(b => b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (az.items[b.dataset.dec] > 0) await azAddItem(b.dataset.dec, -1);
+  }));
+}
+
+async function azAddItem(itemId, delta) {
+  if (!az.rest) return;
+  az.items[itemId] = (az.items[itemId] || 0) + delta;
+  if (az.items[itemId] < 0) az.items[itemId] = 0;
+  const q = az.items[itemId];
+  document.querySelectorAll(`#azMenuGrid [data-qty="${itemId}"]`).forEach(el => el.textContent = q);
+  $('azStatus').textContent = 'Добавляю в корзину…';
+  try {
+    const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/cart`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ place_slug: az.rest, item_id: itemId, qty: 1, lat: az.addrLoc?.latitude, lon: az.addrLoc?.longitude }),
+    });
+    const cart = r.cart && r.cart.cart ? r.cart.cart : (r.cart || {});
+    az.cart = cart;
+    renderAzCartTotal();
+    $('azStatus').textContent = 'В корзине';
+  } catch (e) {
+    $('azStatus').textContent = 'Ошибка: ' + e.message;
+  }
+}
+
+async function azShowCart() {
+  if (!az.account) return;
+  $('azStatus').textContent = 'Загружаю корзину…';
+  try {
+    await azLoadCart();
+    const c = az.cart || {};
+    const items = c.items || [];
+    if (!items.length) { azRender('<div class="hint" style="padding:24px">Корзина пуста</div>'); return; }
+    azRender(`
+      <div class="db-toolbar">
+        <button class="backlink" onclick="az.backToMenu()">‹ Назад к меню</button>
+        <span class="db-count">Корзина</span>
+      </div>
+      ${items.map(it => `<div class="az-card">
+        <div class="az-card-head"><b>${esc(it.name || it.title || 'Товар')}</b><span class="az-price">${fmtRub((it.price ?? it.decimal_price ?? 0) * (it.quantity || 1))}</span></div>
+        <div class="az-card-foot"><span class="db-mut">${it.quantity || 1} шт × ${fmtRub(it.price ?? it.decimal_price ?? 0)}</span></div>
+      </div>`).join('')}
+      <div class="cart-sum"><span>Итого</span><span class="sum-val">${fmtRub(c.total)}</span></div>
+      ${c.delivery_fee ? `<div class="db-mut">Доставка: ${fmtRub(c.delivery_fee)}</div>` : ''}
+      <div class="db-toolbar" style="margin-top:12px">
+        <button class="btn btn-primary btn-sm" id="azCheckoutGo">💳 Оформить заказ</button>
+      </div>`);
+    $('azCheckoutGo').addEventListener('click', azCheckout);
+  } catch (e) {
+    azRender(`<div class="err">${esc(e.message)}</div>`);
+  }
+}
+
+async function azCheckout() {
+  if (!az.addr || !az.rest) return;
+  const a = (az.addrs || []).find(x => x.id === az.addr);
+  if (!a) { alert('Не выбран адрес'); return; }
+  const addr = {
+    city: a.city, street: a.street, house: a.house, country: a.country || 'Россия',
+    short_text: a.short_text, full_text: a.full_text,
+    location: { latitude: a.location.latitude, longitude: a.location.longitude },
+  };
+  if (a.uri) addr.uri = a.uri;
+  const parts = [];
+  if ($('azFlat').value.trim()) parts.push('кв ' + $('azFlat').value.trim());
+  if ($('azEntrance').value.trim()) parts.push('под ' + $('azEntrance').value.trim());
+  if ($('azFloor').value.trim()) parts.push('эт ' + $('azFloor').value.trim());
+  if ($('azIntercom').value.trim()) parts.push('домофон ' + $('azIntercom').value.trim());
+  if (parts.length) addr.comment = parts.join('; ');
+  $('azStatus').textContent = 'Оформляю…';
+  try {
+    const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/checkout`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ place_slug: az.rest, address: addr }),
+    });
+    az.checkout = r.checkout;
+    azRenderCheckout(addr);
+  } catch (e) {
+    azRender(`<div class="err">${esc(e.message)}</div>`);
+  }
+}
+
+function azPaymentOffers(co) {
+  const seen = {};
+  const out = [];
+  (co.offers || []).forEach(o => {
+    const p = (o && o.possiblePayment) || {};
+    const k = p.id || p.title || 'x';
+    if (seen[k]) return;
+    seen[k] = true;
+    out.push(p);
+  });
+  return out;
+}
+
+function azRenderCheckout(addr) {
+  const co = az.checkout || {};
+  const pays = azPaymentOffers(co);
+  const lines = [];
+  (co.offers || []).forEach(o => {
+    const cc = (o.possiblePayment || {}).cross_check;
+    (cc && cc.items || []).forEach(it => {
+      if (it.type === 'category') {
+        (it.category_items || []).forEach(ci => lines.push({ n: (ci.name || {}).value, a: (ci.amount || {}).value }));
+      } else {
+        lines.push({ n: (it.name || {}).value, a: (it.amount || {}).value });
+      }
+    });
+  });
+  const uniq = [];
+  const seenLine = {};
+  lines.forEach(l => {
+    const k = l.n + '|' + l.a;
+    if (!seenLine[k]) { seenLine[k] = 1; uniq.push(l); }
+  });
+  azRender(`
+    <div class="db-toolbar">
+      <button class="backlink" onclick="az.backToCart()">‹ Назад к корзине</button>
+      <span class="db-count">Оформление</span>
+    </div>
+    <div class="hint">Доставка на: <b>${esc(addr.full_text)}</b>${addr.comment ? `<div class="db-mut">${esc(addr.comment)}</div>` : ''}</div>
+    ${uniq.length ? `<div class="chk-block"><h3>Состав заказа</h3>
+      ${uniq.map(l => `<div class="chk-row"><span class="k">${esc(l.n)}</span><span class="v">${esc(l.a)}</span></div>`).join('')}
+    </div>` : ''}
+    <div class="chk-block">
+      <h3>Способы оплаты</h3>
+      ${pays.length ? pays.map(p => {
+        const av = (p.availability || {}).available;
+        const cfc = (p.costForCustomer || {}).value;
+        const ic = p.type === 'sbp' ? '🏦' : p.type === 'add_new_card' ? '💳' : p.type === 'yandex_bank' ? '🅿️' : '💳';
+        return `<div class="pay-opt"><span>${ic} ${esc(p.title || p.id || '—')}</span>
+          <span class="st ${av ? '' : 'no'}">${av ? (cfc ? fmtRub(cfc) : 'доступно') : 'недоступно'}</span></div>`;
+      }).join('') : '<div class="hint" style="padding:10px 0">Нет предложений</div>'}
+    </div>
+    <div class="db-toolbar" style="margin-top:12px">
+      <button class="btn btn-main" id="azOrderBtn" disabled>Создание заказа — ждём досъём</button>
+    </div>`);
+}
+
+// helpers
+az.backToPlaces = () => { az.rest = null; az.menu = null; azRenderPlaces(); };
+az.backToMenu = () => { if (az.rest) azOpenMenu(az.rest); };
+az.backToCart = () => azShowCart();
+
+$('azAccount').addEventListener('change', azSelectAccount);
+$('azCity').addEventListener('change', azSelectCity);
+$('azAddr').addEventListener('change', azSelectAddr);
+$('azSearchGo').addEventListener('click', azSearch);
+$('azSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') azSearch(); });
+$('azCartShow').addEventListener('click', azShowCart);
+$('azClear').addEventListener('click', () => {
+  az = { account: az.account, city: '', addr: null, restaurants: [], rest: null, menu: null, cart: null, checkout: null, items: {} };
+  if (az.account) azSelectAccount(); else loadAuto();
 });
 
 // ================= САМОКАТ =================

@@ -69,6 +69,7 @@
     <button class="db-tab" data-tab="sessions">🔑 Сессии</button>
     <button class="db-tab" data-tab="eda">🚚 ЕДА</button>
     <button class="db-tab" data-tab="edaPromo">🎁 Промокоды</button>
+    <button class="db-tab" data-tab="auto">🛍 Автозаказ</button>
     <button class="db-tab" data-tab="sp">🅿 Свои Плюсы</button>
     <button class="db-tab" data-tab="samokat">🛴 Самокат</button>
   </nav>
@@ -328,6 +329,45 @@
         <tbody></tbody>
       </table>
     </div>
+  </section>
+
+  <!-- ================= Автозаказ Я.Еды ================= -->
+  <section class="db-pane" id="pane-auto">
+    <div class="db-toolbar">
+      <label style="display:flex;align-items:center;gap:6px">Аккаунт
+        <select id="azAccount" class="db-search" style="max-width:240px"></select>
+      </label>
+      <label style="display:flex;align-items:center;gap:6px">Город
+        <select id="azCity" class="db-search" style="max-width:200px"></select>
+      </label>
+      <label style="display:flex;align-items:center;gap:6px">Адрес
+        <select id="azAddr" class="db-search" style="max-width:300px"></select>
+      </label>
+      <span class="db-spacer"></span>
+      <span class="db-count" id="azCartTotal"></span>
+    </div>
+    <div class="eda-add" style="grid-template-columns:1fr 1fr 1fr 1fr">
+      <label>Квартира
+        <input type="text" id="azFlat" placeholder="45" autocomplete="off">
+      </label>
+      <label>Подъезд
+        <input type="text" id="azEntrance" placeholder="2" autocomplete="off">
+      </label>
+      <label>Этаж
+        <input type="text" id="azFloor" placeholder="5" autocomplete="off">
+      </label>
+      <label>Домофон
+        <input type="text" id="azIntercom" placeholder="1234" autocomplete="off">
+      </label>
+    </div>
+    <div class="db-toolbar" style="margin-top:12px">
+      <input type="search" id="azSearch" class="db-search" placeholder="Поиск ресторана/магазина…" style="max-width:320px">
+      <button class="btn btn-primary btn-sm" id="azSearchGo">🔍 Найти</button>
+      <button class="btn btn-ghost btn-sm" id="azCartShow">🛒 Корзина</button>
+      <button class="btn btn-ghost btn-sm" id="azClear">Очистить выбор</button>
+      <span class="db-mut" id="azStatus"></span>
+    </div>
+    <div id="azBody"><div class="hint" style="padding:24px">Выберите аккаунт — загружу его адреса и корзину</div></div>
   </section>
 
   <!-- ================= Самокат ================= -->

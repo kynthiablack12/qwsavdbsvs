@@ -1657,6 +1657,125 @@ def api_eda_order_cancel(token, oid):
         return jsonify({'error': str(e)}), 500
 
 
+# ---------- Автозаказ Я.Еды: работа от имени аккаунта ----------
+
+def eda_account_guard(name):
+    a = eda.get_eda_account(name)
+    if not a:
+        raise RuntimeError(f'аккаунт Я.Еды "{name}" не найден')
+    return a
+
+
+@app.route('/api/eda/autozakaz/accounts')
+def api_eda_az_accounts():
+    """Аккаунты Я.Еды для автозаказа (имя + профиль)."""
+    return jsonify([{'name': a.get('name'), 'profile_name': a.get('profile_name') or '',
+                     'plus_balance': a.get('plus_balance')}
+                    for a in eda.load_eda_accounts()])
+
+
+@app.route('/api/eda/autozakaz/<name>/cities')
+def api_eda_az_cities(name):
+    """Города из сохранённых адресов аккаунта (с адресами)."""
+    try:
+        eda_account_guard(name)
+        return jsonify({'ok': True, 'cities': eda.saved_cities(name)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/autozakaz/<name>/restaurants')
+def api_eda_az_restaurants(name):
+    """Поиск ресторанов/магазинов."""
+    try:
+        eda_account_guard(name)
+        q = request.args.get('query', '')
+        lat = request.args.get('lat', type=float)
+        lon = request.args.get('lon', type=float)
+        return jsonify({'ok': True, 'restaurants': eda.search_restaurants(
+            name, query=q, lat=lat, lon=lon)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/autozakaz/<name>/menu/<slug>')
+def api_eda_az_menu(name, slug):
+    """Меню ресторана по slug."""
+    try:
+        eda_account_guard(name)
+        lat = request.args.get('lat', type=float)
+        lon = request.args.get('lon', type=float)
+        return jsonify({'ok': True, 'menu': eda.restaurant_menu(
+            name, slug, lat=lat, lon=lon)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/autozakaz/<name>/cart')
+def api_eda_az_cart(name):
+    """Текущая корзина аккаунта."""
+    try:
+        eda_account_guard(name)
+        lat = request.args.get('lat', type=float)
+        lon = request.args.get('lon', type=float)
+        slug = request.args.get('place_slug')
+        return jsonify({'ok': True, 'cart': eda.cart(
+            name, slug=slug, lat=lat, lon=lon)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/autozakaz/<name>/cart', methods=['POST'])
+def api_eda_az_cart_add(name):
+    """Добавить товар в корзину."""
+    try:
+        eda_account_guard(name)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify({'ok': True, 'cart': eda.add_to_cart(
+            name,
+            data.get('place_slug'),
+            data.get('item_id'),
+            qty=int(data.get('qty') or 1),
+            item_options=data.get('item_options'),
+            lat=data.get('lat'), lon=data.get('lon'),
+            business=data.get('business', 'restaurant'))})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/autozakaz/<name>/checkout', methods=['POST'])
+def api_eda_az_checkout(name):
+    """Оформление: offers со способами оплаты (СБП и др.)."""
+    try:
+        eda_account_guard(name)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify({'ok': True, 'checkout': eda.checkout(
+            name,
+            data.get('place_slug'),
+            data.get('address', {}),
+            lat=data.get('lat'), lon=data.get('lon'))})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ---------- Самокат: аккаунты и сессии ----------
 
 @app.route('/api/samokat/accounts')
