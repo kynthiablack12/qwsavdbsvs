@@ -594,10 +594,15 @@ def saved_addresses(account, lat=None, lon=None):
 def saved_cities(account, lat=None, lon=None):
     """Города из сохранённых адресов аккаунта.
 
+    Сначала веб-флоу (Session_id), при ошибке — мобильный (Bearer).
     Возвращает список {city, addresses: [...]}. Координаты города берутся
     из первого адреса в нём (для поиска ресторанов).
     """
-    addrs = saved_addresses(account, lat=lat, lon=lon)
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    try:
+        addrs = web_saved_addresses(acc, lat=lat, lon=lon)
+    except RuntimeError:
+        addrs = saved_addresses(acc, lat=lat, lon=lon)
     cities = {}
     order = []
     for a in addrs:
@@ -652,24 +657,35 @@ def checkout_address(saved, flat='', entrance='', floor='', intercom='', comment
 
 
 def search_restaurants(account, query='', lat=None, lon=None):
-    """Поиск ресторанов/каталог (full-text-search)."""
+    """Поиск ресторанов/каталог (full-text-search).
+
+    Для аккаунтов без Bearer (только Session_id) — тот же эндпоинт
+    через веб-флоу (cookie-авторизация).
+    """
     acc = get_eda_account(account) if isinstance(account, str) else account
     lat, lon = _coords(acc, lat, lon)
+    body = {'location': {'latitude': lat, 'longitude': lon},
+            'text': query or '',
+            'shipping_type': 'delivery',
+            'selector': ''}
+    if _use_web(acc):
+        return _web_call(acc, 'POST', '/eats/v1/full-text-search/v1/search', body)
     return _eda_call(acc, 'POST', '/eats/v1/full-text-search/v1/search',
-                     lat, lon,
-                     json_body={'location': {'latitude': lat, 'longitude': lon},
-                                'text': query or '',
-                                'shipping_type': 'delivery',
-                                'selector': ''})
+                     lat, lon, json_body=body)
 
 
 def restaurant_menu(account, slug, lat=None, lon=None, shipping='delivery'):
-    """Меню ресторана по slug (категории, товары)."""
+    """Меню ресторана по slug (категории, товары).
+
+    Для аккаунтов без Bearer (только Session_id) — веб-флоу.
+    """
     acc = get_eda_account(account) if isinstance(account, str) else account
     lat, lon = _coords(acc, lat, lon)
+    params = {'latitude': lat, 'longitude': lon, 'shippingType': shipping}
+    if _use_web(acc):
+        return _web_call(acc, 'GET', f'/api/v2/menu/retrieve/{slug}', params=params)
     return _eda_call(acc, 'GET', f'/api/v2/menu/retrieve/{slug}',
-                     lat, lon,
-                     params={'latitude': lat, 'longitude': lon, 'shippingType': shipping})
+                     lat, lon, params=params)
 
 
 def restaurant_info(account, slug, lat=None, lon=None, shipping='delivery'):
@@ -746,13 +762,19 @@ def shop_goods(account, slug, category_uids, lat=None, lon=None):
 
 
 def cart(account, slug=None, lat=None, lon=None, shipping='delivery', screen='menu'):
-    """Текущая корзина. slug — ресторан, к которому привязана корзина."""
+    """Текущая корзина. slug — ресторан, к которому привязана корзина.
+
+    Для аккаунтов без Bearer (только Session_id) — веб-флоу.
+    """
     acc = get_eda_account(account) if isinstance(account, str) else account
     lat, lon = _coords(acc, lat, lon)
     params = {'latitude': lat, 'longitude': lon,
               'screen': screen, 'shippingType': shipping}
     if slug:
         params['placeSlug'] = slug
+    if _use_web(acc):
+        return _web_call(acc, 'POST', '/eats/v1/cart/v2/full-carts',
+                         {}, params=params)
     return _eda_call(acc, 'POST', '/eats/v1/cart/v2/full-carts',
                      lat, lon, params=params, json_body={})
 
@@ -769,7 +791,10 @@ def all_carts(account, lat=None, lon=None, shipping='delivery', screen='catalog'
 
 
 def add_to_cart(account, slug, item_id, qty=1, item_options=None, lat=None, lon=None, shipping='delivery', business='restaurant'):
-    """Добавить товар в корзину. business — 'restaurant' или 'shop'."""
+    """Добавить товар в корзину. business — 'restaurant' или 'shop'.
+
+    Для аккаунтов без Bearer (только Session_id) — веб-флоу.
+    """
     acc = get_eda_account(account) if isinstance(account, str) else account
     lat, lon = _coords(acc, lat, lon)
     body = {
@@ -780,6 +805,11 @@ def add_to_cart(account, slug, item_id, qty=1, item_options=None, lat=None, lon=
         'place_slug': slug,
         'shipping_type': shipping,
     }
+    params = {'latitude': lat, 'longitude': lon,
+              'screen': 'menu', 'shippingType': shipping,
+              'soft_multi': 'true'}
+    if _use_web(acc):
+        return _web_call(acc, 'POST', '/api/v1/cart', body, params=params)
     return _eda_call(acc, 'POST', '/api/v1/cart',
                      lat, lon,
                      params={'latitude': lat, 'longitude': lon,
@@ -815,6 +845,312 @@ def create_order(account, address_id, payment_id, items):
     raise NotImplementedError(
         'создание заказа Я.Еды: нужен досъём финального шага оформления '
         '(подтверждение заказа/оплата) из приложения')
+
+
+# ============================================================
+#  Автозаказ: веб-флоу eda.yandex.ru (desktop_web, cookie Session_id).
+#
+#  Эндпоинты и тела запросов подтверждены митм-перехватом браузера и
+#  JS-бандлами desktop-фронта:
+#    chunk 8278 — enum payment_method: EATS_PAYMENTS=5 (оплата на сайте),
+#                 вызов createOrder{paymentMethodId:5, requestId: offer.requestId};
+#    chunk 52038 — модель checkout: go-checkout, promocodeParams, createOrder,
+#                 requestId оффера = cart_id.offer_identity;
+#    chunk 67919 — order/tracking: {order_id} -> order.payment.payload.
+# ============================================================
+
+WEB_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+          '(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36')
+WEB_DEVICE_ID = 'mihhc5ty-e22czsd3bl6-cr2qbh6hwbe-unsat9s5u1'
+
+# payment_method_id для оплаты на сайте (СБП и др.) — фиксированная
+# константа веб-фронта (enum EATS_PAYMENTS), не из ответов API.
+WEB_PAYMENT_METHOD_EATS = 5
+
+
+def _web_cookies(acc):
+    ck = {}
+    sid = (acc.get('session_id') or '').strip() or (acc.get('cookies') or {}).get('Session_id', '').strip()
+    if sid:
+        ck['Session_id'] = sid
+    yuid = (acc.get('yandexuid') or '').strip()
+    if yuid:
+        ck['yandexuid'] = yuid
+    return ck
+
+
+def _use_web(acc):
+    """True, если для аккаунта надёжнее веб-флоу (Session_id без Bearer).
+
+    Мобильные эндпоинты (menu/cart/add_to_cart/search) принимают те же
+    пути и тела с cookie Session_id (x-platform: desktop_web).
+    """
+    if not (acc.get('session_id') or (acc.get('cookies') or {}).get('Session_id')):
+        return False
+    return not _extract_bearer(acc)
+
+
+def _web_hdrs(acc, lat=None, lon=None):
+    lat = lat if lat is not None else float(acc.get('lat', DEFAULT_LAT))
+    lon = lon if lon is not None else float(acc.get('lon', DEFAULT_LON))
+    return {
+        'accept': 'application/json, text/plain, */*',
+        'accept-language': 'ru',
+        'content-type': 'application/json;charset=UTF-8',
+        'origin': 'https://eda.yandex.ru',
+        'referer': 'https://eda.yandex.ru/checkout',
+        'user-agent': WEB_UA,
+        'x-app-version': '18.41.3',
+        'x-client-session': uuid.uuid4().hex[:32],
+        'x-device-id': WEB_DEVICE_ID,
+        'x-platform': 'desktop_web',
+        'x-retpath-y': 'https://eda.yandex.ru/checkout',
+        'x-taxi': f'{WEB_UA} platform=eats_desktop_web',
+        'x-ya-coordinates': f'latitude={lat},longitude={lon}',
+        'x-ya-user-location': f'latitude={lat},longitude={lon}',
+    }
+
+
+def _web_call(acc, method, path, json_body=None, params=None, timeout=25):
+    """Запрос к веб-API eda.yandex.ru с cookie Session_id (desktop_web)."""
+    hdrs = _web_hdrs(acc)
+    ck = _web_cookies(acc)
+    url = EDA_HOST + path
+    try:
+        r = requests.request(method, url, headers=hdrs, cookies=ck,
+                             json=json_body, params=params, timeout=timeout)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Я.Еда (веб): сеть ({method} {path}): {e}')
+    if r.status_code in (401, 403):
+        raise RuntimeError(f'Я.Еда (веб): авторизация отклонена ({r.status_code}): Session_id невалиден')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Я.Еда (веб): HTTP {r.status_code} на {method} {path}: {r.text[:300]}')
+    try:
+        return r.json()
+    except Exception:
+        return {'_status': r.status_code, '_text': r.text[:1000]}
+
+
+def web_saved_addresses(account, lat=None, lon=None):
+    """Сохранённые адреса аккаунта через веб-флоу (cookie Session_id).
+
+    GET /api/v3/user/addresses — как это делает сайт. Возвращает список
+    {id, city, street, house, country, short_text, full_text, uri,
+    location{latitude,longitude}, areas, districts}. Не требует Bearer.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    lat, lon = _coords(acc, lat, lon)
+    d = _web_call(acc, 'GET', '/api/v3/user/addresses')
+    out = []
+    if not isinstance(d, list):
+        return out
+    for a in d:
+        if not isinstance(a, dict):
+            continue
+        loc = a.get('location') or {}
+        if not isinstance(loc, dict):
+            loc = {}
+        entry = {
+            'id': a.get('id') or '',
+            'title': a.get('title') or '',
+            'type': (a.get('type') or {}).get('name') if isinstance(a.get('type'), dict) else '',
+            'city': a.get('city') or '',
+            'street': a.get('street') or '',
+            'house': a.get('house') or '',
+            'country': a.get('country') or '',
+            'short_text': a.get('short_text') or '',
+            'full_text': a.get('full_text') or '',
+            'uri': a.get('uri') or '',
+            'location': {
+                'latitude': loc.get('latitude'),
+                'longitude': loc.get('longitude'),
+            },
+        }
+        if a.get('areas'):
+            entry['areas'] = a['areas']
+        if a.get('districts'):
+            entry['districts'] = a['districts']
+        out.append(entry)
+    return out
+
+
+def web_checkout(account, slug, address, lat=None, lon=None, payment_id='sbp_qr', payment_type='sbp'):
+    """Оформление (веб): go-checkout с выбором СБП.
+
+    Возвращает offers — каждый с offer_identity, requestId
+    (= cart_id.offer_identity) и possiblePayment{id,type,costForCustomer}.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    lat, lon = _coords(acc, lat, lon)
+    body = {
+        'address': address,
+        'place_slug': slug,
+        'payment': {
+            'recently_link_cards': False,
+            'selected_payment_type': {'id': payment_id, 'type': payment_type},
+        },
+    }
+    return _web_call(acc, 'POST', '/api/v2/cart/go-checkout', body,
+                     params={'longitude': lon, 'latitude': lat})
+
+
+def web_offer_sbp(d, payment_id='sbp_qr'):
+    """Оффер с СБП из go-checkout. Возвращает (offer, possiblePayment) или (None, None)."""
+    for o in (d.get('offers') or []):
+        pp = o.get('possiblePayment') or {}
+        if pp.get('id') == payment_id:
+            return o, pp
+    return None, None
+
+
+def web_apply_promocode(account, slug, code, offer_identity='', lat=None, lon=None,
+                        receiving_type='delivery'):
+    """Применить промокод к корзине (POST /api/v2/cart/promocode)."""
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    lat, lon = _coords(acc, lat, lon)
+    params = {
+        'placeSlug': slug,
+        'soft_multi': 'true',
+        'shippingType': 'delivery',
+        'receiving_type': receiving_type,
+        'is_delivery_without_address': 'false',
+    }
+    if offer_identity:
+        params['offer_identity'] = offer_identity
+    return _web_call(acc, 'POST', '/api/v2/cart/promocode',
+                     {'code': code}, params=params)
+
+
+def web_promocodes(account, cart_id, receiving_type='delivery'):
+    """Доступные промокоды для корзины (POST /api/v1/user/promocodes/checkout).
+
+    Ответ: {promocodes: [{code, discount, isUsed, ...}]}.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    return _web_call(acc, 'POST', '/api/v1/user/promocodes/checkout',
+                     {'cart_id': cart_id, 'receiving_type': receiving_type})
+
+
+def web_create_order(account, slug, address, offer_identity, payment_info, phone='',
+                     code=None, lat=None, lon=None, request_id=None, cart_id=None,
+                     extended_options=None, recently_link_cards=False,
+                     plus_subscription_toggle_state=False, user_address_id=None):
+    """Создать заказ с оплатой СБП (POST /api/v1/orders, веб-флоу).
+
+    payment_info — possiblePayment из go-checkout (id='sbp_qr',
+    type='sbp', costForCustomer.value, currency). request_id по умолчанию
+    = cart_id + '.' + offer_identity (как offer.requestId на фронте).
+    Ответ: {orderNr, firstOrder, ...} — orderNr используется для tracking.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    lat, lon = _coords(acc, lat, lon)
+    if not request_id and cart_id:
+        request_id = f'{cart_id}.{offer_identity}'
+    cfc = payment_info.get('costForCustomer') or {}
+    if isinstance(cfc, dict):
+        currency = cfc.get('currency') or ''
+        cfc = cfc.get('value') or cfc.get('amount') or ''
+    else:
+        currency = payment_info.get('currency') or ''
+    try:
+        cfc_str = f'{float(cfc):.2f}'
+    except (TypeError, ValueError):
+        cfc_str = str(cfc)
+    body = {
+        'payment_method_id': WEB_PAYMENT_METHOD_EATS,
+        'phone': phone,
+        'change_on': 0,
+        'persons_quantity': 0,
+        'payment_information': {
+            'type': payment_info.get('type') or 'sbp',
+            'costForCustomer': cfc_str,
+            'id': payment_info.get('id') or 'sbp_qr',
+            'currency': currency or 'RUB',
+        },
+        'extended_options': (extended_options if extended_options is not None else
+                             [{'type': 'delivery_options', 'leave_at_the_door': False}]),
+        'payment': {'recently_link_cards': recently_link_cards},
+        'place_slug': slug,
+        'address': address,
+        'plus_subscription_toggle_state': plus_subscription_toggle_state,
+        'request_id': request_id or '',
+    }
+    if code:
+        body['code'] = code
+    if user_address_id:
+        body['user_address_id'] = user_address_id
+    return _web_call(acc, 'POST', '/api/v1/orders', body)
+
+
+def web_order_tracking(account, order_id):
+    """Статус оплаты и данные для QR СБП (POST eats-payments order/tracking).
+
+    Ответ: {order: {order_id, ...}, payment: {status, payload,
+    error_message}, meta}. В payload для СБП — purchase_token
+    (и service_token); QR рисуется в платёжной форме Trust.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    return _web_call(acc, 'POST', '/eats/v1/eats-payments/v1/order/tracking',
+                     {'order_id': order_id})
+
+
+def web_sbp_qr(account, order_id, attempts=15, delay=1.5):
+    """QR для СБП по заказу.
+
+    Поллит order/tracking пока не придёт payment.payload.purchase_token
+    (изначально payment.status='pending' без payload), затем дёргает
+    trust.yandex.ru/web/get_payment и возвращает processing_payment_form_url
+    — контент QR (https://qr.nspk.ru/...) + токены.
+
+    Возвращает {order_id, payment, qr_url, purchase_token, service_token}.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    ck = _web_cookies(acc)
+    purchase_token = service_token = ''
+    tracking = None
+    for _ in range(attempts):
+        tracking = _web_call(acc, 'POST', '/eats/v1/eats-payments/v1/order/tracking',
+                             {'order_id': order_id})
+        pay = (tracking or {}).get('payment')
+        if pay is None:
+            pay = ((tracking or {}).get('order') or {}).get('payment') or {}
+        payload = pay.get('payload') or {}
+        purchase_token = payload.get('purchase_token') or ''
+        service_token = payload.get('service_token') or ''
+        if purchase_token:
+            break
+        time.sleep(delay)
+    order = (tracking or {}).get('order') or {}
+    out = {
+        'order_id': (order.get('order') or {}).get('order_id') or order_id,
+        'title': order.get('title'),
+        'description': order.get('description'),
+        'payment': pay if tracking else {},
+        'purchase_token': purchase_token,
+        'service_token': service_token,
+    }
+    if purchase_token:
+        try:
+            r = requests.get(
+                'https://trust.yandex.ru/web/get_payment',
+                headers={
+                    'user-agent': WEB_UA,
+                    'accept': '*/*',
+                    'referer': 'https://trust.yandex.ru/web/payment?template_tag=desktop%2Fform',
+                },
+                cookies=ck,
+                params={'purchase_token': purchase_token},
+                timeout=20,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                out['qr_url'] = data.get('processing_payment_form_url') or ''
+                out['amount'] = data.get('amount')
+                out['currency'] = data.get('currency')
+                out['trust_status'] = data.get('status')
+        except (requests.RequestException, ValueError) as e:
+            out['trust_error'] = str(e)
+    return out
 
 
 def order_status(account, order_id):

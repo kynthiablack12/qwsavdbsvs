@@ -1776,6 +1776,159 @@ def api_eda_az_checkout(name):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/eda/autozakaz/<name>/web-checkout', methods=['POST'])
+def api_eda_az_web_checkout(name):
+    """Оформление через веб-флоу (go-checkout) с выбором СБП.
+
+    Возвращает checkout + нормализованный payment: {id, type,
+    costForCustomer, offer_identity, requestId, cart_id}.
+    """
+    try:
+        eda_account_guard(name)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 404
+    data = request.get_json(silent=True) or {}
+    payment_id = data.get('payment_id') or 'sbp_qr'
+    payment_type = data.get('payment_type') or 'sbp'
+    try:
+        d = eda.web_checkout(name, data.get('place_slug'), data.get('address', {}),
+                             lat=data.get('lat'), lon=data.get('lon'),
+                             payment_id=payment_id, payment_type=payment_type)
+        offer, pp = eda.web_offer_sbp(d, payment_id)
+        payment = None
+        if offer and pp:
+            cfc = pp.get('costForCustomer') or {}
+            if isinstance(cfc, dict):
+                cfc = cfc.get('value') or ''
+            request_id = offer.get('requestId') or ''
+            payment = {
+                'id': pp.get('id'), 'type': pp.get('type'),
+                'title': pp.get('title'),
+                'costForCustomer': cfc,
+                'serviceFee': pp.get('serviceFee'),
+                'offer_identity': offer.get('offer_identity'),
+                'requestId': request_id,
+                'cart_id': request_id.split('.')[0] if '.' in request_id else '',
+            }
+        return jsonify({'ok': True, 'checkout': d, 'payment': payment})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/autozakaz/<name>/promocode', methods=['POST'])
+def api_eda_az_promocode(name):
+    """Применить промокод к корзине (веб: POST /api/v2/cart/promocode)."""
+    try:
+        eda_account_guard(name)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify({'ok': True, 'result': eda.web_apply_promocode(
+            name, data.get('place_slug'), data.get('code'),
+            offer_identity=data.get('offer_identity'),
+            lat=data.get('lat'), lon=data.get('lon'),
+            receiving_type=data.get('receiving_type') or 'delivery')})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/autozakaz/<name>/promocodes', methods=['POST'])
+def api_eda_az_promocodes(name):
+    """Промокоды, доступные для корзины (веб: promocodes/checkout)."""
+    try:
+        eda_account_guard(name)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify({'ok': True, 'promocodes': eda.web_promocodes(
+            name, data.get('cart_id'),
+            receiving_type=data.get('receiving_type') or 'delivery')})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/autozakaz/<name>/order', methods=['POST'])
+def api_eda_az_order_create(name):
+    """Создать заказ с оплатой СБП (веб: POST /api/v1/orders).
+
+    Сервер пере-запрашивает go-checkout, берёт свежий offer (request_id)
+    и possiblePayment СБП. Тело: {place_slug, address, phone, code?,
+    user_address_id?, lat?, lon?}. Ответ: {ok, order: {orderNr, firstOrder}}.
+    """
+    try:
+        eda_account_guard(name)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 404
+    data = request.get_json(silent=True) or {}
+    slug = data.get('place_slug')
+    address = data.get('address') or {}
+    if not slug:
+        return jsonify({'error': 'place_slug обязателен'}), 400
+    if not address:
+        return jsonify({'error': 'address обязателен'}), 400
+    try:
+        d = eda.web_checkout(name, slug, address,
+                             lat=data.get('lat'), lon=data.get('lon'))
+        offer, pp = eda.web_offer_sbp(d)
+        if not offer or not pp:
+            return jsonify({'error': 'СБП недоступно для этого заказа'}), 400
+        res = eda.web_create_order(
+            name, slug, address, offer.get('offer_identity'), pp,
+            phone=data.get('phone') or '',
+            code=data.get('code') or None,
+            lat=data.get('lat'), lon=data.get('lon'),
+            request_id=offer.get('requestId') or None,
+            user_address_id=data.get('user_address_id') or None,
+        )
+        return jsonify({'ok': True, 'order': res})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/autozakaz/<name>/order/<oid>/tracking', methods=['POST'])
+def api_eda_az_order_tracking(name, oid):
+    """Статус оплаты заказа + данные для QR СБП (order/tracking)."""
+    try:
+        eda_account_guard(name)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 404
+    try:
+        return jsonify({'ok': True, 'tracking': eda.web_order_tracking(name, oid)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/autozakaz/<name>/order/<oid>/qr', methods=['POST'])
+def api_eda_az_order_qr(name, oid):
+    """QR для СБП: поллит tracking до purchase_token, затем Trust get_payment.
+
+    Ответ: {ok, qr: {order_id, payment, qr_url, purchase_token,
+    service_token}}. qr_url — контент QR (https://qr.nspk.ru/...).
+    """
+    try:
+        eda_account_guard(name)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 404
+    try:
+        return jsonify({'ok': True, 'qr': eda.web_sbp_qr(name, oid)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ---------- Самокат: аккаунты и сессии ----------
 
 @app.route('/api/samokat/accounts')

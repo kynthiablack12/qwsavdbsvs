@@ -677,7 +677,7 @@ $('edaSessCreate').addEventListener('click', async () => {
 });
 
 // ================= Автозаказ Я.Еды =================
-let az = { account: '', city: '', addr: null, addrs: [], addrLoc: null, restaurants: [], rest: null, menu: null, cart: null, checkout: null, items: {} };
+let az = { account: '', city: '', addr: null, addrs: [], addrLoc: null, restaurants: [], rest: null, menu: null, cart: null, checkout: null, payment: null, addrData: null, promo: '', phone: '', orderNr: '', items: {} };
 
 function fmtRub(n) {
   const v = parseFloat(n);
@@ -764,6 +764,7 @@ async function azSelectAddr() {
   const a = (az.addrs || []).find(x => x.id === az.addr);
   az.addrLoc = (a && a.location && a.location.latitude != null) ? a.location : null;
   az.restaurants = []; az.rest = null; az.menu = null; az.cart = null; az.checkout = null;
+  az.payment = null; az.promo = ''; az.phone = ''; az.orderNr = ''; az.addrData = null;
   await azLoadCart();
   $('azStatus').textContent = '';
   azRender('<div class="hint" style="padding:24px">Найдите ресторан или магазин через поиск</div>');
@@ -985,88 +986,191 @@ async function azShowCart() {
 
 async function azCheckout() {
   if (!az.addr || !az.rest) return;
-  const a = (az.addrs || []).find(x => x.id === az.addr);
-  if (!a) { alert('Не выбран адрес'); return; }
-  const addr = {
-    city: a.city, street: a.street, house: a.house, country: a.country || 'Россия',
-    short_text: a.short_text, full_text: a.full_text,
-    location: { latitude: a.location.latitude, longitude: a.location.longitude },
-  };
-  if (a.uri) addr.uri = a.uri;
-  const parts = [];
-  if ($('azFlat').value.trim()) parts.push('кв ' + $('azFlat').value.trim());
-  if ($('azEntrance').value.trim()) parts.push('под ' + $('azEntrance').value.trim());
-  if ($('azFloor').value.trim()) parts.push('эт ' + $('azFloor').value.trim());
-  if ($('azIntercom').value.trim()) parts.push('домофон ' + $('azIntercom').value.trim());
-  if (parts.length) addr.comment = parts.join('; ');
   $('azStatus').textContent = 'Оформляю…';
   try {
-    const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/checkout`, {
+    const addr = azBuildAddr();
+    az.addrData = addr;
+    const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/web-checkout`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ place_slug: az.rest, address: addr }),
+      body: JSON.stringify({ place_slug: az.rest, address: addr, lat: az.addrLoc?.latitude, lon: az.addrLoc?.longitude }),
     });
     az.checkout = r.checkout;
+    az.payment = r.payment;
     azRenderCheckout(addr);
   } catch (e) {
     azRender(`<div class="err">${esc(e.message)}</div>`);
   }
 }
 
-function azPaymentOffers(co) {
-  const seen = {};
-  const out = [];
-  (co.offers || []).forEach(o => {
-    const p = (o && o.possiblePayment) || {};
-    const k = p.id || p.title || 'x';
-    if (seen[k]) return;
-    seen[k] = true;
-    out.push(p);
-  });
-  return out;
+function azBuildAddr() {
+  const a = (az.addrs || []).find(x => x.id === az.addr);
+  if (!a) return null;
+  const addr = {
+    city: a.city, street: a.street, house: a.house,
+    country: a.country || 'Российская Федерация',
+    short_text: a.short_text, full_text: a.full_text,
+    location: { latitude: a.location.latitude, longitude: a.location.longitude },
+  };
+  if (a.uri) addr.uri = a.uri;
+  if (a.areas) addr.areas = a.areas;
+  if (a.districts) addr.districts = a.districts;
+  if ($('azFlat').value.trim()) addr.office = $('azFlat').value.trim();
+  if ($('azEntrance').value.trim()) addr.entrance = $('azEntrance').value.trim();
+  if ($('azFloor').value.trim()) addr.floor = $('azFloor').value.trim();
+  if ($('azIntercom').value.trim()) addr.doorcode = $('azIntercom').value.trim();
+  return addr;
+}
+
+function azAddrComment(addr) {
+  const p = [];
+  if (addr.office) p.push('кв ' + addr.office);
+  if (addr.entrance) p.push('под ' + addr.entrance);
+  if (addr.floor) p.push('эт ' + addr.floor);
+  if (addr.doorcode) p.push('домофон ' + addr.doorcode);
+  return p.join('; ');
 }
 
 function azRenderCheckout(addr) {
-  const co = az.checkout || {};
-  const pays = azPaymentOffers(co);
-  const lines = [];
-  (co.offers || []).forEach(o => {
-    const cc = (o.possiblePayment || {}).cross_check;
-    (cc && cc.items || []).forEach(it => {
-      if (it.type === 'category') {
-        (it.category_items || []).forEach(ci => lines.push({ n: (ci.name || {}).value, a: (ci.amount || {}).value }));
-      } else {
-        lines.push({ n: (it.name || {}).value, a: (it.amount || {}).value });
-      }
-    });
-  });
-  const uniq = [];
-  const seenLine = {};
-  lines.forEach(l => {
-    const k = l.n + '|' + l.a;
-    if (!seenLine[k]) { seenLine[k] = 1; uniq.push(l); }
-  });
+  const p = az.payment || {};
   azRender(`
     <div class="db-toolbar">
       <button class="backlink" onclick="az.backToCart()">‹ Назад к корзине</button>
       <span class="db-count">Оформление</span>
     </div>
-    <div class="hint">Доставка на: <b>${esc(addr.full_text)}</b>${addr.comment ? `<div class="db-mut">${esc(addr.comment)}</div>` : ''}</div>
-    ${uniq.length ? `<div class="chk-block"><h3>Состав заказа</h3>
-      ${uniq.map(l => `<div class="chk-row"><span class="k">${esc(l.n)}</span><span class="v">${esc(l.a)}</span></div>`).join('')}
-    </div>` : ''}
+    <div class="hint">Доставка на: <b>${esc(addr ? addr.full_text : '')}</b>${addr && azAddrComment(addr) ? `<div class="db-mut">${esc(azAddrComment(addr))}</div>` : ''}</div>
     <div class="chk-block">
-      <h3>Способы оплаты</h3>
-      ${pays.length ? pays.map(p => {
-        const av = (p.availability || {}).available;
-        const cfc = (p.costForCustomer || {}).value;
-        const ic = p.type === 'sbp' ? '🏦' : p.type === 'add_new_card' ? '💳' : p.type === 'yandex_bank' ? '🅿️' : '💳';
-        return `<div class="pay-opt"><span>${ic} ${esc(p.title || p.id || '—')}</span>
-          <span class="st ${av ? '' : 'no'}">${av ? (cfc ? fmtRub(cfc) : 'доступно') : 'недоступно'}</span></div>`;
-      }).join('') : '<div class="hint" style="padding:10px 0">Нет предложений</div>'}
+      <h3>Оплата — СБП по QR</h3>
+      <div class="pay-opt"><span>🏦 ${esc(p.title || 'СБП')}</span>
+        <span class="st">${p.costForCustomer ? fmtRub(p.costForCustomer) : ''}</span></div>
+      ${p.offer_identity ? `<div class="db-mut">offer: ${esc(String(p.offer_identity).slice(0, 20))}…</div>` : ''}
+    </div>
+    <div class="chk-block">
+      <h3>Промокод</h3>
+      <div class="db-toolbar">
+        <input class="db-search" id="azPromo" style="min-width:240px" placeholder="Например SALE20" value="${esc(az.promo)}" />
+        <button class="btn btn-primary btn-sm" id="azPromoGo">Применить</button>
+      </div>
+      <div class="db-mut" id="azPromoMsg"></div>
+    </div>
+    <div class="chk-block">
+      <h3>Телефон получателя</h3>
+      <input class="db-search" id="azPhone" style="min-width:240px" placeholder="+7 900 000-00-00" value="${esc(az.phone)}" />
     </div>
     <div class="db-toolbar" style="margin-top:12px">
-      <button class="btn btn-main" id="azOrderBtn" disabled>Создание заказа — ждём досъём</button>
+      <button class="btn btn-primary" id="azOrderBtn">💳 Оформить заказ</button>
     </div>`);
+  $('azPromoGo').addEventListener('click', azApplyPromo);
+  $('azPromo').addEventListener('keydown', (e) => { if (e.key === 'Enter') azApplyPromo(); });
+  $('azOrderBtn').addEventListener('click', azOrder);
+}
+
+async function azApplyPromo() {
+  const code = $('azPromo').value.trim();
+  if (!code) return;
+  az.promo = code;
+  const msg = $('azPromoMsg');
+  msg.textContent = 'Применяю…';
+  try {
+    const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/promocode`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ place_slug: az.rest, code, offer_identity: (az.payment || {}).offer_identity, lat: az.addrLoc?.latitude, lon: az.addrLoc?.longitude }),
+    });
+    const res = r.result || {};
+    if (res.status === 'error') {
+      msg.textContent = 'Промокод: ' + (res.err || 'не применился');
+    } else {
+      msg.textContent = 'Промокод применён, пересчитываю…';
+      azCheckout();
+    }
+  } catch (e) {
+    msg.textContent = 'Ошибка: ' + e.message;
+  }
+}
+
+async function azOrder() {
+  if (!az.addrData) { alert('Сначала оформите корзину'); return; }
+  const phone = $('azPhone').value.trim();
+  az.phone = phone;
+  if (!phone) { alert('Укажите телефон получателя'); return; }
+  const btn = $('azOrderBtn');
+  btn.disabled = true;
+  btn.textContent = 'Создаю заказ…';
+  try {
+    const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/order`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ place_slug: az.rest, address: az.addrData, phone, code: az.promo || undefined, lat: az.addrLoc?.latitude, lon: az.addrLoc?.longitude }),
+    });
+    az.orderNr = (r.order || {}).orderNr || '';
+    azRenderOrder(r.order);
+  } catch (e) {
+    $('azStatus').textContent = 'Ошибка: ' + e.message;
+    btn.disabled = false;
+    btn.textContent = '💳 Оформить заказ';
+  }
+}
+
+function azRenderOrder(o) {
+  azRender(`
+    <div class="db-toolbar">
+      <button class="backlink" onclick="az.backToCart()">‹ Назад к корзине</button>
+      <span class="db-count">Заказ создан</span>
+    </div>
+    <div class="hint">Номер заказа: <b>${esc(o.orderNr || az.orderNr || '—')}</b></div>
+    <div class="db-toolbar" style="margin-top:12px">
+      <button class="btn btn-primary" id="azTrackBtn">🏦 Показать QR / статус оплаты</button>
+    </div>
+    <div id="azTrackBox" style="margin-top:12px"></div>
+    <details style="margin-top:8px"><summary class="db-mut">Сырой ответ заказа</summary>
+      <pre class="db-mut" style="white-space:pre-wrap;word-break:break-all;font-size:11px">${esc(JSON.stringify(o, null, 2))}</pre>
+    </details>`);
+  $('azTrackBtn').addEventListener('click', azTracking);
+}
+
+async function azTracking() {
+  const oid = az.orderNr;
+  if (!oid) { alert('Нет номера заказа'); return; }
+  const box = $('azTrackBox');
+  if (!box) return;
+  box.innerHTML = '<div class="hint">Запрашиваю статус оплаты и QR…</div>';
+  try {
+    const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/order/${encodeURIComponent(oid)}/qr`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    const q = r.qr || {};
+    const pay = q.payment || {};
+    const status = pay.status || '';
+    const out = [];
+    out.push(`<div class="chk-block"><h3>Статус оплаты: ${esc(status) || '—'}</h3>`);
+    if (q.qr_url) {
+      out.push(`<div style="margin:8px 0">${azQrSvg(q.qr_url)}</div>`);
+      out.push(`<div class="db-mut" style="word-break:break-all">Содержимое QR: ${esc(q.qr_url)}</div>`);
+    }
+    if (pay.error_message) out.push(`<div class="err">${esc(pay.error_message)}</div>`);
+    out.push('</div>');
+    if (q.purchase_token) {
+      let u = `https://trust.yandex.ru/web/payment?purchase_token=${encodeURIComponent(q.purchase_token)}&template_tag=desktop%2Fform`;
+      if (q.service_token) u += `&service_token=${encodeURIComponent(q.service_token)}`;
+      out.push(`<div class="db-mut" style="word-break:break-all"><a href="${esc(u)}" target="_blank" rel="noopener">Открыть страницу оплаты Траста</a></div>`);
+    }
+    out.push(`<div class="db-mut">order_id: ${esc(q.order_id || '')}</div>`);
+    out.push(`<details style="margin-top:8px"><summary class="db-mut">Сырой ответ</summary>
+      <pre class="db-mut" style="white-space:pre-wrap;word-break:break-all;font-size:11px">${esc(JSON.stringify(q, null, 2))}</pre>
+    </details>`);
+    box.innerHTML = out.join('');
+  } catch (e) {
+    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function azQrSvg(text) {
+  try {
+    const qr = qrcode(0, 'M');
+    qr.addData(String(text));
+    qr.make();
+    return qr.createSvgTag({ cellSize: 4, margin: 0 });
+  } catch (e) {
+    return `<div class="db-mut">Не удалось построить QR: ${esc(e.message)}</div>`;
+  }
 }
 
 // helpers
@@ -1081,7 +1185,7 @@ $('azSearchGo').addEventListener('click', azSearch);
 $('azSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') azSearch(); });
 $('azCartShow').addEventListener('click', azShowCart);
 $('azClear').addEventListener('click', () => {
-  az = { account: az.account, city: '', addr: null, restaurants: [], rest: null, menu: null, cart: null, checkout: null, items: {} };
+  az = { account: az.account, city: '', addr: null, addrs: [], addrLoc: null, restaurants: [], rest: null, menu: null, cart: null, checkout: null, payment: null, addrData: null, promo: '', phone: '', orderNr: '', items: {} };
   if (az.account) azSelectAccount(); else loadAuto();
 });
 
