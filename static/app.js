@@ -1120,10 +1120,14 @@ async function azOrder() {
   const btn = $('azOrderBtn');
   btn.disabled = true;
   btn.textContent = 'Создаю заказ…';
+  const pay = az.payment || {};
+  const firstAvail = (az.available || []).find((a) => a && a.type !== 'add_new_card');
+  const payment_id = pay.id || pay.type || (firstAvail ? (firstAvail.id || firstAvail.type) : 'sbp_qr');
+  const payment_type = pay.type || (firstAvail ? firstAvail.type : 'sbp');
   try {
     const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/order`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ place_slug: az.rest, address: az.addrData, phone, code: az.promo || undefined, lat: az.addrLoc?.latitude, lon: az.addrLoc?.longitude, payment_id: (az.payment || {}).id || (az.payment || {}).type || 'sbp_qr', payment_type: (az.payment || {}).type || 'sbp' }),
+      body: JSON.stringify({ place_slug: az.rest, address: az.addrData, phone, code: az.promo || undefined, lat: az.addrLoc?.latitude, lon: az.addrLoc?.longitude, payment_id, payment_type }),
     });
     az.orderNr = (r.order || {}).orderNr || '';
     azRenderOrder(r.order);

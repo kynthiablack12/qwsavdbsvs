@@ -1796,6 +1796,15 @@ def api_eda_az_web_checkout(name):
                              lat=data.get('lat'), lon=data.get('lon'),
                              payment_id=payment_id, payment_type=payment_type)
         offer, pp = eda.web_offer(d, payment_id, payment_type)
+        fallback = False
+        if not offer or not pp:
+            avail = [a for a in eda.web_available_payments(d)
+                     if a.get('type') != 'add_new_card']
+            if avail:
+                first = avail[0]
+                offer, pp = eda.web_offer(d, first.get('id') or first.get('type'),
+                                          first.get('type'))
+                fallback = True
         payment = None
         if offer and pp:
             cfc = pp.get('costForCustomer') or {}
@@ -1812,6 +1821,7 @@ def api_eda_az_web_checkout(name):
                 'cart_id': request_id.split('.')[0] if '.' in request_id else '',
             }
         return jsonify({'ok': True, 'checkout': d, 'payment': payment,
+                        'fallback': fallback,
                         'available': eda.web_available_payments(d)})
     except NotImplementedError as e:
         return jsonify({'error': str(e)}), 501
