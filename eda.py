@@ -842,7 +842,7 @@ def _go_informer_codes(d):
     return codes
 
 
-def _promo_items(acc, lat, lon, progress=None, max_restaurants=12):
+def _promo_items(acc, lat, lon, progress=None, max_restaurants=1):
     """Промокоды аккаунта: баннеры главного экрана, личный список,
     маленькие баннеры внутри ресторанов (menu informers).
 
@@ -916,7 +916,7 @@ def _promo_items(acc, lat, lon, progress=None, max_restaurants=12):
     return res
 
 
-def find_promocodes(account, lat=None, lon=None, progress=None, max_restaurants=12):
+def find_promocodes(account, lat=None, lon=None, progress=None, max_restaurants=1):
     """Найти промокоды на аккаунте Я.Еды.
 
     Собирает: баннеры главного экрана, личный список промокодов и

@@ -505,7 +505,7 @@ def api_eda_promos():
     """
     data = request.get_json(silent=True) or {}
     names = data.get('names') or None
-    max_restaurants = int(data.get('max_restaurants') or 12)
+    max_restaurants = int(data.get('max_restaurants') or 1)
     task_id = hashlib.md5(os.urandom(16)).hexdigest()[:12]
     with _PROMO_LOCK:
         PROMO_TASKS[task_id] = {'state': 'running', 'progress': 0, 'message': 'Запуск…', 'result': None}
