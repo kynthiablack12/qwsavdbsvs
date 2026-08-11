@@ -1016,17 +1016,31 @@ def web_offer_sbp(d, payment_id='sbp_qr'):
 
 
 def web_available_payments(d):
-    """Способы оплаты из офферов go-checkout (id, type, title). Уникальные."""
+    """Способы оплаты из go-checkout (id, type, title). Уникальные.
+
+    Объединяет offers[].possiblePayment и верхнеуровневый paymentTypeConfig
+    (список, которым пользуется сайт — там СБП есть даже когда в офферах нет).
+    """
     out = []
     seen = set()
+
+    def add(pid, ptype, title):
+        if title and not (pid or ptype) and 'карту' in title.lower():
+            ptype = 'add_new_card'
+        if pid and not ptype and pid == 'sbp_qr':
+            ptype = 'sbp'
+        k = pid or ptype
+        if not k or k in seen:
+            return
+        seen.add(k)
+        out.append({'id': pid, 'type': ptype, 'title': title})
+
     for o in (d.get('offers') or []):
         pp = o.get('possiblePayment') or {}
-        k = pp.get('id') or pp.get('type')
-        if not k or k in seen:
-            continue
-        seen.add(k)
-        out.append({'id': pp.get('id'), 'type': pp.get('type'),
-                    'title': pp.get('title')})
+        if pp:
+            add(pp.get('id'), pp.get('type'), pp.get('title'))
+    for cfg in (d.get('paymentTypeConfig') or []):
+        add(cfg.get('id'), cfg.get('type'), cfg.get('title'))
     return out
 
 
