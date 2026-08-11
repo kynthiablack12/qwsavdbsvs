@@ -541,15 +541,16 @@ async function loadEdaAccounts() {
         <td class="num">${esc(a.uid || '—')}</td>
         <td>${a.has_token ? '<span class="sd-badge ok">есть</span>' : '<span class="db-mut">—</span>'}</td>
         <td>${a.has_sid ? '<span class="sd-badge ok">есть</span>' : '<span class="db-mut">—</span>'}</td>
+        <td class="num">${a.orders != null ? esc(String(a.orders)) : '<span class="db-mut">—</span>'}</td>
         <td class="num">${esc(a.added || '—')}</td>
         <td class="col-actions"><button class="btn btn-danger btn-sm" data-del="${esc(a.name)}">Удалить</button></td>
-      </tr>`).join('') || '<tr><td colspan="8" class="db-empty">Аккаунтов Я.Еды нет</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="9" class="db-empty">Аккаунтов Я.Еды нет</td></tr>';
     tb.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
       await api(`/api/eda/accounts/${encodeURIComponent(b.dataset.del)}`, { method: 'DELETE' });
       loadEda();
     }));
   } catch (e) {
-    $('edaAccTable').querySelector('tbody').innerHTML = `<tr><td colspan="8" class="db-empty">${esc(e.message)}</td></tr>`;
+    $('edaAccTable').querySelector('tbody').innerHTML = `<tr><td colspan="9" class="db-empty">${esc(e.message)}</td></tr>`;
   }
 }
 

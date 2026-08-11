@@ -5,6 +5,7 @@ import pickup
 import eda
 import samokat
 from flask import Flask, jsonify, request, render_template, Response, session, redirect, url_for
+from concurrent.futures import ThreadPoolExecutor
 import time
 
 app = Flask(__name__)
@@ -408,6 +409,16 @@ def api_delete(name):
 
 @app.route('/api/eda/accounts')
 def api_eda_accounts():
+    accs = eda.load_eda_accounts()
+
+    def orders(a):
+        try:
+            return eda.order_count(a)
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=max(len(accs), 1)) as ex:
+        counts = list(ex.map(orders, accs))
     return jsonify([{'name': a.get('name'),
                      'added': a.get('added'),
                      'has_token': bool(eda._extract_bearer(a)),
@@ -415,8 +426,9 @@ def api_eda_accounts():
                      'uid': a.get('yandexuid', ''),
                      'profile_name': a.get('profile_name', ''),
                      'plus_balance': a.get('plus_balance'),
-                     'plus_status': a.get('plus_status', '')}
-                    for a in eda.load_eda_accounts()])
+                     'plus_status': a.get('plus_status', ''),
+                     'orders': counts[i]}
+                    for i, a in enumerate(accs)])
 
 
 @app.route('/api/eda/accounts', methods=['POST'])

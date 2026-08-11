@@ -733,6 +733,34 @@ def active_orders(account):
     return _eda_call(acc, 'GET', '/api/v2/orders/tracking', None, None)
 
 
+def order_count(account, lat=None, lon=None, max_pages=30):
+    """Количество заказов в Я.Еде (eats/v1/orders-info/v1/orders).
+
+    Перебирает историю заказов по пагинации (cursor), считает всего.
+    Требует Bearer-токен аккаунта.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    lat, lon = _coords(acc, lat, lon)
+    if not _extract_bearer(acc):
+        raise RuntimeError('нет Bearer-токена (история заказов недоступна)')
+    total = 0
+    cursor = None
+    for _ in range(max_pages):
+        params = {'cursor': cursor} if cursor else None
+        d = _eda_call(acc, 'POST', '/eats/v1/orders-info/v1/orders',
+                      lat, lon, params=params, json_body={})
+        if not isinstance(d, dict):
+            break
+        total += len(d.get('orders') or [])
+        pag = d.get('pagination_settings') or {}
+        if not pag.get('has_more'):
+            break
+        cursor = pag.get('cursor')
+        if not cursor:
+            break
+    return total
+
+
 def cancel_order(account, order_id):
     """Отмена заказа. Требует досъёмки."""
     raise NotImplementedError(
