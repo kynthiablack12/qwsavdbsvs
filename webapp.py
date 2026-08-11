@@ -497,9 +497,15 @@ _PROMO_LOCK = threading.Lock()
 
 @app.route('/api/eda/promos', methods=['POST'])
 def api_eda_promos():
-    """Чекер промокодов: по всем аккаунтам Я.Еды (в фоне, с прогрессом)."""
+    """Чекер промокодов: по всем аккаунтам Я.Еды (в фоне, с прогрессом).
+
+    Собирает баннеры главного экрана, личный список и промо-информеры
+    ресторанов (вкладка «Еда» в Яндекс Go). max_restaurants — сколько
+    ресторанов обойти (0 — только баннеры и личный список).
+    """
     data = request.get_json(silent=True) or {}
     names = data.get('names') or None
+    max_restaurants = int(data.get('max_restaurants') or 12)
     task_id = hashlib.md5(os.urandom(16)).hexdigest()[:12]
     with _PROMO_LOCK:
         PROMO_TASKS[task_id] = {'state': 'running', 'progress': 0, 'message': 'Запуск…', 'result': None}
@@ -524,7 +530,8 @@ def api_eda_promos():
                         t['message'] = f'{_a.get("name")}: {msg}'
 
                 try:
-                    r = eda.find_promocodes(a, progress=_cb)
+                    r = eda.find_promocodes(a, progress=_cb,
+                                            max_restaurants=max_restaurants)
                 except Exception as e:
                     r = {'codes': [], 'error': str(e)}
                 result.append({'name': a.get('name'), **r})

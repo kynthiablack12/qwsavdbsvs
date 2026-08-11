@@ -28,6 +28,16 @@ SP_WHEEL_API = 'https://egw.selo.plus.yandex.ru/api'
 
 EDA_HOST = 'https://eda.yandex.ru'
 
+# Вкладка «Еда» в Яндекс Go — WebView-приложение на tc.eats.yandex.ru
+# (суперапп), а не api.eda.yandex.ru. Авторизация — cookie Session_id
+# (Bearer не нужен). Промокоды лежат в informers_v2 лайаута.
+GO_EATS_HOST = 'https://tc.eats.yandex.ru/4.0/eda-superapp'
+GO_EATS_UA = ('Mozilla/5.0 (Linux; Android 15; SM-A235F Build/V417IR; wv) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Version/4.0 Chrome/110.0.5481.154 Safari/537.36 '
+              'yandex-taxi/5.89.1.128364 Android/15 (Samsung; SM-A235F) Superapp/Eats '
+              'promoMode/restricted EatsKit/29.3.0 mode/fullscreen')
+GO_DEVICE_ID = 'z14561cd16b144d695f05886b6ff21e2'  # webviewuserid из захвата Go
+
 # Дефолтная точка: Омск, проспект Мира, 33 (координаты из дампа).
 DEFAULT_LAT = 55.02878527315827
 DEFAULT_LON = 73.27583823706175
@@ -762,17 +772,89 @@ def _places_from_layout(d):
     return slugs
 
 
-def _promo_items(acc, lat, lon, progress=None):
+def _go_cookies(acc):
+    """Куки для вкладки «Еда» в Go: webviewuserid + Session_id + yandexuid."""
+    ck = {'webviewuserid': GO_DEVICE_ID, 'webviewuserid_eats': GO_DEVICE_ID}
+    sid = (acc.get('session_id') or '').strip() or (acc.get('cookies') or {}).get('Session_id', '').strip()
+    if sid:
+        ck['Session_id'] = sid
+    yuid = (acc.get('yandexuid') or '').strip()
+    if yuid:
+        ck['yandexuid'] = yuid
+    return ck
+
+
+def go_food_layout(acc, lat=None, lon=None):
+    """Лайаут вкладки «Еда» в Яндекс Go (layout-constructor).
+
+    Содержит informers_v2 — промо-баннеры («...по коду XXX»), которые
+    видит пользователь в Go. Работает по Session_id аккаунта.
+    """
+    sid = (acc.get('session_id') or '').strip() or (acc.get('cookies') or {}).get('Session_id', '').strip()
+    if not sid:
+        raise RuntimeError('у аккаунта нет Session_id (нужен для вкладки «Еда» в Go)')
+    lat, lon = _coords(acc, lat, lon)
+    url = GO_EATS_HOST + '/eats/v1/layout-constructor/v1/layout'
+    hdrs = {
+        'user-agent': GO_EATS_UA,
+        'content-type': 'application/json;charset=UTF-8',
+        'accept': 'application/json, text/plain, */*',
+        'origin': GO_EATS_HOST,
+        'referer': (GO_EATS_HOST + '/?externalEntrypoint=hub_button_eats&mode=fullscreen'
+                    '&superappIsOpen=true&themeVariantKey=light'),
+        'x-requested-with': 'ru.yandex.taxi',
+        'x-device-id': GO_DEVICE_ID,
+    }
+    body = {'location': {'latitude': lat, 'longitude': lon}}
+    try:
+        r = requests.post(url, headers=hdrs, json=body, cookies=_go_cookies(acc), timeout=25)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Яндекс Go (Еда): сеть: {e}')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Яндекс Go (Еда): HTTP {r.status_code}: {r.text[:200]}')
+    try:
+        return r.json()
+    except Exception:
+        raise RuntimeError(f'Яндекс Go (Еда): ответ не JSON: {r.text[:200]}')
+
+
+def _go_informer_codes(d):
+    """Промокоды из informers_v2 лайаута вкладки «Еда» в Go.
+
+    Баннер-информер: payload.action.value.payload.deeplink
+    (eda.yandex://promocode?value=XXX) и payload.action.view.code.value.
+    """
+    codes = []
+    if not isinstance(d, dict):
+        return codes
+    for blk in (d.get('data') or {}).get('informers_v2') or []:
+        for inf in blk.get('informers') or []:
+            act = (inf.get('payload') or {}).get('action') or {}
+            val = act.get('value') or {}
+            dl = ((val.get('payload') or {}).get('deeplink')) or ''
+            m = re.search(r'promocode\?value=([A-Z0-9_\-]+)', dl, re.I)
+            if m:
+                codes.append(m.group(1).upper())
+            view = act.get('view') or {}
+            cv = ((view.get('code') or {}).get('value')) or ''
+            if cv:
+                codes.append(cv.upper())
+    return codes
+
+
+def _promo_items(acc, lat, lon, progress=None, max_restaurants=12):
     """Промокоды аккаунта: баннеры главного экрана, личный список,
     маленькие баннеры внутри ресторанов (menu informers).
 
     progress — callback(msg, frac) для отчёта о ходе (frac 0..1).
+    max_restaurants — сколько ресторанов с главного экрана обойти
+    (в Go во вкладке «Еда» промокоды висят и на баннере, и в ресторанах).
     """
-    res = {'codes': [], 'error': None}
+    res = {'codes': [], 'error': None, 'restaurants_scanned': 0}
     layout_data = None
     try:
         if progress:
-            progress('Загружаю главный экран', 0.0)
+            progress('Загружаю главный экран (баннеры)', 0.0)
         layout_data = layout(acc, lat=lat, lon=lon)
         vals = []
         _find_promo_values(layout_data, vals)
@@ -798,17 +880,33 @@ def _promo_items(acc, lat, lon, progress=None):
             res['error'] += '; ' + str(e)
         else:
             res['error'] = str(e)
-    # маленький баннер внутри первого ресторана с главного экрана
+    # вкладка «Еда» в Яндекс Go: промо-баннеры (informers_v2) по Session_id
+    sid = (acc.get('session_id') or '').strip() or (acc.get('cookies') or {}).get('Session_id', '').strip()
+    if sid:
+        try:
+            if progress:
+                progress('Вкладка «Еда» в Go (баннеры)', 0.12)
+            go = go_food_layout(acc, lat=lat, lon=lon)
+            vals = _go_informer_codes(go)
+            _find_promo_values(go, vals)
+            res['codes'] += vals
+        except Exception as e:
+            if res['error']:
+                res['error'] += '; ' + str(e)
+            else:
+                res['error'] = str(e)
+    # маленькие баннеры («по коду XXX») внутри ресторанов с главного экрана
     slugs = _places_from_layout(layout_data)
-    n = min(len(slugs), 1)
+    n = min(len(slugs), max_restaurants)
     for i, slug in enumerate(slugs[:n]):
         try:
             if progress:
-                progress(f'Ресторан {i + 1}/{n}: {slug}', 0.15 + 0.85 * i / n)
+                progress(f'Ресторан {i + 1}/{n}: {slug}', 0.15 + 0.85 * i / max(n, 1))
             m = restaurant_menu(acc, slug, lat=lat, lon=lon)
             vals = []
             _find_promo_values(m, vals)
             res['codes'] += vals
+            res['restaurants_scanned'] += 1
         except Exception:
             continue
     # уникальный набор промокодов на аккаунте
@@ -818,15 +916,19 @@ def _promo_items(acc, lat, lon, progress=None):
     return res
 
 
-def find_promocodes(account, lat=None, lon=None, progress=None):
+def find_promocodes(account, lat=None, lon=None, progress=None, max_restaurants=12):
     """Найти промокоды на аккаунте Я.Еды.
 
+    Собирает: баннеры главного экрана, личный список промокодов и
+    промо-информеры внутри ресторанов (как вкладка «Еда» в Яндекс Go).
+
     Возвращает dict: {codes: [уникальные промокоды аккаунта],
-    error: str|None}. progress — callback(msg, frac).
+    error: str|None, restaurants_scanned: int}.
+    progress — callback(msg, frac).
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     lat, lon = _coords(acc, lat, lon)
-    return _promo_items(acc, lat, lon, progress)
+    return _promo_items(acc, lat, lon, progress, max_restaurants)
 
 
 # ============================================================
