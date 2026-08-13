@@ -253,7 +253,7 @@ def get_tokens(device, magnit_id):
     return r.json()
 
 
-def add_account(phone, name=None, first_name=None, birth_date=None, event_id='wX8CoYBu0OQzsA6DBwqlU'):
+def add_account(phone, name=None, first_name=None, birth_date=None, event_id='pBvsPKf7hGXlGBg5zBnsn'):
     device = make_device_headers()
     attempt_id = request_otp(phone, device)
     if not name:
@@ -263,7 +263,7 @@ def add_account(phone, name=None, first_name=None, birth_date=None, event_id='wX
             'event_id': event_id}
 
 
-def add_account_by_token(name, refresh_token, event_id='wX8CoYBu0OQzsA6DBwqlU'):
+def add_account_by_token(name, refresh_token, event_id='pBvsPKf7hGXlGBg5zBnsn'):
     """Добавить существующий аккаунт по refresh-токену (OTP для зарегистрированных
     номеров блокируется сервером untrustedDevice, поэтому только токен)."""
     name = name.strip()
@@ -317,7 +317,7 @@ def confirm_account(reg, code):
         "refresh_token": tokens['refreshToken'],
         "device_id": device['x-device-id'],
         "device_tag": device['x-device-tag'],
-        "event_id": reg.get('event_id') or 'wX8CoYBu0OQzsA6DBwqlU',
+        "event_id": reg.get('event_id') or 'pBvsPKf7hGXlGBg5zBnsn',
     })
     save_accounts(accs)
     return accs
@@ -464,16 +464,16 @@ def revoke_coupon_share(token):
 
 # Игры Магнита: event_id -> домен игры
 GAMES = {
-    'wX8CoYBu0OQzsA6DBwqlU': 'magnit-prizoleto.ru',                      # Призолето
+    'pBvsPKf7hGXlGBg5zBnsn': 'magnit-bts.ru-prod2.kts.studio',            # Суперпризы от М.косметик
     'At99RuZXsCpnFRhpmEZCK': 'magnit-monstroplanetyane.ru-prod2.kts.studio',  # Монстро-планетяне
 }
 GAME_EVENTS = {
-    'Призолето': 'wX8CoYBu0OQzsA6DBwqlU',
+    'Суперпризы от М.косметик': 'pBvsPKf7hGXlGBg5zBnsn',
     'Монстро-планетяне': 'At99RuZXsCpnFRhpmEZCK',
 }
 
 def game_domain(acc):
-    return GAMES.get(acc.get('event_id'), 'magnit-prizoleto.ru')
+    return GAMES.get(acc.get('event_id'), 'magnit-bts.ru-prod2.kts.studio')
 
 
 def get_game_token(acc, magnit_token, event_id=None):
@@ -606,6 +606,62 @@ def finish_game_monstro(h, game_timestamp, duration):
     return r.json().get('data', {})
 
 
+# ---------- Суперпризы от М.косметик (magnit-bts) ----------
+
+BTS_BASE = 'https://magnit-bts.ru-prod2.kts.studio'
+BTS_EVENT_ID = 'pBvsPKf7hGXlGBg5zBnsn'
+
+
+def auth_game_bts(rs256_token):
+    """POST /api/v1/users/auth — обмен RS256-токена на HS256-токен игры и профиль."""
+    r = s.post(BTS_BASE + '/api/v1/users/auth',
+               headers={'Content-Type': 'application/json',
+                        'User-Agent': 'Mozilla/5.0 (Linux; Android 9; SM-S906N Build/PQ3A.190605.09261140; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 Mobile Safari/537.36'},
+               data=json.dumps({'token': rs256_token, 'refresh_only': False}), timeout=20)
+    r.raise_for_status()
+    return r.json()['data']
+
+
+def bts_headers(hs256_token):
+    return {
+        'Authorization': 'Bearer ' + hs256_token,
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 9; SM-S906N Build/PQ3A.190605.09261140; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 Mobile Safari/537.36',
+    }
+
+
+def claim_daily_reward_bts(h, tasks):
+    """POST /api/v1/tasks/reward — получить награду за задания (ежедневный бонус)."""
+    r = s.post(BTS_BASE + '/api/v1/tasks/reward',
+               headers=h, data=json.dumps({'task_ids': tasks}), timeout=20)
+    r.raise_for_status()
+    return r.json().get('data', {})
+
+
+def start_game_bts(h):
+    """POST /api/v1/game/start — начать партию."""
+    r = s.post(BTS_BASE + '/api/v1/game/start', headers=h, data='', timeout=20)
+    r.raise_for_status()
+    return r.json().get('data', {})
+
+
+def finish_game_bts(h, session_id, result='win', duration=5000):
+    """POST /api/v1/game/finish — завершить партию (win/lose) и получить приз."""
+    body = {'session_id': session_id, 'result': result,
+            'game_timestamp': str(int(time.time())), 'duration': duration}
+    r = s.post(BTS_BASE + '/api/v1/game/finish',
+               headers=h, data=json.dumps(body), timeout=20)
+    r.raise_for_status()
+    return r.json().get('data', {})
+
+
+def bts_prizes(h):
+    """GET /api/v1/game/prizes — выигранные призы пользователя (coupon_code)."""
+    r = s.get(BTS_BASE + '/api/v1/game/prizes', headers=h, timeout=20)
+    r.raise_for_status()
+    return r.json().get('data', {}).get('prizes', [])
+
+
 # ---------- coupons sync ----------
 
 def coupons_list(acc, magnit_token):
@@ -620,7 +676,7 @@ def sync_coupons(acc, log=print):
     log(f'=== {name}: синхронизация купонов ===')
     at = refresh_magnit_token(acc)
     coupons = coupons_list(acc, at)
-    event = acc.get('event_id', 'wX8CoYBu0OQzsA6DBwqlU')
+    event = acc.get('event_id', 'pBvsPKf7hGXlGBg5zBnsn')
     game_coupons = [c for c in coupons if c.get('category') == event]
     log(f'всего купонов: {len(coupons)}, игровых: {len(game_coupons)}')
     added = 0
@@ -670,6 +726,13 @@ def get_offers(acc, magnit_token):
 
 
 def sync_game_rewards(acc, log=print):
+    """Синхронизация выигранных призов игры. Диспетчер по event_id."""
+    if acc.get('event_id') == BTS_EVENT_ID:
+        return sync_bts_rewards(acc, log)
+    return sync_prizoleto_rewards(acc, log)
+
+
+def sync_prizoleto_rewards(acc, log=print):
     name = acc.get('name', '?')
     log(f'=== {name}: синхронизация выигрышей ===')
     at = refresh_magnit_token(acc)
@@ -733,7 +796,110 @@ class RunManager:
 def play_account(acc, log=print):
     if acc.get('event_id') == 'At99RuZXsCpnFRhpmEZCK':
         return play_monstro_account(acc, log)
-    return play_prizoleto_account(acc, log)
+    return play_bts_account(acc, log)
+
+
+def play_bts_account(acc, log=print):
+    name = acc.get('name', '?')
+    log(f'=== {name} (Суперпризы от М.косметик) ===')
+    at = refresh_magnit_token(acc)
+    log('1. magnit token OK')
+    rs = get_game_token(acc, at)
+    data = auth_game_bts(rs)
+    h = bts_headers(data['token'])
+    user = data.get('user', {})
+    attempts = user.get('attempts_count', 0)
+    log(f'   attempts: {attempts}')
+    for task in data.get('pending_rewards') or []:
+        tid = task.get('task_id')
+        if tid:
+            try:
+                rew = claim_daily_reward_bts(h, [tid])
+                got = (rew.get('reward') or {}).get('attempts', 0)
+                log(f'   task {tid} reward: +{got} attempts')
+                attempts += got
+            except Exception as e:
+                log(f'   task {tid} reward error: {e}')
+    games = 0
+    won = {}
+    while attempts > 0:
+        try:
+            st = start_game_bts(h)
+        except Exception as e:
+            log(f'   start game error: {e}')
+            break
+        gs = st.get('game_state', {})
+        sid = gs.get('session_id')
+        level = gs.get('game_level')
+        total_items = len(gs.get('items') or [])
+        lives = (gs.get('progress') or {}).get('lives')
+        log(f'   start: session {sid}, level {level}, items {total_items}, lives {lives}')
+        fin = finish_game_bts(h, sid, result='win', duration=5000)
+        log(f'   finish: remaining {fin.get("attempts_count")}, type {fin.get("attempts_type")}')
+        prizes = fin.get('prizes') or []
+        if not prizes:
+            log('   выигрыша нет')
+        for p in prizes:
+            title = (p.get('title') or '').strip()
+            ptype = p.get('type', 'text')
+            cat = prize_category(ptype, p.get('amount'))
+            code = str(p.get('coupon_code') or '').strip()
+            display = 'barcode' if code else 'text'
+            fake = {'id': p.get('reward_id') or p.get('id'),
+                    'info': {'name': title, 'icon_ref': ''},
+                    'expiration_date': '', 'is_barcode': bool(code), 'is_button': False, 'items': []}
+            save_prize(name, acc.get('event_id'), level or 0, fake,
+                       barcode=code or None, coupon_id=code or None, display_type=display)
+            won[cat] = won.get(cat, 0) + 1
+            extra = f', код {code}' if code else ''
+            log(f'   ВЫИГРЫШ [{cat}]: {title or "(без названия)"}{extra}')
+        attempts = fin.get('attempts_count', attempts - 1)
+        games += 1
+        time.sleep(0.5)
+    try:
+        sync_bts_rewards(acc, log)
+    except Exception as e:
+        log(f'   sync rewards error: {e}')
+    log(f'   done: {games} games')
+    if won:
+        parts = ', '.join(f'{cat}: {n}' for cat, n in won.items())
+        log(f'   выигрышей за сессию: {sum(won.values())} ({parts})')
+    return games
+
+
+def sync_bts_rewards(acc, log=print):
+    name = acc.get('name', '?')
+    log(f'=== {name}: синхронизация выигрышей (М.косметик) ===')
+    at = refresh_magnit_token(acc)
+    rs = get_game_token(acc, at)
+    data = auth_game_bts(rs)
+    h = bts_headers(data['token'])
+    prizes = bts_prizes(h)
+    log(f'выигрышей в списке: {len(prizes)}')
+    added = 0
+    for p in prizes:
+        code = str(p.get('coupon_code') or '').strip()
+        conn = _db()
+        try:
+            cur = _ex(conn, 'SELECT id FROM prizes WHERE account=%s AND (barcode=%s OR coupon_id=%s)',
+                      (name, code, code))
+            dup = cur.fetchone()
+        finally:
+            conn.close()
+        if dup:
+            continue
+        ptype = p.get('type', 'text')
+        title = (p.get('title') or '').strip()
+        display = 'barcode' if code else ('bonus' if ptype == 'bonus' else 'text')
+        fake = {'id': p.get('id'), 'info': {'name': title, 'icon_ref': ''},
+                'expiration_date': '', 'is_barcode': bool(code), 'is_button': False, 'items': []}
+        save_prize(name, '', 0, fake, barcode=code or None, coupon_id=code or None,
+                   display_type=display)
+        added += 1
+        log(f'   + ВЫИГРЫШ [{prize_category(display)}]: {title or "(без названия)"}'
+            + (f', код {code}' if code else ''))
+    log(f'добавлено выигрышей: {added}')
+    return added
 
 
 PRIZE_LABELS = {
@@ -910,17 +1076,15 @@ def account_rows():
             return row
         games = {}
         try:
-            rs = get_game_token(acc, at, event_id='wX8CoYBu0OQzsA6DBwqlU')
-            login = login_game(rs)
-            h = game_headers(login['token'], login['external_id'])
-            prof = s.get('https://magnit-prizoleto.ru/api/v1/profile', headers=h, timeout=20).json()
-            games['wX8CoYBu0OQzsA6DBwqlU'] = {
-                'game': 'Призолето',
-                'attempts': prof.get('attempts', {}).get('total_count') or 0,
-                'last_level': prof.get('last_finished_map_level'),
+            rs = get_game_token(acc, at, event_id=BTS_EVENT_ID)
+            data = auth_game_bts(rs)
+            games[BTS_EVENT_ID] = {
+                'game': 'Суперпризы от М.косметик',
+                'attempts': (data.get('user') or {}).get('attempts_count') or 0,
+                'last_level': None,
             }
         except Exception as e:
-            games['wX8CoYBu0OQzsA6DBwqlU'] = {'game': 'Призолето', 'error': str(e)[:160]}
+            games[BTS_EVENT_ID] = {'game': 'Суперпризы от М.косметик', 'error': str(e)[:160]}
         try:
             rs = get_game_token(acc, at, event_id='At99RuZXsCpnFRhpmEZCK')
             data = auth_game_monstro(rs)

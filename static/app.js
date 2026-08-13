@@ -125,7 +125,7 @@ function renderAdminAccounts() {
   const tb = $('accTable').querySelector('tbody');
   tb.innerHTML = rows.map(a => {
     const games = a.games || {};
-    const pz = games['wX8CoYBu0OQzsA6DBwqlU'] || {};
+    const pz = games['pBvsPKf7hGXlGBg5zBnsn'] || {};
     const mn = games['At99RuZXsCpnFRhpmEZCK'] || {};
     const activeGame = a.event_id === 'At99RuZXsCpnFRhpmEZCK' ? mn : pz;
     const attempts = typeof activeGame.attempts === 'number' ? activeGame.attempts : '—';
@@ -136,11 +136,11 @@ function renderAdminAccounts() {
     const status = a.running
       ? '<span class="sd-badge ok">● играет</span>'
       : (a.error ? '<span class="sd-badge bad">ошибка</span>' : '<span class="sd-badge">стоит</span>');
-    const attemptsCell = `${attempts} <span class="db-mut">(П:${pz.attempts ?? '?'} М:${mn.attempts ?? '?'})</span>`;
+    const attemptsCell = `${attempts} <span class="db-mut">(М:${pz.attempts ?? '?'} Мон:${mn.attempts ?? '?'})</span>`;
     return `<tr>
       <td><div class="acc-cell"><b>${esc(a.name)}</b><div class="db-mut mono">${esc(a.device_id || '')}</div>${err}</div></td>
       <td><select class="game-select db-game" data-name="${esc(a.name)}" data-cur="${esc(a.event_id)}">
-        <option value="wX8CoYBu0OQzsA6DBwqlU"${a.event_id !== 'At99RuZXsCpnFRhpmEZCK' ? ' selected' : ''}>Призолето</option>
+        <option value="pBvsPKf7hGXlGBg5zBnsn"${a.event_id !== 'At99RuZXsCpnFRhpmEZCK' ? ' selected' : ''}>М.косметик</option>
         <option value="At99RuZXsCpnFRhpmEZCK"${a.event_id === 'At99RuZXsCpnFRhpmEZCK' ? ' selected' : ''}>Монстро</option>
       </select></td>
       <td><span class="num ${attemptsCls}">${attempts}</span> <span class="db-mut">${attemptsCell}</span></td>
@@ -183,7 +183,7 @@ function renderAdminAccounts() {
 $('accSearch').addEventListener('input', renderAdminAccounts);
 $('accGameFilter').addEventListener('change', renderAdminAccounts);
 $('accCsv').addEventListener('click', () => {
-  downloadCSV('accounts.csv', adminAccounts.map(a => [a.name, a.event_id === 'At99RuZXsCpnFRhpmEZCK' ? 'Монстро' : 'Призолето', a.device_id, a.error || '', a.balance ?? '', a.prizes ?? 0]));
+  downloadCSV('accounts.csv', adminAccounts.map(a => [a.name, a.event_id === 'At99RuZXsCpnFRhpmEZCK' ? 'Монстро' : 'М.косметик', a.device_id, a.error || '', a.balance ?? '', a.prizes ?? 0]));
 });
 
 $('accPlayAll').addEventListener('click', async () => {

@@ -118,29 +118,25 @@ def api_account_status(name):
     try:
         at = core.refresh_magnit_token(acc)
         games = {}
-        # Призолето
+        # Суперпризы от М.косметик
         try:
-            rs = core.get_game_token(acc, at, event_id='wX8CoYBu0OQzsA6DBwqlU')
-            login = core.login_game(rs)
-            h = core.game_headers(login['token'], login['external_id'])
-            prof = core.s.get('https://magnit-prizoleto.ru/api/v1/profile', headers=h, timeout=20).json()
-            ind = prof.get('indicators') or {}
-            base = prof.get('attempts', {}).get('total_count') or 0
-            tasks = core.get_tasks_prizoleto(h)
-            ready = [t for t in tasks if t.get('ready_for_activation')]
-            pend_sum = sum(int((r.get('amount') or 0)) for t in ready for r in (t.get('rewards') or []) if r.get('type') == 'attempts')
-            games['wX8CoYBu0OQzsA6DBwqlU'] = {
-                'game': 'Призолето',
+            rs = core.get_game_token(acc, at, event_id='pBvsPKf7hGXlGBg5zBnsn')
+            data = core.auth_game_bts(rs)
+            user = data.get('user', {})
+            pending = data.get('pending_rewards') or []
+            base = user.get('attempts_count') or 0
+            pend_sum = sum((t.get('attempts') or 0) for t in pending)
+            games['pBvsPKf7hGXlGBg5zBnsn'] = {
+                'game': 'Суперпризы от М.косметик',
                 'attempts': base + pend_sum,
                 'base_attempts': base,
                 'pending_attempts': pend_sum,
-                'last_level': prof.get('last_finished_map_level'),
-                'daily_reward_ready': bool(ind.get('has_ready_daily_login_reward')),
-                'everyday_task_ready': bool(ind.get('has_ready_everyday_login_task')),
-                'has_tasks': bool(ind.get('has_ready_tasks')),
+                'last_level': None,
+                'daily_reward_ready': bool(pending),
+                'pending_tasks': len(pending),
             }
         except Exception as e:
-            games['wX8CoYBu0OQzsA6DBwqlU'] = {'game': 'Призолето', 'error': str(e)[:120]}
+            games['pBvsPKf7hGXlGBg5zBnsn'] = {'game': 'Суперпризы от М.косметик', 'error': str(e)[:120]}
         # Монстро-планетяне
         try:
             rs = core.get_game_token(acc, at, event_id='At99RuZXsCpnFRhpmEZCK')
@@ -254,15 +250,23 @@ def api_claim_daily(name):
     try:
         at = core.refresh_magnit_token(acc)
         results = {}
-        # Призолето — ежедневный бонус за вход и готовые задачи
+        # Суперпризы от М.косметик — pending rewards (ежедневный бонус и задачи)
         try:
-            rs = core.get_game_token(acc, at, event_id='wX8CoYBu0OQzsA6DBwqlU')
-            login = core.login_game(rs)
-            h = core.game_headers(login['token'], login['external_id'])
-            got = core.claim_prizoleto_daily(h, log)
-            results['wX8CoYBu0OQzsA6DBwqlU'] = {'game': 'Призолето', 'attempts_got': got}
+            rs = core.get_game_token(acc, at, event_id='pBvsPKf7hGXlGBg5zBnsn')
+            data = core.auth_game_bts(rs)
+            h = core.bts_headers(data['token'])
+            got = 0
+            for task in (data.get('pending_rewards') or []):
+                tid = task.get('task_id')
+                if not tid:
+                    continue
+                rew = core.claim_daily_reward_bts(h, [tid])
+                g = (rew.get('reward') or {}).get('attempts', 0)
+                got += g
+                log(f'   task {tid} reward: +{g} attempts')
+            results['pBvsPKf7hGXlGBg5zBnsn'] = {'game': 'Суперпризы от М.косметик', 'attempts_got': got}
         except Exception as e:
-            results['wX8CoYBu0OQzsA6DBwqlU'] = {'game': 'Призолето', 'error': str(e)[:120]}
+            results['pBvsPKf7hGXlGBg5zBnsn'] = {'game': 'Суперпризы от М.косметик', 'error': str(e)[:120]}
         # Монстро — pending rewards (ежедневный бонус и задачи)
         try:
             rs = core.get_game_token(acc, at, event_id='At99RuZXsCpnFRhpmEZCK')
@@ -325,7 +329,7 @@ def api_account_from_token():
     d = request.get_json(force=True)
     name = str(d.get('name', '')).strip()
     token = str(d.get('refresh_token', '')).strip()
-    event_id = str(d.get('event_id', '')).strip() or 'wX8CoYBu0OQzsA6DBwqlU'
+    event_id = str(d.get('event_id', '')).strip() or 'pBvsPKf7hGXlGBg5zBnsn'
     if not name or not token:
         return jsonify({'error': 'name and refresh_token required'}), 400
     try:
@@ -342,7 +346,7 @@ def api_register_start():
     name = str(d.get('name', '')).strip() or None
     first_name = str(d.get('first_name', '')).strip() or None
     birth_date = str(d.get('birth_date', '')).strip() or None
-    event_id = str(d.get('event_id', '')).strip() or 'wX8CoYBu0OQzsA6DBwqlU'
+    event_id = str(d.get('event_id', '')).strip() or 'pBvsPKf7hGXlGBg5zBnsn'
     if not phone:
         return jsonify({'error': 'phone required'}), 400
     try:
