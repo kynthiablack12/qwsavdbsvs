@@ -78,14 +78,14 @@ function switchTab(name) {
 document.querySelectorAll('#dbTabs .db-tab').forEach(b => b.addEventListener('click', () => {
   switchTab(b.dataset.tab);
   const loaders = { accounts: loadAdminAccounts, purchases: loadPurchases, coupons: loadCoupons,
-    prizes: loadPrizes, sessions: loadSessions, eda: loadEda, auto: loadAuto, samokat: loadSamokat };
+    prizes: loadPrizes, sessions: loadSessions, card: loadCardAdmin, eda: loadEda, auto: loadAuto, samokat: loadSamokat };
   if (loaders[b.dataset.tab]) loaders[b.dataset.tab]();
 }));
 
 $('btnRefresh').addEventListener('click', () => {
   const active = document.querySelector('#dbTabs .db-tab.active');
   const loaders = { accounts: loadAdminAccounts, purchases: loadPurchases, coupons: loadCoupons,
-    prizes: loadPrizes, sessions: loadSessions, eda: loadEda, auto: loadAuto, samokat: loadSamokat };
+    prizes: loadPrizes, sessions: loadSessions, card: loadCardAdmin, eda: loadEda, auto: loadAuto, samokat: loadSamokat };
   loadOverview();
   if (active && loaders[active.dataset.tab]) loaders[active.dataset.tab]();
 });
@@ -457,7 +457,7 @@ async function loadSessions() {
     box.innerHTML = entries.map(([token, s]) => `
       <div class="session-row">
         <div>
-          <div class="session-name">${esc(s.name)} <span class="session-account">${esc(s.account)}</span></div>
+          <div class="session-name">${esc(s.name)} <span class="session-account">${esc(s.account)}</span> ${modeBadge(s.mode)}</div>
           <div class="muted" style="font-size:11.5px;margin-top:3px">до ${esc(s.expires_at || '—')} · последний вход: ${esc(s.last_seen || 'никогда')}</div>
           <div class="session-link">${esc(location.origin + '/p/' + token)}</div>
         </div>
@@ -499,17 +499,122 @@ $('accCreate').addEventListener('click', async () => {
         name: $('accName').value,
         account: $('accAccount').value,
         hours: parseInt($('accHours').value, 10) || 24,
+        mode: $('accMode') ? $('accMode').value : 'both',
       }),
     });
     $('accName').value = '';
     copyText(r.link, btn);
     loadSessions();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      btn.disabled = false;
+    }
+});
+
+// ================= Моя карта (админ) =================
+let adminCardTimer = null;
+function fillCardAccountSelect() {
+  const sel = $('cardAccount');
+  if (!sel) return;
+  sel.innerHTML = '';
+  (accounts.length ? accounts : []).forEach(a => {
+    const o = document.createElement('option');
+    o.value = a.name;
+    o.textContent = a.name;
+    sel.appendChild(o);
+  });
+}
+
+function renderAdminCardQr(canvas, text) {
+  const qr = qrcode(0, 'M');
+  qr.addData(text, 'Byte');
+  qr.make();
+  const n = qr.getModuleCount();
+  const px = Math.max(6, Math.floor((canvas.width - 24) / n));
+  const size = n * px + 24;
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#111';
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++)
+    if (qr.isDark(y, x)) ctx.fillRect(12 + x * px, 12 + y * px, px, px);
+}
+
+function loadCardAdmin() {
+  fillCardAccountSelect();
+  $('cardStatus').textContent = '';
+}
+
+async function showAdminCard() {
+  const acc = $('cardAccount').value;
+  if (!acc) { alert('Выберите аккаунт'); return; }
+  const box = $('cardView');
+  box.innerHTML = '<div class="hint">Загрузка карты…</div>';
+  try {
+    const data = await api('/api/card?account=' + encodeURIComponent(acc));
+    const card = data.card || {};
+    const bal = data.balance && data.balance.ok && data.balance.data ? data.balance.data : null;
+    const balVal = bal != null ? (bal.totalPointBalance ?? bal.balance ?? null) : null;
+    const points = balVal != null
+      ? (Number(balVal) / 100).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' баллов'
+      : '—';
+    box.innerHTML = `
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
+        <div style="background:linear-gradient(135deg,#e4002b,#ff6b00);color:#fff;border-radius:18px;padding:18px;display:flex;flex-direction:column;justify-content:space-between;min-width:280px;box-shadow:0 10px 26px rgba(228,0,43,.25)">
+          <div style="font-weight:800;font-size:18px;line-height:1.15">магнит<br>плюс</div>
+          <div style="margin-top:14px">
+            <div style="font-size:22px;font-weight:800">${esc(points)}${card.statusName ? `<span style="font-size:12px;opacity:.85"> · ${esc(card.statusName)}</span>` : ''}</div>
+            <div style="font-size:14px;letter-spacing:1px;margin-top:6px">${esc(data.identifierNo || '—')}</div>
+          </div>
+        </div>
+        <div><canvas id="adminCardQr" width="260" height="260"></canvas></div>
+      </div>
+      <div style="margin-top:14px">
+        <div style="font-size:13px;color:var(--muted)">Код для кассы</div>
+        <div style="font-size:34px;font-weight:800;letter-spacing:4px" id="adminCardCode">${esc(data.code || '')}</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:4px" id="adminCardTimer"></div>
+      </div>`;
+    const qrEl = $('adminCardQr');
+    if (qrEl && data.qr) renderAdminCardQr(qrEl, data.qr);
+    startAdminCardTimer(data);
+  } catch (e) {
+    box.innerHTML = `<div class="sd-err">${esc(e.message)}</div>`;
+  }
+}
+
+function startAdminCardTimer(data) {
+  clearInterval(adminCardTimer);
+  let left = Math.max(0, (data.expires_in || data.step || 300) - 1);
+  const tick = () => {
+    const t = $('adminCardTimer');
+    if (t) t.textContent = 'Код обновится через ' + left + ' с';
+    if (left <= 0) { showAdminCard(); return; }
+    left--;
+  };
+  tick();
+  adminCardTimer = setInterval(tick, 1000);
+}
+
+async function shareCardSession() {
+  const acc = $('cardAccount').value;
+  if (!acc) { alert('Выберите аккаунт'); return; }
+  const name = prompt('Имя человека для сессии:') || '';
+  const hours = parseInt(prompt('Срок действия, часов:', '24'), 10) || 24;
+  try {
+    const r = await api('/api/sessions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: (name || acc).trim(), account: acc, hours, mode: 'card' }),
+    });
+    copyText(r.link, $('cardShare'));
+    $('cardStatus').textContent = 'Сессия создана: ' + r.link;
   } catch (e) {
     alert(e.message);
-  } finally {
-    btn.disabled = false;
   }
-});
+}
+
+$('cardShow').addEventListener('click', showAdminCard);
+$('cardShare').addEventListener('click', shareCardSession);
 
 // ================= EDA =================
 let edaAccounts = [];
@@ -1499,6 +1604,12 @@ function renderPrizes(prizes, box) {
 $('sessClose').addEventListener('click', () => $('modalSess').classList.add('hidden'));
 $('modalSess').addEventListener('click', (e) => { if (e.target === $('modalSess')) $('modalSess').classList.add('hidden'); });
 
+const MODE_LABELS = { both: 'Самовывоз + доставка', pickup: 'Самовывоз', delivery: 'Доставка', card: 'Моя карта' };
+function modeBadge(mode) {
+  const m = (mode || 'both');
+  return `<span class="mode-badge">${esc(MODE_LABELS[m] || m)}</span>`;
+}
+
 function statusBadge(code) {
   const map = {
     'NEW': 'ok', 'ASSEMBLING': 'ok', 'ON_ASSEMBLE': 'ok', 'READY': 'ok', 'WAITING': 'ok',
@@ -1581,7 +1692,7 @@ function renderSessionDetail(s) {
     : `<div class="sd-err">${esc(s.coupons_err || 'не удалось загрузить')}</div>`;
 
   $('sessBody').innerHTML = `
-    <h2>${esc(s.name)} <span class="session-account">${esc(s.account)}</span></h2>
+    <h2>${esc(s.name)} <span class="session-account">${esc(s.account)}</span> ${modeBadge(s.mode)}</h2>
     <div class="muted" style="margin-top:4px">Сессия до ${esc(s.expires_at || '—')} · последний вход ${esc(s.last_seen || 'никогда')}</div>
     <div class="session-link" style="margin-top:6px">${esc(s.link)}</div>
     ${alertHtml}

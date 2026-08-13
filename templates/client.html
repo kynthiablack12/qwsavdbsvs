@@ -623,10 +623,10 @@ body {
 
     <section id="view-stores">
       <div class="view-head">
-        <h2>Выберите магазин</h2>
+        <h2 id="storesHeadTitle">Выберите магазин</h2>
         <p id="cityLine">Определяем город…</p>
       </div>
-      <div class="city-row">
+      <div class="city-row" id="cityRow">
         <span class="city-name" id="cityName">…</span>
         <button class="city-redetect hidden" id="btnRedetect">Определить заново</button>
       </div>
@@ -637,12 +637,12 @@ body {
         </div>
         <div id="cityList" class="store-list"><div class="hint">Начните вводить название города</div></div>
       </div>
-      <div class="search-box">
+      <div class="search-box" id="storeSearchBox">
         <span class="search-ico">⌕</span>
         <input type="text" id="storeQuery" placeholder="Поиск по адресу или названию…">
         <button class="search-clear hidden" id="storeClear">×</button>
       </div>
-      <div class="map-row">
+      <div class="map-row" id="storeMapRow">
         <div class="map-tools">
           <button class="map-btn" id="btnMapToggle">🗺 Показать на карте</button>
           <button class="map-btn hidden" id="btnMapClose">✕ Закрыть карту</button>
@@ -650,6 +650,7 @@ body {
         <div id="storeMap" class="map-wrap hidden"></div>
       </div>
       <div id="storesList" class="store-list"><div class="hint">Загрузка…</div></div>
+      <div id="deliveryAddrBox" class="hidden"></div>
     </section>
 
     <section id="view-products" class="hidden">
@@ -748,6 +749,7 @@ let state = { city: null, store: null, cart: null, goods: [], offset: 0, has_mor
               slot: null, payment: '', promos: [], promoCode: '', promoApplied: false, promoEstimate: null,
               payMethods: {available: [], selected_id: null}, binding: null,
               delivery: false, addresses: [], address: null, addressMode: 'pick', bonusOn: false,
+              mode: 'both',
               activeSheet: null, sheetTimer: null, sheetHidden: false };
 const CAT_DEFAULT = 'all';
 const SORTS = [
@@ -800,10 +802,144 @@ function showView(name) {
   ['view-stores', 'view-products', 'view-checkout', 'view-orders', 'view-cart', 'view-card'].forEach(v => $(v).classList.toggle('hidden', v !== name));
   const subs = { 'view-stores': state.delivery ? 'Выберите адрес доставки' : 'Выберите магазин', 'view-products': 'Составьте заказ', 'view-checkout': 'Оформление', 'view-orders': 'Активные заказы', 'view-cart': 'Корзина', 'view-card': 'Моя карта' };
   $('appSub').textContent = subs[name];
+  if (name === 'view-stores') {
+    const t = $('storesHeadTitle');
+    if (t) t.textContent = state.delivery ? 'Адрес доставки' : 'Выберите магазин';
+    if (state.delivery) renderDeliveryAddrs(); else applyDeliveryStoreUI();
+  }
   document.querySelectorAll('.tab').forEach(b => {
     const t = { 'view-stores': 'pickup', 'view-products': 'pickup', 'view-checkout': 'pickup', 'view-orders': 'orders', 'view-cart': 'cart', 'view-card': 'card' }[name];
     if (t) b.classList.toggle('active', b.dataset.tab === t);
   });
+}
+
+function addrLine(a) {
+  if (!a) return '';
+  return [a.locality, a.street, a.house, a.apartment].filter(Boolean).join(', ');
+}
+
+function applyDeliveryStoreUI() {
+  const isD = state.delivery;
+  ['cityRow', 'storeSearchBox', 'storeMapRow', 'storesList'].forEach(id => {
+    const el = $(id);
+    if (el) el.classList.toggle('hidden', isD);
+  });
+  const box = $('deliveryAddrBox');
+  if (box) box.classList.toggle('hidden', !isD);
+}
+
+function renderDeliveryAddrs() {
+  applyDeliveryStoreUI();
+  const box = $('deliveryAddrBox');
+  if (!box) return;
+  const list = state.addresses || [];
+  const cur = state.address;
+  box.innerHTML = `
+    <div class="view-head" style="margin-top:6px">
+      <h2>Адрес доставки</h2>
+      <p>Укажите полный адрес — подберём ближайший магазин</p>
+    </div>
+    ${list.length ? `<div class="store-list" style="margin-top:4px">
+      ${list.map(a => `
+        <div class="store-card ${cur && cur.id === a.id ? 'on' : ''}" data-addr="${esc(a.id)}">
+          <div class="store-info">
+            <div class="store-name">${esc(addrLine(a))}</div>
+            <div class="store-addr">${esc(a.full_address || '')}</div>
+          </div>
+          <button class="btn-choose ${cur && cur.id === a.id ? 'chosen' : ''}">${cur && cur.id === a.id ? '✓ Выбран' : 'Выбрать'}</button>
+        </div>`).join('')}
+    </div>` : '<div class="hint">Адресов пока нет — добавьте адрес ниже</div>'}
+    <button class="mini-btn" id="dNewAddr" style="margin-top:10px">＋ Добавить адрес</button>
+    <div id="dAddrForm" class="hidden" style="margin-top:10px">
+      <div class="two-cols">
+        <div class="field"><label>Город</label><input id="dCity" placeholder="Омск"></div>
+        <div class="field"><label>Улица</label><input id="dStreet" placeholder="ул. Ленина"></div>
+      </div>
+      <div class="three-cols">
+        <div class="field"><label>Дом</label><input id="dHouse" placeholder="10"></div>
+        <div class="field"><label>Квартира</label><input id="dFlat" placeholder="—"></div>
+        <div class="field"><label>Этаж</label><input id="dFloor" placeholder="—"></div>
+      </div>
+      <div class="two-cols">
+        <div class="field"><label>Широта</label><input id="dLat" placeholder="55.0436"></div>
+        <div class="field"><label>Долгота</label><input id="dLon" placeholder="73.3032"></div>
+      </div>
+      <div class="field"><label>Подъезд</label><input id="dEntrance" placeholder="—"></div>
+      <button class="btn-primary-big" id="dSave" style="margin-top:10px">Продолжить</button>
+    </div>`;
+  box.querySelectorAll('[data-addr]').forEach(el => el.addEventListener('click', () => {
+    const a = (state.addresses || []).find(x => x.id === el.dataset.addr);
+    if (a) deliverySelectAddr(a);
+  }));
+  $('dNewAddr').addEventListener('click', () => $('dAddrForm').classList.toggle('hidden'));
+  $('dSave').addEventListener('click', deliveryAddAddr);
+}
+
+async function deliverySelectAddr(a) {
+  state.address = a;
+  try {
+    await api(`/api/pickup/${TOKEN}/address/activate`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address_id: a.id })
+    });
+  } catch (e) {}
+  toast('Адрес доставки: ' + addrLine(a), 'ok');
+  try {
+    await deliveryResolveStore(a);
+  } catch (e) {
+    toast('Не удалось подобрать магазин для адреса: ' + e.message, 'err');
+  }
+}
+
+async function deliveryResolveStore(addr) {
+  const qs = new URLSearchParams({ address_id: addr.id });
+  if (state.city) qs.set('city_fias_id', state.city.cityFiasId);
+  const st = await api(`/api/pickup/${TOKEN}/delivery/store?${qs}`);
+  state.store = st.store;
+  state.goods = []; state.term = ''; state.catKey = ''; state.catIds = null; state.offset = 0;
+  showView('view-products');
+  renderStoreBar();
+  loadCategories();
+  refreshCart();
+}
+
+async function deliveryAddAddr() {
+  const locality = ($('dCity').value || '').trim();
+  const street = ($('dStreet').value || '').trim();
+  const house = ($('dHouse').value || '').trim();
+  const apartment = ($('dFlat').value || '').trim();
+  const entrance = ($('dEntrance').value || '').trim();
+  const floor = ($('dFloor').value || '').trim();
+  const lat = parseFloat($('dLat').value);
+  const lon = parseFloat($('dLon').value);
+  if (!locality || !street || !house || isNaN(lat) || isNaN(lon)) {
+    toast('Заполните город, улицу, дом и координаты', 'err');
+    return;
+  }
+  const btn = $('dSave');
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const r = await api(`/api/pickup/${TOKEN}/address`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        locality, street, house,
+        apartment: apartment || null, entrance: entrance || null,
+        floor: floor ? parseInt(floor) : null,
+        latitude: lat, longitude: lon
+      })
+    });
+    const a = r.address;
+    state.addresses = (state.addresses || []).concat([a]);
+    state.address = a;
+    toast('Адрес добавлен', 'ok');
+    await deliveryResolveStore(a);
+  } catch (e) {
+    toast('Не удалось добавить адрес: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Продолжить';
+  }
 }
 let cardTimer = null;
 function renderCardQr(canvas, text) {
@@ -834,7 +970,7 @@ async function loadCardView() {
   const bal = data.balance && data.balance.ok && data.balance.data ? data.balance.data : null;
   const balVal = bal != null ? (bal.totalPointBalance ?? bal.balance ?? null) : null;
   const points = balVal != null
-    ? Number(balVal).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' баллов'
+    ? (Number(balVal) / 100).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' баллов'
     : '—';
   const steps = data.step || 300;
   body.innerHTML = `
@@ -917,19 +1053,42 @@ document.addEventListener('DOMContentLoaded', async () => {
       $('themePop').classList.add('hidden');
   });
 
+  let info;
   try {
-    const info = await api(`/api/pickup/${TOKEN}/info`);
+    info = await api(`/api/pickup/${TOKEN}/info`);
   } catch (e) {
     document.body.dataset.invalid = '1';
     $('clientBody').classList.add('hidden');
     $('blocked').classList.remove('hidden');
     return;
   }
+  state.mode = info.mode || 'both';
+
+  if (state.mode === 'card') {
+    $('modeSwitch').classList.add('hidden');
+    $('tabbar').classList.add('hidden');
+    $('appSub').textContent = 'Моя карта';
+    showView('view-card');
+    loadCardView();
+    return;
+  }
+  if (state.mode === 'delivery') {
+    $('modeSwitch').classList.add('hidden');
+    state.delivery = true;
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('on', b.dataset.mode === 'delivery'));
+    const ft = document.querySelector('#tabbar .tab[data-tab=pickup] .t-txt');
+    if (ft) ft.textContent = 'Доставка';
+  } else if (state.mode === 'pickup') {
+    $('modeSwitch').classList.add('hidden');
+  }
 
   await detectCity();
   refreshCart();
 
-  if (restoreStore()) {
+  if (state.delivery) {
+    await loadAddresses();
+    showView('view-stores');
+  } else if (restoreStore()) {
     showView('view-products');
     renderStoreBar();
     await loadCategories();
@@ -985,7 +1144,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
   document.querySelectorAll('#tabbar .tab').forEach(b => b.addEventListener('click', () => openTab(b.dataset.tab)));
-  function setMode(mode) {
+  async function setMode(mode) {
     const isDelivery = mode === 'delivery';
     if (state.delivery === isDelivery) return;
     state.delivery = isDelivery;
@@ -994,11 +1153,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     state.cart = null;
     state.checkout = null;
     state.address = null;
-    if (state.delivery) loadAddresses();
+    if (state.delivery) await loadAddresses();
     const h = $('appSub');
     h.textContent = isDelivery ? 'Выберите адрес доставки' : 'Выберите магазин';
     showView('view-stores');
-    loadStores();
     refreshCart();
   }
   document.querySelectorAll('#modeSwitch .mode-btn').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
@@ -1086,6 +1244,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function loadStores() {
+    if (state.delivery) return;
     if (!state.city) return;
     $('storesList').innerHTML = '<div class="hint">Загрузка магазинов…</div>';
     try {
@@ -1193,8 +1352,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function renderStoreBar() {
     const st = state.store;
-    $('miniStoreName').textContent = st.name || '';
-    $('miniStoreAddr').textContent = [(st.address || ''), st.hours && ('до ' + st.hours)].filter(Boolean).join(' · ');
+    if (state.delivery) {
+      $('miniStoreName').textContent = state.address ? 'Доставка: ' + addrLine(state.address) : 'Доставка';
+      $('miniStoreAddr').textContent = st
+        ? (st.name + (st.distance_km != null ? ' · ' + (+st.distance_km).toFixed(1) + ' км' : ''))
+        : '';
+    } else {
+      $('miniStoreName').textContent = st.name || '';
+      $('miniStoreAddr').textContent = [(st.address || ''), st.hours && ('до ' + st.hours)].filter(Boolean).join(' · ');
+    }
+    $('btnChangeStore').classList.toggle('hidden', !!state.delivery);
   }
 
   async function loadCategories() {
@@ -1440,9 +1607,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const c = state.cart;
     const items = cartItems(c);
     const modeLabel = state.delivery ? 'Доставка' : 'Самовывоз';
-    $('cartStoreLine').textContent = (state.store && (state.store.name || state.store.address))
-      ? modeLabel + ' · ' + (state.store.name || '')
-      : 'Выберите магазин для составления заказа';
+    $('cartStoreLine').textContent = state.delivery
+      ? (state.address ? modeLabel + ' · ' + addrLine(state.address) : modeLabel)
+      : (state.store && (state.store.name || state.store.address))
+        ? modeLabel + ' · ' + (state.store.name || '')
+        : 'Выберите магазин для составления заказа';
     const foot = $('cartFoot');
     if (!items.length) {
       box.innerHTML = '<div class="cart-empty"><div class="big">🛒</div>Корзина пуста.<br><span class="hint">Добавьте товары в разделе «' + modeLabel + '»</span></div>';
@@ -1516,11 +1685,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       state.addresses = [];
       state.address = null;
     }
-  }
-
-  function addrLine(a) {
-    if (!a) return '';
-    return [a.locality, a.street, a.house, a.apartment].filter(Boolean).join(', ');
   }
 
   async function pickAddress(a) {
@@ -1688,7 +1852,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     showView('view-checkout');
     const st = state.store;
-    $('miniCheckoutStore').textContent = st && (st.name || st.address) ? (st.name || st.address) : '';
+    $('miniCheckoutStore').textContent = state.delivery
+      ? (state.address ? addrLine(state.address) : '')
+      : (st && (st.name || st.address) ? (st.name || st.address) : '');
     const body = $('checkoutBody');
     body.innerHTML = '<div class="hint">Загрузка…</div>';
     try {
@@ -1795,7 +1961,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       <div class="chk-store">
         <div class="chk-store-ico">${isDelivery ? '🛵' : '📍'}</div>
         <div>
-          <div class="chk-store-name">${esc(state.store.name || '')}</div>
+          <div class="chk-store-name">${esc(isDelivery ? 'Доставка' : (state.store.name || ''))}</div>
           <div class="chk-store-addr">${isDelivery
             ? (state.address ? esc(addrLine(state.address)) : esc(di.address ? (di.address.fullAddress || '') : ''))
             : esc(state.store.address || '')}${feeLine}</div>

@@ -251,6 +251,38 @@ def store_detail(account, store_code):
     }
 
 
+def _haversine(lat1, lon1, lat2, lon2):
+    import math
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def delivery_store(account, address_id, city_fias_id=None):
+    """Ближайший магазин доставки к адресу (без выбора магазина пользователем)."""
+    addr = next((a for a in addresses(account) if a.get('id') == address_id), None)
+    if not addr or addr.get('latitude') is None or addr.get('longitude') is None:
+        raise RuntimeError('адрес или его координаты не найдены')
+    if not city_fias_id:
+        try:
+            city_fias_id = current_city(account).get('cityFiasId')
+        except Exception:
+            city_fias_id = None
+    stores = search_stores(account, city_fias_id=city_fias_id,
+                           delivery_type='delivery').get('data') or []
+    with_coord = [s for s in stores if s.get('latitude') is not None and s.get('longitude') is not None]
+    if not with_coord:
+        raise RuntimeError('в этом городе нет доступных магазинов доставки')
+    best = min(with_coord, key=lambda s: _haversine(
+        addr['latitude'], addr['longitude'], s['latitude'], s['longitude']))
+    best = {**best, 'distance_km': round(_haversine(
+        addr['latitude'], addr['longitude'], best['latitude'], best['longitude']), 1)}
+    return best
+
+
 # ---------- categories & goods ----------
 
 def categories(account, store_code):

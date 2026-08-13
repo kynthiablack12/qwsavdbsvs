@@ -67,6 +67,7 @@
     <button class="db-tab" data-tab="coupons">🎟️ Купоны</button>
     <button class="db-tab" data-tab="prizes">🏆 Призы</button>
     <button class="db-tab" data-tab="sessions">🔑 Сессии</button>
+    <button class="db-tab" data-tab="card">💳 Моя карта</button>
     <button class="db-tab" data-tab="eda">🚚 ЕДА</button>
     <button class="db-tab" data-tab="edaPromo">🎁 Промокоды</button>
     <button class="db-tab" data-tab="auto">🛍 Автозаказ</button>
@@ -198,7 +199,7 @@
 
   <!-- ================= Сессии ================= -->
   <section class="db-pane" id="pane-sessions">
-    <div class="sd-section"><h3>Новая сессия доступа (самовывоз)</h3>
+    <div class="sd-section"><h3>Новая сессия доступа</h3>
       <div class="access-form">
         <label>Имя человека
           <input type="text" id="accName" placeholder="например: Вася">
@@ -209,10 +210,33 @@
         <label>Срок действия, часов
           <input type="number" id="accHours" value="24" min="1">
         </label>
+        <label>Что доступно
+          <select id="accMode">
+            <option value="both">Самовывоз + Доставка</option>
+            <option value="pickup">Только самовывоз</option>
+            <option value="delivery">Только доставка</option>
+            <option value="card">Только «Моя карта»</option>
+          </select>
+        </label>
         <button class="btn btn-primary" id="accCreate">Создать сессию</button>
       </div>
     </div>
     <div class="sd-section"><h3>Активные сессии</h3><div id="sessionsList" class="sessions-list"></div></div>
+  </section>
+
+  <!-- ================= Моя карта ================= -->
+  <section class="db-pane" id="pane-card">
+    <div class="db-toolbar">
+      <label style="display:flex;align-items:center;gap:8px">Аккаунт
+        <select id="cardAccount" class="db-search" style="max-width:240px"></select>
+      </label>
+      <button class="btn btn-primary btn-sm" id="cardShow">Показать карту</button>
+      <button class="btn btn-ghost btn-sm" id="cardShare">Выдать сессию на карту</button>
+      <span class="db-mut" id="cardStatus"></span>
+    </div>
+    <div id="cardView" class="sd-section" style="margin-top:8px">
+      <div class="hint" style="padding:24px">Выберите аккаунт и нажмите «Показать карту»</div>
+    </div>
   </section>
 
   <!-- ================= ЕДА ================= -->

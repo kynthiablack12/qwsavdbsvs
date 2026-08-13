@@ -835,7 +835,8 @@ def api_sessions_create():
     try:
         token = core.create_session(str(d.get('name', '')).strip(),
                                     str(d.get('account', '')).strip(),
-                                    int(d.get('hours', 24)))
+                                    int(d.get('hours', 24)),
+                                    str(d.get('mode', 'both')).strip())
     except Exception as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, 'token': token,
@@ -934,6 +935,7 @@ def api_sessions_detailed():
             'token': token,
             'name': s.get('name'),
             'account': s.get('account'),
+            'mode': s.get('mode') or 'both',
             'created_at': s.get('created_at'),
             'expires_at': s.get('expires_at'),
             'last_seen': s.get('last_seen'),
@@ -990,7 +992,8 @@ def api_pickup_info(token):
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 403
     return jsonify({'name': s['name'], 'account': s['account'],
-                    'expires_at': s['expires_at']})
+                    'expires_at': s['expires_at'],
+                    'mode': s.get('mode') or 'both'})
 
 
 @app.route('/api/pickup/<token>/card')
@@ -1002,6 +1005,20 @@ def api_pickup_card(token):
     try:
         data = pickup.card_qr(s['account'])
         data['balance'] = pickup.user_balance(s['account'])
+        return jsonify({'ok': True, **data})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/card')
+def api_card():
+    """Админ: бонусная карта аккаунта (QR, код, баланс) по ?account=."""
+    account = (request.args.get('account') or '').strip()
+    if not account:
+        return jsonify({'error': 'account required'}), 400
+    try:
+        data = pickup.card_qr(account)
+        data['balance'] = pickup.user_balance(account)
         return jsonify({'ok': True, **data})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1074,6 +1091,20 @@ def api_pickup_store(token):
     try:
         return jsonify({'ok': True, 'store': pickup.store_detail(
             s['account'], request.args.get('store_code'))})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/pickup/<token>/delivery/store')
+def api_pickup_delivery_store(token):
+    try:
+        s = pickup_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'store': pickup.delivery_store(
+            s['account'], request.args.get('address_id'),
+            city_fias_id=request.args.get('city_fias_id'))})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -341,11 +341,15 @@ def save_sessions(sess):
         json.dump({'sessions': sess}, f, ensure_ascii=False, indent=2)
 
 
-def create_session(name, account, hours=24):
+def create_session(name, account, hours=24, mode='both'):
     """Сессия доступа для стороннего человека: привязана к одному аккаунту,
-    даёт доступ только к pickup-эндпоинтам. Возвращает токен-ключ."""
+    даёт доступ только к pickup/delivery-эндпоинтам. mode: 'pickup' | 'delivery'
+    | 'card' | 'both'. Возвращает токен-ключ."""
     name = (name or '').strip()
     account = (account or '').strip()
+    mode = (mode or 'both').strip()
+    if mode not in ('pickup', 'delivery', 'card', 'both'):
+        mode = 'both'
     if not name or not account:
         raise RuntimeError('name and account required')
     if not any(a.get('name') == account for a in load_accounts()):
@@ -355,6 +359,7 @@ def create_session(name, account, hours=24):
     sess[token] = {
         'name': name,
         'account': account,
+        'mode': mode,
         'created_at': time.strftime('%Y-%m-%d %H:%M:%S'),
         'expires_at': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time() + hours * 3600)),
         'last_seen': None,
