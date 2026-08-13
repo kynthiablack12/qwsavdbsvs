@@ -22,6 +22,15 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ---------- blurred sensitive value (reveal on hover/focus) ---------- */
+.num-blur {
+  filter: blur(6px);
+  user-select: none;
+  cursor: pointer;
+  transition: filter .2s;
+}
+.num-blur:hover, .num-blur:focus { filter: none; user-select: auto; }
+
 html { scrollbar-color: var(--border-2) transparent; }
 
 body {

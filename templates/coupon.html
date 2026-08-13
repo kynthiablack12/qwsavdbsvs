@@ -151,6 +151,7 @@ body {
 
 </main>
 
+<script src="/static/js/bwip-js.js"></script>
 <script>
 {% if invalid %}
 document.getElementById('heroSub').textContent = 'Купон недоступен';
@@ -158,39 +159,22 @@ document.getElementById('heroSub').textContent = 'Купон недоступе�
 (function() {
   const TOKEN = location.pathname.split('/').pop();
 
-  const C128 = (function() {
-    var P = "11011001100 11001101100 11001100110 10010011000 10010001100 10001001100 10011001000 10011000100 10001100100 11001001000 11001000100 11000100100 10110011100 10011011100 10011001110 10111001100 10011101100 10011100110 11001110010 11001011100 11001001110 11011100100 11001110100 11101101110 11101001100 11100101100 11100100110 11101100100 11100110100 11100110010 11011011000 11011000110 11000110110 10100011000 10001011000 10001000110 10110001000 10001101000 10001100010 11010001000 11000101000 11000100010 10110111000 10110001110 10001101110 10111011000 10111000110 10001110110 11101110110 11010001110 11000101110 11011101000 11011100010 11011101110 11101011000 11101000110 11100010110 11101101000 11101100010 11100011010 11101111010 11001000010 11110001010 10100110000 10100001100 10010110000 10010000110 10000101100 10000100110 10110010000 10110000100 10011010000 10011000010 10000110100 10000110010 11000010010 11001010000 11110111010 11000010100 10001111010 10100111100 10010111100 10010011110 10111100100 10011110100 10011110010 11110100100 11110010100 11110010010 11011011110 11011110110 11110110110 10101111000 10100011110 10001011110 10111101000 10111100010 11110101000 11110100010 10111011110 10111101110 11101011110 11110101110 11010000100 11010010000 11010011100 1100011101011".split(" ");
-    function encodeB(s) {
-      var vals = [];
-      for (var i = 0; i < s.length; i++) {
-        var c = s.charCodeAt(i);
-        if (c < 32 || c > 126) return null;
-        vals.push(c - 32);
-      }
-      var check = 104;
-      for (var j = 0; j < vals.length; j++) check += vals[j] * (j + 1);
-      check %= 103;
-      var bits = P[104];
-      for (var k = 0; k < vals.length; k++) bits += P[vals[k]];
-      bits += P[check] + P[106];
-      return bits;
+  function pdf417(code) {
+    try {
+      var svg = bwipjs.toSVG({
+        bcid: 'pdf417',
+        text: String(code),
+        scale: 3,
+        height: 10,
+        includetext: false,
+        padding: 10,
+        backgroundcolor: 'FFFFFF'
+      });
+      return svg.replace(/<svg([^>]*)>/, '<svg$1 preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:auto">');
+    } catch (e) {
+      return '';
     }
-    return {
-      svg: function(s, h) {
-        var bits = encodeB(s);
-        if (!bits) return '';
-        var mw = 2, height = h || 70, x = 0, bars = [];
-        for (var i = 0; i < bits.length; i++) {
-          if (bits[i] === '1') bars.push([x, mw]);
-          x += mw;
-        }
-        var w = x;
-        return '<svg viewBox="0 0 ' + w + ' ' + height + '" width="100%" height="' + height + '" preserveAspectRatio="xMidYMin meet" style="display:block">'
-          + '<rect width="' + w + '" height="' + height + '" fill="#fff"/>'
-          + '<g fill="#111">' + bars.map(function(b) { return '<rect x="' + b[0] + '" y="0" width="' + b[1] + '" height="' + height + '"/>'; }).join('') + '</g></svg>';
-      }
-    };
-  })();
+  }
 
   function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
   function renderInvalid(msg) {
@@ -269,8 +253,8 @@ document.getElementById('heroSub').textContent = 'Купон недоступе�
     var discountHtml = (discount || discountText(c))
       ? '<div class="discount-tag">' + (discount ? '<span class="big">' + esc(discount) + '</span>' : '') + '<span>' + esc(discountText(c)) + '</span></div>' : '';
     var codeBlock = isBarcode
-      ? '<div class="barcode-box">' + C128.svg(code, 76) +
-          '<div class="barcode-label">Штрих-код купона</div>' +
+      ? '<div class="barcode-box">' + pdf417(code) +
+          '<div class="barcode-label">Штрих-код купона (PDF417)</div>' +
           '<div class="barcode-code">' + esc(code) + '</div></div>' +
           '<button class="copy-btn" data-copy="' + esc(code) + '">Скопировать штрих-код</button>'
       : '<div class="code-chip">' + esc(code) + '</div>' +

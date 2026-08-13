@@ -149,7 +149,8 @@ body {
 .lc-brand { color: #fff; font-weight: 800; font-size: 19px; line-height: 1.15; }
 .lc-points { color: #fff; font-weight: 800; font-size: 17px; margin-top: 22px; }
 .lc-points small { font-weight: 600; font-size: 11px; opacity: .85; }
-.lc-num { color: rgba(255,255,255,.9); font-size: 11.5px; font-weight: 700; margin-top: 3px; letter-spacing: .4px; word-break: break-all; }
+.lc-num { color: rgba(255,255,255,.9); font-size: 11.5px; font-weight: 700; margin-top: 3px; letter-spacing: .4px; word-break: break-all; filter: blur(6px); user-select: none; cursor: pointer; transition: filter .2s; }
+.lc-num:hover, .lc-num:focus { filter: none; user-select: auto; }
 .lc-cards-btn {
   margin-top: 10px; display: inline-flex; align-items: center; gap: 8px;
   background: rgba(110, 10, 60, .35); border: none; color: #fff; font-size: 12.5px; font-weight: 600;
@@ -979,7 +980,7 @@ async function loadCardView() {
         <div class="lc-brand">магнит<br>плюс</div>
         <div>
           <div class="lc-points">${esc(points)}${card.statusName ? '<small> · ' + esc(card.statusName) + '</small>' : ''}</div>
-          <div class="lc-num">${esc(data.identifierNo || '—')}</div>
+          <div class="lc-num" title="Наведите, чтобы показать">${esc(data.identifierNo || '—')}</div>
         </div>
       </div>
       <div class="lc-qr"><canvas id="cardQr" width="260" height="260"></canvas></div>

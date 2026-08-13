@@ -565,7 +565,7 @@ async function showAdminCard() {
           <div style="font-weight:800;font-size:18px;line-height:1.15">магнит<br>плюс</div>
           <div style="margin-top:14px">
             <div style="font-size:22px;font-weight:800">${esc(points)}${card.statusName ? `<span style="font-size:12px;opacity:.85"> · ${esc(card.statusName)}</span>` : ''}</div>
-            <div style="font-size:14px;letter-spacing:1px;margin-top:6px">${esc(data.identifierNo || '—')}</div>
+            <div style="font-size:14px;letter-spacing:1px;margin-top:6px"><span class="num-blur" title="Наведите, чтобы показать">${esc(data.identifierNo || '—')}</span></div>
           </div>
         </div>
         <div><canvas id="adminCardQr" width="260" height="260"></canvas></div>
