@@ -1025,7 +1025,9 @@ def api_pickup_cart(token):
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 403
     try:
-        cart = pickup.cart(s['account'])
+        dt = request.args.get('delivery_type', 'pickup')
+        sc = request.args.get('store_code')
+        cart = pickup.cart(s['account'], delivery_type=dt, store_code=sc)
         for c in cart.get('carts', []):
             pickup.enrich_cart(s['account'], c)
         return jsonify({'ok': True, 'cart': cart})
@@ -1043,7 +1045,8 @@ def api_pickup_stores(token):
         return jsonify({'ok': True, 'stores': pickup.search_stores(
             s['account'],
             query=request.args.get('query', ''),
-            city_fias_id=request.args.get('city_fias_id'))})
+            city_fias_id=request.args.get('city_fias_id'),
+            delivery_type=request.args.get('delivery_type', 'pickup'))})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1104,7 +1107,9 @@ def api_pickup_cart_add(token):
         return jsonify({'error': str(e)}), 403
     try:
         d = request.get_json(force=True)
-        c = pickup.add_to_cart(s['account'], d.get('store_code'), d.get('items', []))
+        dt = d.get('delivery_type', 'pickup')
+        c = pickup.add_to_cart(s['account'], d.get('store_code'), d.get('items', []),
+                               delivery_type=dt)
         if c.get('id'):
             pickup.enrich_cart(s['account'], c)
         return jsonify({'ok': True, 'cart': c})
@@ -1120,9 +1125,11 @@ def api_pickup_cart_item_delete(token):
         return jsonify({'error': str(e)}), 403
     try:
         d = request.get_json(force=True)
+        dt = d.get('delivery_type', 'pickup')
         c = pickup.remove_from_cart(s['account'], d.get('store_code'),
                                     d.get('good_id'), d.get('catalog_price'),
-                                    qnty=d.get('qnty', 0), weight_step=d.get('weight_step'))
+                                    qnty=d.get('qnty', 0), weight_step=d.get('weight_step'),
+                                    delivery_type=dt)
         if c.get('id'):
             pickup.enrich_cart(s['account'], c)
         return jsonify({'ok': True, 'cart': c})
@@ -1138,7 +1145,41 @@ def api_pickup_checkout(token):
         return jsonify({'error': str(e)}), 403
     try:
         return jsonify({'ok': True, 'checkout': pickup.checkout_info(
-            s['account'], request.args.get('cart_id'), request.args.get('store_code'))})
+            s['account'], request.args.get('cart_id'), request.args.get('store_code'),
+            delivery_type=request.args.get('delivery_type', 'pickup'),
+            address_id=request.args.get('address_id'))})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/pickup/<token>/checkout/preview')
+def api_pickup_checkout_preview(token):
+    try:
+        s = pickup_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'preview': pickup.checkout_preview(
+            s['account'], request.args.get('store_code'),
+            delivery_type=request.args.get('delivery_type', 'pickup'),
+            address_id=request.args.get('address_id'))})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/pickup/<token>/checkout/bonus', methods=['POST'])
+def api_pickup_checkout_bonus(token):
+    try:
+        s = pickup_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        d = request.get_json(force=True)
+        return jsonify({'ok': True, 'checkout': pickup.set_bonus_points(
+            s['account'], d.get('cart_id'), d.get('is_writeoff', False),
+            store_code=d.get('store_code'),
+            delivery_type=d.get('delivery_type', 'pickup'),
+            address_id=d.get('address_id'))})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1164,7 +1205,27 @@ def api_pickup_checkout_promo(token):
     try:
         d = request.get_json(force=True)
         return jsonify({'ok': True, 'result': pickup.check_promo(
-            s['account'], d.get('cart_id'), d.get('store_code'), d.get('promo_code'))})
+            s['account'], d.get('cart_id'), d.get('store_code'), d.get('promo_code'),
+            delivery_type=d.get('delivery_type', 'pickup'),
+            address_id=d.get('address_id'))})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/pickup/<token>/checkout/promo/apply', methods=['POST'])
+def api_pickup_checkout_promo_apply(token):
+    try:
+        s = pickup_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        d = request.get_json(force=True)
+        preview = pickup.apply_promo(
+            s['account'], d.get('promo_code'),
+            store_code=d.get('store_code'),
+            delivery_type=d.get('delivery_type', 'pickup'),
+            address_id=d.get('address_id'))
+        return jsonify({'ok': True, 'preview': preview})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1193,6 +1254,52 @@ def api_pickup_payment_bind(token):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/pickup/<token>/addresses')
+def api_pickup_addresses(token):
+    try:
+        s = pickup_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'addresses': pickup.addresses(s['account'])})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/pickup/<token>/address', methods=['POST'])
+def api_pickup_address_create(token):
+    try:
+        s = pickup_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        d = request.get_json(force=True)
+        return jsonify({'ok': True, 'address': pickup.create_address(
+            s['account'], d.get('locality'), d.get('street'), d.get('house'),
+            d.get('latitude'), d.get('longitude'),
+            apartment=d.get('apartment'), entrance=d.get('entrance'),
+            floor=d.get('floor'), door_phone=d.get('door_phone'),
+            comment=d.get('comment'), district=d.get('district'),
+            province=d.get('province', ''), country=d.get('country', 'RU'),
+            is_active=d.get('is_active', True))})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/pickup/<token>/address/activate', methods=['POST'])
+def api_pickup_address_activate(token):
+    try:
+        s = pickup_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        d = request.get_json(force=True)
+        pickup.set_active_address(s['account'], d.get('address_id'))
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/pickup/<token>/order', methods=['POST'])
 def api_pickup_order(token):
     try:
@@ -1210,7 +1317,9 @@ def api_pickup_order(token):
             customer=d.get('customer'),
             payment=d.get('payment', 'StoreOffline'),
             replacement=d.get('replacement', 'REPLACE_GOODS'),
-            promo_code=d.get('promo_code'))})
+            promo_code=d.get('promo_code'),
+            delivery_type=d.get('delivery_type', 'pickup'),
+            address_id=d.get('address_id'))})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

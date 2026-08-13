@@ -135,6 +135,21 @@ body {
   display: flex; align-items: center; justify-content: center;
 }
 
+/* ---------- mode switch (pickup / delivery) ---------- */
+.mode-switch {
+  display: flex; gap: 4px; margin-top: 14px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 14px; padding: 4px; width: fit-content; max-width: 100%;
+}
+.mode-btn {
+  border: none; background: none; cursor: pointer; font-family: inherit;
+  padding: 8px 18px; border-radius: 10px; font-size: 13px; font-weight: 800;
+  color: var(--muted); transition: color .15s, background .15s;
+  white-space: nowrap;
+}
+.mode-btn:hover { color: var(--text); }
+.mode-btn.on { color: var(--brand); background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+
 /* ---------- active order sheet ---------- */
 .shtorka {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(64px + env(safe-area-inset-bottom));
@@ -418,6 +433,25 @@ body {
 .pay-opt.on { border-color: var(--brand); background: var(--brand-soft); }
 .pay-opt input { accent-color: var(--brand); }
 .pay-opt small { color: var(--muted); font-weight: 400; font-size: 11.5px; display: block; margin-top: 2px; }
+.addr-pick { display: flex; flex-direction: column; gap: 8px; }
+.addr-opt {
+  display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 12px; cursor: pointer; background: var(--surface-2); font-size: 13px; font-weight: 600;
+  transition: border-color .15s;
+}
+.addr-opt.on { border-color: var(--brand); background: var(--brand-soft); }
+.addr-opt input { accent-color: var(--brand); }
+.addr-opt small { color: var(--muted); font-weight: 400; font-size: 11.5px; display: block; margin-top: 2px; }
+.slot-est {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  border: 1px dashed var(--brand); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px;
+  background: var(--brand-soft); font-size: 13px; font-weight: 700; color: var(--brand);
+}
+.slot-est small { color: var(--muted); font-weight: 400; font-size: 11.5px; }
+.three-cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+@media (max-width: 520px) {
+  .three-cols { grid-template-columns: 1fr 1fr; }
+}
 .field { margin-bottom: 12px; }
 .field label { display: block; color: var(--muted); font-size: 11.5px; font-weight: 700; margin-bottom: 6px; }
 .field input, .field select {
@@ -532,6 +566,10 @@ body {
     <div class="hero-actions">
       <button class="icon-btn" id="btnTheme" title="Оформление">🎨</button>
     </div>
+  </div>
+  <div class="mode-switch" id="modeSwitch">
+    <button class="mode-btn on" data-mode="pickup">Самовывоз</button>
+    <button class="mode-btn" data-mode="delivery">Доставка</button>
   </div>
 </div>
 
@@ -665,6 +703,7 @@ let state = { city: null, store: null, cart: null, goods: [], offset: 0, has_mor
               sortKey: 'popularity', sortOrder: 'desc',
               slot: null, payment: '', promos: [], promoCode: '', promoApplied: false, promoEstimate: null,
               payMethods: {available: [], selected_id: null}, binding: null,
+              delivery: false, addresses: [], address: null, addressMode: 'pick', bonusOn: false,
               activeSheet: null, sheetTimer: null, sheetHidden: false };
 const CAT_DEFAULT = 'all';
 const SORTS = [
@@ -715,7 +754,7 @@ function toast(msg, kind = 'info') {
 function errBox(msg) { return `<div class="badge-err">${esc(msg)}</div>`; }
 function showView(name) {
   ['view-stores', 'view-products', 'view-checkout', 'view-orders', 'view-cart'].forEach(v => $(v).classList.toggle('hidden', v !== name));
-  const subs = { 'view-stores': 'Выберите магазин', 'view-products': 'Составьте заказ', 'view-checkout': 'Оформление', 'view-orders': 'Активные заказы', 'view-cart': 'Корзина' };
+  const subs = { 'view-stores': state.delivery ? 'Выберите адрес доставки' : 'Выберите магазин', 'view-products': 'Составьте заказ', 'view-checkout': 'Оформление', 'view-orders': 'Активные заказы', 'view-cart': 'Корзина' };
   $('appSub').textContent = subs[name];
   document.querySelectorAll('.tab').forEach(b => {
     const t = { 'view-stores': 'pickup', 'view-products': 'pickup', 'view-checkout': 'pickup', 'view-orders': 'orders', 'view-cart': 'cart' }[name];
@@ -831,6 +870,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
   document.querySelectorAll('#tabbar .tab').forEach(b => b.addEventListener('click', () => openTab(b.dataset.tab)));
+  function setMode(mode) {
+    const isDelivery = mode === 'delivery';
+    if (state.delivery === isDelivery) return;
+    state.delivery = isDelivery;
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+    state.store = null;
+    state.cart = null;
+    state.checkout = null;
+    state.address = null;
+    if (state.delivery) loadAddresses();
+    const h = $('appSub');
+    h.textContent = isDelivery ? 'Выберите адрес доставки' : 'Выберите магазин';
+    showView('view-stores');
+    loadStores();
+    refreshCart();
+  }
+  document.querySelectorAll('#modeSwitch .mode-btn').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
   window.addEventListener('hashchange', () => {
     const h = location.hash.replace('#', '');
     if (['pickup', 'orders', 'cart'].includes(h)) openTab(h);
@@ -918,7 +974,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!state.city) return;
     $('storesList').innerHTML = '<div class="hint">Загрузка магазинов…</div>';
     try {
-      const r = await api(`/api/pickup/${TOKEN}/stores?query=&city_fias_id=${encodeURIComponent(state.city.cityFiasId)}`);
+      const r = await api(`/api/pickup/${TOKEN}/stores?query=&city_fias_id=${encodeURIComponent(state.city.cityFiasId)}&delivery_type=${state.delivery ? 'delivery' : 'pickup'}`);
       state.allStores = (r.stores && r.stores.data) || [];
       $('cityName').textContent = state.city.city || 'Город';
       renderStores();
@@ -933,13 +989,21 @@ document.addEventListener('DOMContentLoaded', async () => {
       ? state.allStores.filter(s => ((s.name || '') + ' ' + (s.address || '') + ' ' + (s.code || '')).toLowerCase().includes(q))
       : state.allStores;
     const box = $('storesList');
-    if (!list.length) { box.innerHTML = q ? '<div class="hint">Ничего не найдено. Попробуйте другой адрес.</div>' : '<div class="hint">Магазинов не найдено</div>'; return; }
+    const modeLabel = state.delivery ? 'Доставка' : 'Самовывоз';
+    if (!list.length) {
+      box.innerHTML = q
+        ? '<div class="hint">Ничего не найдено. Попробуйте другой адрес.</div>'
+        : (state.delivery
+          ? '<div class="hint">Магазинов с доставкой не найдено. Выберите другой город или переключитесь на самовывоз.</div>'
+          : '<div class="hint">Магазинов не найдено</div>');
+      return;
+    }
     box.innerHTML = '';
     list.forEach(st => {
       const el = document.createElement('div');
       el.className = 'store-card' + (state.store && state.store.code === st.code ? ' on' : '');
       const typeLabel = st.store_type || '';
-      const meta = [st.hours && ('до ' + st.hours), 'Самовывоз'].filter(Boolean).join(' · ');
+      const meta = [st.hours && ('до ' + st.hours), modeLabel].filter(Boolean).join(' · ');
       el.innerHTML = `
         <div class="store-info">
           <div class="store-name">${esc(st.name || '')}${typeLabel ? ` <span class="store-type">${esc(typeLabel)}</span>` : ''}</div>
@@ -1214,7 +1278,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       await api(`/api/pickup/${TOKEN}/cart`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ store_code: state.store.code, items })
+        body: JSON.stringify({ store_code: state.store.code, items, delivery_type: state.delivery ? 'delivery' : 'pickup' })
       });
       await refreshCart();
       return true;
@@ -1229,7 +1293,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (cartBusy) return;
     cartBusy = true;
     try {
-      const r = await api(`/api/pickup/${TOKEN}/cart`);
+      const qs = state.delivery
+        ? `?delivery_type=delivery&store_code=${encodeURIComponent((state.store && state.store.code) || '')}`
+        : '';
+      const r = await api(`/api/pickup/${TOKEN}/cart${qs}`);
       const carts = (r.cart && r.cart.carts) || [];
       state.cart = carts[0] || null;
       renderCartBar();
@@ -1257,12 +1324,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const box = $('cartItems');
     const c = state.cart;
     const items = cartItems(c);
+    const modeLabel = state.delivery ? 'Доставка' : 'Самовывоз';
     $('cartStoreLine').textContent = (state.store && (state.store.name || state.store.address))
-      ? 'Самовывоз · ' + (state.store.name || '')
+      ? modeLabel + ' · ' + (state.store.name || '')
       : 'Выберите магазин для составления заказа';
     const foot = $('cartFoot');
     if (!items.length) {
-      box.innerHTML = '<div class="cart-empty"><div class="big">🛒</div>Корзина пуста.<br><span class="hint">Добавьте товары в разделе «Самовывоз»</span></div>';
+      box.innerHTML = '<div class="cart-empty"><div class="big">🛒</div>Корзина пуста.<br><span class="hint">Добавьте товары в разделе «' + modeLabel + '»</span></div>';
       $('cartViewTotal').textContent = '0 ₽';
       $('btnCheckoutView').disabled = true;
       foot.classList.add('hidden');
@@ -1296,21 +1364,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function setQty(it, qnty) {
     const storeCode = (state.cart && state.cart.storeCode) || (state.store && state.store.code) || null;
     const cur = it.qnty || 0;
+    const dt = state.delivery ? 'delivery' : 'pickup';
     try {
       if (qnty <= 0) {
         await api(`/api/pickup/${TOKEN}/cart/item`, {
           method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ store_code: storeCode, good_id: it.goodId, catalog_price: it.catalogPrice, weight_step: it.weight_step || null })
+          body: JSON.stringify({ store_code: storeCode, good_id: it.goodId, catalog_price: it.catalogPrice, weight_step: it.weight_step || null, delivery_type: dt })
         });
       } else if (qnty > cur) {
         await api(`/api/pickup/${TOKEN}/cart`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ store_code: storeCode, items: [{ good_id: it.goodId, qnty, catalog_price: it.catalogPrice, weight_step: it.weight_step || null }] })
+          body: JSON.stringify({ store_code: storeCode, items: [{ good_id: it.goodId, qnty, catalog_price: it.catalogPrice, weight_step: it.weight_step || null }], delivery_type: dt })
         });
       } else {
         await api(`/api/pickup/${TOKEN}/cart/item`, {
           method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ store_code: storeCode, good_id: it.goodId, catalog_price: it.catalogPrice, qnty, weight_step: it.weight_step || null })
+          body: JSON.stringify({ store_code: storeCode, good_id: it.goodId, catalog_price: it.catalogPrice, qnty, weight_step: it.weight_step || null, delivery_type: dt })
         });
       }
       await refreshCart();
@@ -1322,16 +1391,204 @@ document.addEventListener('DOMContentLoaded', async () => {
   setInterval(() => { if (document.visibilityState === 'visible') refreshCart(); }, 6000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshCart(); });
 
+  async function loadAddresses() {
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/addresses`);
+      state.addresses = r.addresses || [];
+      const act = state.addresses.find(a => a.is_active) || state.addresses[0] || null;
+      state.address = state.address || act || null;
+    } catch (e) {
+      state.addresses = [];
+      state.address = null;
+    }
+  }
+
+  function addrLine(a) {
+    if (!a) return '';
+    return [a.locality, a.street, a.house, a.apartment].filter(Boolean).join(', ');
+  }
+
+  async function pickAddress(a) {
+    state.address = a;
+    try {
+      await api(`/api/pickup/${TOKEN}/address/activate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address_id: a.id })
+      });
+    } catch (e) {}
+    toast('Адрес доставки: ' + addrLine(a), 'ok');
+    await reloadCheckout();
+  }
+
+  async function reloadCheckout() {
+    if (!state.cart || !state.address) return;
+    const body = $('checkoutBody');
+    if (!body) return;
+    try {
+      const qs = new URLSearchParams({
+        cart_id: state.cart.id,
+        store_code: state.cart.storeCode || state.store.code,
+        delivery_type: 'delivery'
+      });
+      if (state.address) qs.set('address_id', state.address.id);
+      const r = await api(`/api/pickup/${TOKEN}/checkout?${qs}`);
+      state.checkout = r.checkout;
+      state.bonusOn = !!(r.checkout.bonusPoints && r.checkout.bonusPoints.isWriteOffPoints);
+      const avail = (r.checkout.orderTimeslot && r.checkout.orderTimeslot.available) || [];
+      const timeSlots = avail.filter(s => s.interval && s.interval.from);
+      state.slot = timeSlots[0] || avail[0] || null;
+      renderCheckout();
+    } catch (e) {
+      toast('Не удалось пересчитать доставку: ' + e.message, 'err');
+    }
+  }
+
+  async function addAddressSubmit() {
+    const locality = ($('addrCity').value || '').trim();
+    const street = ($('addrStreet').value || '').trim();
+    const house = ($('addrHouse').value || '').trim();
+    const apartment = ($('addrFlat').value || '').trim();
+    const entrance = ($('addrEntrance').value || '').trim();
+    const floor = ($('addrFloor').value || '').trim();
+    const lat = parseFloat($('addrLat').value);
+    const lon = parseFloat($('addrLon').value);
+    if (!locality || !street || !house || isNaN(lat) || isNaN(lon)) {
+      toast('Заполните город, улицу, дом и координаты', 'err');
+      return;
+    }
+    const btn = $('addrSave');
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/address`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          locality, street, house,
+          apartment: apartment || null, entrance: entrance || null,
+          floor: floor ? parseInt(floor) : null,
+          latitude: lat, longitude: lon
+        })
+      });
+      state.address = r.address;
+      state.addressMode = 'pick';
+      await loadAddresses();
+      state.address = state.addresses.find(a => a.id === state.address.id) || state.address;
+      toast('Адрес добавлен', 'ok');
+      await reloadCheckout();
+    } catch (e) {
+      toast('Не удалось добавить адрес: ' + e.message, 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Добавить адрес';
+    }
+  }
+
+  function renderAddressBlock() {
+    const box = $('addrBlock');
+    if (!box) return;
+    const list = state.addresses || [];
+    const cur = state.address;
+    const pickHtml = `
+      <div class="chk-block-title">Адрес доставки</div>
+      <div class="addr-pick">
+        ${list.length ? list.map(a => `
+          <label class="addr-opt ${cur && cur.id === a.id ? 'on' : ''}">
+            <input type="radio" name="addr" value="${esc(a.id)}" ${cur && cur.id === a.id ? 'checked' : ''}>
+            <span><b>${esc(addrLine(a))}</b><small>${esc(a.full_address || '')}</small></span>
+          </label>`).join('')
+        : '<div class="hint">Адресов пока нет — добавьте адрес ниже</div>'}
+      </div>
+      <button class="mini-btn" id="btnNewAddr" style="margin-top:8px">＋ Добавить адрес</button>
+      <div id="addrForm" class="hidden" style="margin-top:10px">
+        <div class="two-cols">
+          <div class="field"><label>Город</label><input id="addrCity" placeholder="Омск"></div>
+          <div class="field"><label>Улица</label><input id="addrStreet" placeholder="ул. Ленина"></div>
+        </div>
+        <div class="three-cols">
+          <div class="field"><label>Дом</label><input id="addrHouse" placeholder="10"></div>
+          <div class="field"><label>Квартира</label><input id="addrFlat" placeholder="—"></div>
+          <div class="field"><label>Этаж</label><input id="addrFloor" placeholder="—"></div>
+        </div>
+        <div class="two-cols">
+          <div class="field"><label>Широта</label><input id="addrLat" placeholder="55.0436"></div>
+          <div class="field"><label>Долгота</label><input id="addrLon" placeholder="73.3032"></div>
+        </div>
+        <div class="field"><label>Подъезд</label><input id="addrEntrance" placeholder="—"></div>
+        <button class="btn-primary-big" id="addrSave" style="margin-top:10px">Добавить адрес</button>
+      </div>`;
+    box.innerHTML = pickHtml;
+    const btnNew = $('btnNewAddr');
+    const saveBtn = $('addrSave');
+    if (btnNew) btnNew.addEventListener('click', () => $('addrForm').classList.toggle('hidden'));
+    if (saveBtn) saveBtn.addEventListener('click', addAddressSubmit);
+    if (btnNew && state.addressMode === 'new') {
+      const f = $('addrForm');
+      if (f) f.classList.remove('hidden');
+      state.addressMode = 'pick';
+    }
+    box.querySelectorAll('input[name=addr]').forEach(r => {
+      r.addEventListener('change', () => {
+        const a = (state.addresses || []).find(x => x.id === r.value);
+        if (a) pickAddress(a);
+      });
+    });
+  }
+
+  async function toggleBonus() {
+    const ch = state.checkout;
+    if (!ch) return;
+    const on = !state.bonusOn;
+    try {
+      const r = await api(`/api/pickup/${TOKEN}/checkout/bonus`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cart_id: ch.id,
+          store_code: state.cart.storeCode || state.store.code,
+          is_writeoff: on,
+          delivery_type: state.delivery ? 'delivery' : 'pickup',
+          address_id: state.delivery && state.address ? state.address.id : null
+        })
+      });
+      state.bonusOn = !!((r.checkout && r.checkout.bonusPoints && r.checkout.bonusPoints.isWriteOffPoints) || on);
+      state.checkout = r.checkout || ch;
+      updateSummary();
+      const box = $('bonusBox');
+      if (box) {
+        const bp = (r.checkout && r.checkout.bonusPoints) || {};
+        box.innerHTML = `<div class="promo-result promo-${state.bonusOn ? 'ok' : ''}">${esc((bp.description && bp.description.title) || '')}: списание ${state.bonusOn ? 'включено' : 'выключено'}</div>`;
+      }
+      toast(state.bonusOn ? 'Списание бонусов включено' : 'Списание бонусов выключено', 'ok');
+    } catch (e) {
+      toast('Не удалось изменить списание бонусов: ' + e.message, 'err');
+    }
+  }
+
   async function openCheckout() {
     if (!state.cart || !cartItems(state.cart).length) { toast('Корзина пуста', 'err'); return; }
+    if (state.delivery) {
+      await loadAddresses();
+      if (!state.address) {
+        state.addressMode = 'new';
+      }
+    }
     showView('view-checkout');
-    $('miniCheckoutStore').textContent = (state.store && (state.store.name || state.store.address)) || '';
+    const st = state.store;
+    $('miniCheckoutStore').textContent = st && (st.name || st.address) ? (st.name || st.address) : '';
     const body = $('checkoutBody');
     body.innerHTML = '<div class="hint">Загрузка…</div>';
     try {
-      const r = await api(`/api/pickup/${TOKEN}/checkout?cart_id=${encodeURIComponent(state.cart.id)}&store_code=${encodeURIComponent(state.cart.storeCode || state.store.code)}`);
+      const qs = new URLSearchParams({
+        cart_id: state.cart.id,
+        store_code: state.cart.storeCode || state.store.code,
+        delivery_type: state.delivery ? 'delivery' : 'pickup'
+      });
+      if (state.delivery && state.address) qs.set('address_id', state.address.id);
+      const r = await api(`/api/pickup/${TOKEN}/checkout?${qs}`);
       state.checkout = r.checkout;
-      state.slot = (r.checkout.orderTimeslot && r.checkout.orderTimeslot.available && r.checkout.orderTimeslot.available[0]) || null;
+      state.bonusOn = !!(r.checkout.bonusPoints && r.checkout.bonusPoints.isWriteOffPoints);
+      const avail = (r.checkout.orderTimeslot && r.checkout.orderTimeslot.available) || [];
+      const timeSlots = avail.filter(s => s.interval && s.interval.from);
+      state.slot = timeSlots[0] || avail[0] || null;
       try {
         const pr = await api(`/api/pickup/${TOKEN}/promos`);
         state.promos = pr.promocodes || [];
@@ -1343,7 +1600,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       renderCheckout();
     } catch (e) {
       const msg = e.message.includes('STORE_NOT_FOUND')
-        ? 'Выбранный магазин не принимает заказы на самовывоз (ассортимент мог измениться). Нажмите «Сменить магазин» и выберите другой.'
+        ? 'Выбранный магазин не принимает заказы. Нажмите «Сменить магазин» и выберите другой.'
         : e.message;
       body.innerHTML = errBox(msg) + '<div style="margin-top:12px"><button class="btn-primary-big" onclick="showView(\'view-products\')">← Назад к товарам</button></div>';
     }
@@ -1359,11 +1616,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const cust = ch.customer || {};
     state.payment = pay.some(p => p.id === 'StoreOffline') ? 'StoreOffline' : (pay[0] && pay[0].id) || 'StoreOffline';
 
-    const slotsHtml = avail.map(s => {
-      const on = state.slot && state.slot.interval.from === s.interval.from ? 'on' : '';
+    const isDelivery = state.delivery;
+    const timeSlots = avail.filter(s => s.interval && s.interval.from);
+    const slotsHtml = timeSlots.map(s => {
+      const on = state.slot && state.slot.interval && state.slot.interval.from === s.interval.from ? 'on' : '';
       return `<label class="slot ${on}"><input type="radio" name="slot" data-i="${esc(s.interval.from)}" ${on ? 'checked' : ''}>
         <span>${esc(fmtDate(s.interval.from))} – ${esc(fmtDate(s.interval.to))}</span></label>`;
     }).join('');
+    const estimation = avail.find(s => s.type === 'estimation' && s.deliveryConfig);
+    const estimationHtml = estimation
+      ? `<div class="slot slot-est"><span>⚡ ${esc(estimation.deliveryConfig.pdtStr || 'Быстрая доставка')}</span>${estimation.price != null && estimation.price > 0 ? `<small>${esc(fmtRub(estimation.price))}</small>` : '<small>Бесплатно</small>'}</div>`
+      : '';
 
     const payHtml = pay.map(p =>
       `<option value="${esc(p.id)}" ${p.id === state.payment ? 'selected' : ''}>${esc(p.title)}</option>`).join('') ||
@@ -1403,14 +1666,28 @@ document.addEventListener('DOMContentLoaded', async () => {
           </div>`).join('')
       : '<div class="hint">Доступных промокодов нет</div>';
 
+    const addrBlock = isDelivery ? '<div id="addrBlock"></div>' : '';
+    const bonus = (ch.bonusPoints && ch.bonusPoints.availableForWriteOff > 0)
+      ? `<label class="pay-opt ${state.bonusOn ? 'on' : ''}"><input type="checkbox" id="bonusToggle" ${state.bonusOn ? 'checked' : ''}>
+         <span><b>Списать бонусы</b><small>${esc((ch.bonusPoints.description && ch.bonusPoints.description.title) || '')} — доступно ${esc(ch.bonusPoints.availableForWriteOff)}</small></span></label>
+         <div id="bonusBox"></div>`
+      : '';
+    const feeLine = (di.type === 'delivery' && di.fee)
+      ? `<div class="chk-store-addr">Доставка: ${esc(di.fee.feeStr || (di.fee.fee > 0 ? fmtRub(di.fee.fee) : 'бесплатно'))}</div>`
+      : '';
+
     body.innerHTML = `
       <div class="chk-store">
-        <div class="chk-store-ico">📍</div>
+        <div class="chk-store-ico">${isDelivery ? '🛵' : '📍'}</div>
         <div>
           <div class="chk-store-name">${esc(state.store.name || '')}</div>
-          <div class="chk-store-addr">${esc(state.store.address || '')}${di.pickupInfo && di.pickupInfo.description ? ' · ' + esc(di.pickupInfo.description) : ''}</div>
+          <div class="chk-store-addr">${isDelivery
+            ? (state.address ? esc(addrLine(state.address)) : esc(di.address ? (di.address.fullAddress || '') : ''))
+            : esc(state.store.address || '')}${feeLine}</div>
         </div>
       </div>
+
+      ${addrBlock}
 
       <div class="chk-block">
         <div class="chk-block-title">Состав заказа</div>
@@ -1419,9 +1696,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       </div>
 
       <div class="chk-block">
-        <div class="chk-block-title">Время получения (${avail.length} доступно)</div>
+        <div class="chk-block-title">Время ${isDelivery ? 'доставки' : 'получения'} (${timeSlots.length} доступно)</div>
+        ${estimationHtml}
         ${slotsHtml || '<p class="hint">Нет доступных слотов</p>'}
       </div>
+
+      ${bonus ? `<div class="chk-block"><div class="chk-block-title">Бонусы</div>${bonus}</div>` : ''}
 
       <div class="chk-block">
         <div class="chk-block-title">Контактные данные</div>
@@ -1448,12 +1728,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       <button class="btn-primary-big" id="btnPlaceOrder">Оформить заказ</button>`;
 
     updateSummary();
+    if (isDelivery) renderAddressBlock();
 
     body.querySelectorAll('input[name=slot]').forEach(r => {
       r.addEventListener('change', () => {
         body.querySelectorAll('.slot').forEach(s => s.classList.remove('on'));
         r.closest('.slot').classList.add('on');
-        state.slot = avail.find(s => s.interval.from === r.dataset.i) || state.slot;
+        state.slot = timeSlots.find(s => s.interval.from === r.dataset.i) || state.slot;
       });
     });
     body.querySelectorAll('input[name=pay]').forEach(r => {
@@ -1463,6 +1744,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         state.payment = r.value;
       });
     });
+    const bt = $('bonusToggle');
+    if (bt) bt.addEventListener('change', toggleBonus);
     $('btnAddCard').addEventListener('click', addCard);
     $('promoInput').addEventListener('input', e => {
       state.promoCode = e.target.value.trim();
@@ -1528,31 +1811,48 @@ document.addEventListener('DOMContentLoaded', async () => {
     btn.disabled = true;
     const old = btn.textContent;
     btn.textContent = '…';
+    const payload = {
+      cart_id: state.checkout.id,
+      store_code: state.cart.storeCode || state.store.code,
+      promo_code: code,
+      delivery_type: state.delivery ? 'delivery' : 'pickup',
+      address_id: state.delivery && state.address ? state.address.id : null
+    };
     try {
-      const r = await api(`/api/pickup/${TOKEN}/checkout/promo`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cart_id: state.checkout.id,
-          store_code: state.cart.storeCode || state.store.code,
-          promo_code: code
-        })
-      });
-      const res = r.result || {};
-      if (res.applied) {
+      if (state.delivery) {
+        const r = await api(`/api/pickup/${TOKEN}/checkout/promo/apply`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        state.checkout = r.preview;
         state.promoApplied = true;
         state.promoCode = code;
-        state.promoEstimate = res.estimate || null;
-        renderPromoResult('ok', res.message || ('Промокод ' + code + ' применён'));
+        state.promoEstimate = null;
         updateSummary();
+        renderPromoResult('ok', 'Промокод ' + code + ' применён');
         toast('Промокод применён', 'ok');
       } else {
-        state.promoApplied = false;
-        state.promoEstimate = null;
-        renderPromoResult(res.reason === 'not_found' || res.reason === 'empty' ? 'err' : 'warn', res.message || 'Промокод не применим');
-        updateSummary();
+        const r = await api(`/api/pickup/${TOKEN}/checkout/promo`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const res = r.result || {};
+        if (res.applied) {
+          state.promoApplied = true;
+          state.promoCode = code;
+          state.promoEstimate = res.estimate || null;
+          renderPromoResult('ok', res.message || ('Промокод ' + code + ' применён'));
+          updateSummary();
+          toast('Промокод применён', 'ok');
+        } else {
+          state.promoApplied = false;
+          state.promoEstimate = null;
+          renderPromoResult(res.reason === 'not_found' || res.reason === 'empty' ? 'err' : 'warn', res.message || 'Промокод не применим');
+          updateSummary();
+        }
       }
     } catch (e) {
-      renderPromoResult('err', 'Не удалось проверить промокод: ' + e.message);
+      renderPromoResult('err', 'Промокод не применён: ' + e.message);
     } finally {
       btn.disabled = false;
       btn.textContent = old;
@@ -1697,6 +1997,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function placeOrder() {
     if (!state.slot) { toast('Выберите время получения', 'err'); return; }
+    if (state.delivery && !state.address) { toast('Выберите адрес доставки', 'err'); return; }
     const btn = $('btnPlaceOrder');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Оформляем…';
@@ -1711,14 +2012,17 @@ document.addEventListener('DOMContentLoaded', async () => {
           customer: { email: $('custEmail').value.trim(), phone: $('custPhone').value.trim() },
           payment: state.payment,
           replacement: 'REPLACE_GOODS',
-          promo_code: state.promoCode || null
+          promo_code: state.promoCode || null,
+          delivery_type: state.delivery ? 'delivery' : 'pickup',
+          address_id: state.delivery && state.address ? state.address.id : null
         })
       });
       const num = (r.order && (r.order.orderNumber || (r.order.createdOrdersInfo || [{}])[0].orderNumber)) || '';
       state.orderNumber = num;
       const body = $('checkoutBody');
+      const got = state.delivery ? 'Доставка' : 'Получение';
       body.innerHTML = `
-        <div class="order-ok">Заказ <b>${esc(num)}</b> оформлен.<br><span class="hint">Оплата: ${esc(state.payment)}. Получение: ${esc(fmtDate(state.slot.interval.from))} – ${esc(fmtDate(state.slot.interval.to))}.</span></div>
+        <div class="order-ok">Заказ <b>${esc(num)}</b> оформлен.<br><span class="hint">Оплата: ${esc(state.payment)}. ${esc(got)}: ${esc(fmtDate(state.slot.interval.from))} – ${esc(fmtDate(state.slot.interval.to))}.</span></div>
         <div style="margin-top:12px;display:flex;gap:8px">
           <a class="btn-more" href="/p/${TOKEN}/order/${encodeURIComponent(num)}" style="text-align:center">Открыть заказ</a>
           <button class="btn-more" id="btnOrderStatus">Обновить статус</button>

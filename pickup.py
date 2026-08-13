@@ -21,15 +21,19 @@ def _hdrs(acc, at, json_=False):
     return h
 
 
-def _call(account, method, path, store_code=None, **kw):
+def _call(account, method, path, store_code=None, delivery_type='pickup', address_id=None,
+          no_service=False, **kw):
     acc = _acc(account)
     if not acc:
         raise RuntimeError('аккаунт не найден')
     at = core.refresh_magnit_token(acc)
     h = _hdrs(acc, at, json_=kw.get('json') is not None)
-    h.update({'x-service': STORE_TYPE, 'x-delivery-type': 'pickup', 'x-app-type': 'OMNI'})
+    if not no_service:
+        h.update({'x-service': STORE_TYPE, 'x-delivery-type': delivery_type, 'x-app-type': 'OMNI'})
     if store_code:
         h['x-store-code'] = store_code
+    if address_id:
+        h['x-address-id'] = address_id
     r = core.s.request(method, API + path, headers=h, timeout=30, **kw)
     try:
         j = r.json()
@@ -79,13 +83,112 @@ def search_cities(account, query='', limit=30):
              'isMagnitAvailable': c.get('isMagnitAvailable')} for c in out[:limit]]
 
 
+# ---------- delivery addresses ----------
+
+def addresses(account):
+    """Адресная книга доставки. Каждый адрес: {id, ...attributes}."""
+    j = _call(account, 'GET', '/customer_addresses/v1/address_book?pageNumber=1&pageSize=50',
+              no_service=True)
+    out = []
+    for a in (j.get('data') or []):
+        attrs = a.get('attributes') or {}
+        out.append({
+            'id': a.get('id'),
+            'country': attrs.get('countryIsoCode'),
+            'geo_provider': attrs.get('geoProvider'),
+            'house': attrs.get('house'),
+            'locality': attrs.get('locality'),
+            'province': attrs.get('province'),
+            'street': attrs.get('street'),
+            'apartment': attrs.get('apartment'),
+            'entrance': attrs.get('entrance'),
+            'floor': attrs.get('floor'),
+            'door_phone': attrs.get('doorPhone'),
+            'comment': attrs.get('comment'),
+            'district': attrs.get('district'),
+            'latitude': attrs.get('latitude'),
+            'longitude': attrs.get('longitude'),
+            'is_active': bool(attrs.get('isActive')),
+            'is_office': bool(attrs.get('isOffice')),
+            'full_address': attrs.get('fullFormatted') or attrs.get('shortFormatted'),
+        })
+    return out
+
+
+def create_address(account, locality, street, house, latitude, longitude,
+                   apartment=None, entrance=None, floor=None, door_phone=None,
+                   comment=None, district=None, province='', country='RU',
+                   is_active=True):
+    """Создаёт адрес доставки в адресной книге. geoProvider=yandex_map — как приложение."""
+    attrs = {
+        'countryIsoCode': country,
+        'fullFormatted': '',
+        'geoProvider': 'yandex_map',
+        'house': str(house),
+        'isActive': is_active,
+        'isOffice': False,
+        'latitude': float(latitude),
+        'locality': locality,
+        'longitude': float(longitude),
+        'shortFormatted': '',
+        'addressTag': None,
+        'apartment': apartment,
+        'comment': comment,
+        'district': district,
+        'doorPhone': door_phone,
+        'entrance': entrance,
+        'floor': floor,
+        'province': province,
+        'street': street,
+    }
+    j = _call(account, 'POST', '/customer_addresses/v1/address_book',
+              json={'data': {'attributes': attrs, 'type': 'customer_address'}}, no_service=True)
+    data = j.get('data') or {}
+    addr = {**{k: v for k, v in (data.get('attributes') or {}).items()},
+            'id': data.get('id')}
+    return addr
+
+
+def set_active_address(account, address_id, attrs=None):
+    """Активирует адрес в адресной книге (PATCH как в приложении)."""
+    cur = next((a for a in addresses(account) if a.get('id') == address_id), None)
+    if cur is None:
+        raise RuntimeError(f'адрес {address_id} не найден в адресной книге')
+    body_attrs = {
+        'countryIsoCode': cur.get('country') or 'RU',
+        'geoProvider': cur.get('geo_provider') or 'yandex_map',
+        'house': cur.get('house'),
+        'isActive': True,
+        'isOffice': cur.get('is_office'),
+        'latitude': cur.get('latitude'),
+        'locality': cur.get('locality'),
+        'longitude': cur.get('longitude'),
+        'addressTag': None,
+        'apartment': cur.get('apartment') or '',
+        'comment': cur.get('comment') or '',
+        'district': cur.get('district') or '',
+        'doorPhone': cur.get('door_phone') or '',
+        'entrance': cur.get('entrance') or '',
+        'floor': cur.get('floor'),
+        'province': cur.get('province') or '',
+        'street': cur.get('street'),
+    }
+    if attrs:
+        body_attrs.update(attrs)
+    j = _call(account, 'PATCH', f'/customer_addresses/v1/address_book/{address_id}',
+              json={'data': {'attributes': body_attrs, 'id': address_id,
+                             'type': 'customer_address'}}, no_service=True)
+    return j
+
+
 # ---------- stores ----------
 
-def search_stores(account, query='', city_fias_id=None):
+def search_stores(account, query='', city_fias_id=None, delivery_type='pickup'):
     filters = {
         'OpenByWorkingTypes': None,
         'cityFiasId': city_fias_id or None,
-        'deliveryTypeList': ['DELIVERY_TYPE_PICKUP'],
+        'deliveryTypeList': ['DELIVERY_TYPE_DELIVERY'] if delivery_type == 'delivery'
+        else ['DELIVERY_TYPE_PICKUP'],
         'favorites': False,
         'geo': None,
         'query': query or '',
@@ -103,7 +206,8 @@ def search_stores(account, query='', city_fias_id=None):
         if not st.get('isActive'):
             continue
         types = st.get('deliveryTypeList') or []
-        if 'DELIVERY_TYPE_PICKUP' not in types:
+        want = 'DELIVERY_TYPE_DELIVERY' if delivery_type == 'delivery' else 'DELIVERY_TYPE_PICKUP'
+        if want not in types:
             continue
         hours = pickup_hours(st)
         out.append({
@@ -286,13 +390,15 @@ def enrich_cart(account, cart):
     return cart
 
 
-def cart(account):
+def cart(account, delivery_type='pickup', store_code=None):
     acc = _acc(account)
     if not acc:
         raise RuntimeError('аккаунт не найден')
     at = core.refresh_magnit_token(acc)
     h = _hdrs(acc, at)
-    h['x-delivery-type'] = 'pickup'
+    h.update({'x-service': STORE_TYPE, 'x-delivery-type': delivery_type, 'x-app-type': 'OMNI'})
+    if store_code:
+        h['x-store-code'] = store_code
     r = core.s.get(f'{API}/v1/carts', headers=h, timeout=30)
     r.raise_for_status()
     j = r.json()
@@ -317,10 +423,10 @@ def _express_cart(carts):
     return None
 
 
-def add_to_cart(account, store_code, items):
+def add_to_cart(account, store_code, items, delivery_type='pickup'):
     """items: [{'good_id', 'qnty', 'catalog_price'}]"""
     try:
-        cur = cart(account)
+        cur = cart(account, delivery_type=delivery_type, store_code=store_code)
         cur0 = next((c for c in cur.get('carts', []) if c.get('id')), None)
         if cur0 and cur0.get('storeCode') and cur0['storeCode'] != store_code:
             for it in (cur0.get('items') or []):
@@ -363,12 +469,13 @@ def add_to_cart(account, store_code, items):
                     'utm_medium': None, 'utm_referrer': None, 'utm_source': None, 'utm_term': None},
         })
     j = _call(account, 'PUT', f'/v2/carts/lite?service={STORE_TYPE}&storeCode={store_code}',
-              json={'items': req_items})
+              json={'items': req_items}, delivery_type=delivery_type)
     carts = j.get('carts') or []
     return _express_cart(carts) or {'id': None, 'items': []}
 
 
-def remove_from_cart(account, store_code, good_id, catalog_price=None, qnty=0, weight_step=None):
+def remove_from_cart(account, store_code, good_id, catalog_price=None, qnty=0, weight_step=None,
+                     delivery_type='pickup'):
     """Уменьшает позицию до qnty (абсолютное значение); qnty=0 удаляет из корзины."""
     if weight_step:
         inc = {'unit': 'byweight', 'value': int(weight_step)}
@@ -389,24 +496,44 @@ def remove_from_cart(account, store_code, good_id, catalog_price=None, qnty=0, w
                 'utm_medium': None, 'utm_referrer': None, 'utm_source': None, 'utm_term': None},
     }
     j = _call(account, 'PUT', f'/v2/carts/lite?service={STORE_TYPE}&storeCode={store_code}',
-              json={'items': [item]})
+              json={'items': [item]}, delivery_type=delivery_type)
     carts = j.get('carts') or []
     return _express_cart(carts) or {'id': None, 'items': []}
 
 
 # ---------- checkout & order ----------
 
-def checkout_preview(account, store_code):
+def checkout_preview(account, store_code=None, delivery_type='pickup', address_id=None):
     return _call(account, 'GET', '/v1/checkout/preview?needMerge=false&isMarketAvailable=false',
-                 store_code=store_code)
+                 store_code=store_code, delivery_type=delivery_type, address_id=address_id)
 
 
-def checkout_info(account, cart_id, store_code):
-    return _call(account, 'GET', f'/v1/checkout/{cart_id}', store_code=store_code)
+def checkout_info(account, cart_id, store_code=None, delivery_type='pickup', address_id=None):
+    return _call(account, 'GET', f'/v1/checkout/{cart_id}',
+                 store_code=store_code, delivery_type=delivery_type, address_id=address_id)
+
+
+def set_bonus_points(account, cart_id, is_writeoff, store_code=None, delivery_type='pickup',
+                     address_id=None):
+    """Включает/выключает списание бонусов на корзине checkout."""
+    return _call(account, 'PATCH', f'/v1/checkout/{cart_id}/bonus-points',
+                 store_code=store_code, delivery_type=delivery_type, address_id=address_id,
+                 json={'isWriteOffPoints': bool(is_writeoff)})
+
+
+def apply_promo(account, promo_code, store_code=None, delivery_type='pickup', address_id=None):
+    """Применяет промокод к checkout. Возвращает обновлённый checkout preview."""
+    code = (promo_code or '').strip()
+    if not code:
+        raise RuntimeError('Введите промокод')
+    return _call(account, 'PATCH', '/v1/checkout/preview/promo-codes',
+                 store_code=store_code, delivery_type=delivery_type, address_id=address_id,
+                 json={'value': code})
 
 
 def place_order(account, cart_id, store_code, from_iso, to_iso, customer=None,
-                payment='StoreOffline', replacement='REPLACE_GOODS', promo_code=None):
+                payment='StoreOffline', replacement='REPLACE_GOODS', promo_code=None,
+                delivery_type='pickup', address_id=None):
     """from_iso/to_iso — локальные ISO-строки слота; серверу нужен UTC."""
     cust = customer or {}
     body = {
@@ -430,7 +557,8 @@ def place_order(account, cart_id, store_code, from_iso, to_iso, customer=None,
         'replacementStrategy': {'identifier': replacement},
         'shipments': None,
     }
-    return _call(account, 'POST', f'/v1/checkout/{cart_id}/order', store_code=store_code, json=body)
+    return _call(account, 'POST', f'/v1/checkout/{cart_id}/order', store_code=store_code,
+                 delivery_type=delivery_type, address_id=address_id, json=body)
 
 
 def order_info(account, order_number):
@@ -540,7 +668,7 @@ def express_promos(account):
     return j.get('promocodes') or []
 
 
-def check_promo(account, cart_id, store_code, promo_code):
+def check_promo(account, cart_id, store_code, promo_code, delivery_type='pickup', address_id=None):
     """Проверяет промокод на корзину без создания заказа.
     Возвращает {applied: bool, reason: str, message: str, promo: dict|None, estimate: dict|None}."""
     code = (promo_code or '').strip().upper()
@@ -552,7 +680,8 @@ def check_promo(account, cart_id, store_code, promo_code):
         return {'applied': False, 'reason': 'not_found', 'message': f'Промокод {code} не найден',
                 'promo': None, 'estimate': None}
     try:
-        ch = checkout_info(account, cart_id, store_code)
+        ch = checkout_info(account, cart_id, store_code, delivery_type=delivery_type,
+                           address_id=address_id)
     except Exception:
         ch = {}
     sum_ = ch.get('summary') or {}
