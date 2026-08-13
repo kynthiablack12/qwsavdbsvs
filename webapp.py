@@ -993,6 +993,20 @@ def api_pickup_info(token):
                     'expires_at': s['expires_at']})
 
 
+@app.route('/api/pickup/<token>/card')
+def api_pickup_card(token):
+    try:
+        s = pickup_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        data = pickup.card_qr(s['account'])
+        data['balance'] = pickup.user_balance(s['account'])
+        return jsonify({'ok': True, **data})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/pickup/<token>/city')
 def api_pickup_city(token):
     try:

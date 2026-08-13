@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/js/qrcode.min.js"></script>
 <style>
 :root, :root[data-theme="magnit"] {
   --bg: #f3f4f7; --surface: #ffffff; --surface-2: #f6f7f9; --surface-3: #eceef2;
@@ -116,7 +117,7 @@ body {
   background: var(--surface); border-top: 1px solid var(--line);
   border-radius: 22px 22px 0 0;
   padding: 6px 8px calc(8px + env(safe-area-inset-bottom));
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
 }
 .tab {
   border: none; background: none; cursor: pointer; font-family: inherit;
@@ -134,6 +135,40 @@ body {
   font-size: 9.5px; font-weight: 800; padding: 0 4px;
   display: flex; align-items: center; justify-content: center;
 }
+
+/* ---------- loyalty card tab ---------- */
+.loyalty-card {
+  margin: 2px 0 16px; border-radius: 24px; padding: 18px;
+  display: flex; gap: 14px; align-items: stretch;
+  background: linear-gradient(155deg, #f8a13c 0%, #f2503f 48%, #ee2a7b 100%);
+  box-shadow: 0 12px 30px rgba(238, 42, 123, .35);
+}
+.loyalty-card .lc-left {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 2px 0;
+}
+.lc-brand { color: #fff; font-weight: 800; font-size: 19px; line-height: 1.15; }
+.lc-points { color: #fff; font-weight: 800; font-size: 17px; margin-top: 22px; }
+.lc-points small { font-weight: 600; font-size: 11px; opacity: .85; }
+.lc-num { color: rgba(255,255,255,.9); font-size: 11.5px; font-weight: 700; margin-top: 3px; letter-spacing: .4px; word-break: break-all; }
+.lc-cards-btn {
+  margin-top: 10px; display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(110, 10, 60, .35); border: none; color: #fff; font-size: 12.5px; font-weight: 600;
+  padding: 7px 13px; border-radius: 999px; cursor: pointer; width: max-content; font-family: inherit;
+}
+.lc-qr {
+  background: #fff; border-radius: 18px; padding: 9px;
+  width: 52%; aspect-ratio: 1; flex: none;
+  display: flex; align-items: center; justify-content: center;
+}
+.lc-qr canvas { width: 100%; height: 100%; display: block; }
+.lc-qr .qr-placeholder { color: #b6b6bd; font-size: 11px; font-weight: 700; text-align: center; line-height: 1.4; }
+.card-code-panel { background: var(--surface); border-radius: 18px; padding: 14px 16px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.card-code-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.card-code-label { font-size: 13px; font-weight: 800; color: var(--text); display: flex; align-items: center; gap: 8px; }
+.card-code-num { font-size: 24px; font-weight: 800; letter-spacing: 2px; color: var(--text); font-variant-numeric: tabular-nums; }
+.card-code-hint { color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 6px; }
+.card-code-timer { color: var(--muted); font-size: 12px; font-weight: 700; margin-top: 6px; }
+.card-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--good); background: var(--good-soft); padding: 3px 10px; border-radius: 999px; margin-top: 8px; }
 
 /* ---------- mode switch (pickup / delivery) ---------- */
 .mode-switch {
@@ -669,6 +704,14 @@ body {
       </div>
     </section>
 
+    <section id="view-card" class="hidden">
+      <div class="view-head">
+        <h2>Моя карта</h2>
+        <p>Бонусная карта «Магнит Плюс» и QR-код для кассы</p>
+      </div>
+      <div id="cardBody"><div class="hint">Загрузка…</div></div>
+    </section>
+
   </div>
 </div>
 
@@ -676,6 +719,7 @@ body {
 
 <div class="tabbar" id="tabbar">
   <button class="tab active" data-tab="pickup"><span class="t-ico">🛍️</span><span class="t-txt">Самовывоз</span></button>
+  <button class="tab" data-tab="card"><span class="t-ico">💳</span><span class="t-txt">Карта</span></button>
   <button class="tab" data-tab="orders"><span class="t-ico">📦</span><span class="t-txt">Заказы</span></button>
   <button class="tab" data-tab="cart"><span class="t-ico">🛒</span><span class="t-txt">Корзина</span></button>
 </div>
@@ -753,13 +797,81 @@ function toast(msg, kind = 'info') {
 }
 function errBox(msg) { return `<div class="badge-err">${esc(msg)}</div>`; }
 function showView(name) {
-  ['view-stores', 'view-products', 'view-checkout', 'view-orders', 'view-cart'].forEach(v => $(v).classList.toggle('hidden', v !== name));
-  const subs = { 'view-stores': state.delivery ? 'Выберите адрес доставки' : 'Выберите магазин', 'view-products': 'Составьте заказ', 'view-checkout': 'Оформление', 'view-orders': 'Активные заказы', 'view-cart': 'Корзина' };
+  ['view-stores', 'view-products', 'view-checkout', 'view-orders', 'view-cart', 'view-card'].forEach(v => $(v).classList.toggle('hidden', v !== name));
+  const subs = { 'view-stores': state.delivery ? 'Выберите адрес доставки' : 'Выберите магазин', 'view-products': 'Составьте заказ', 'view-checkout': 'Оформление', 'view-orders': 'Активные заказы', 'view-cart': 'Корзина', 'view-card': 'Моя карта' };
   $('appSub').textContent = subs[name];
   document.querySelectorAll('.tab').forEach(b => {
-    const t = { 'view-stores': 'pickup', 'view-products': 'pickup', 'view-checkout': 'pickup', 'view-orders': 'orders', 'view-cart': 'cart' }[name];
+    const t = { 'view-stores': 'pickup', 'view-products': 'pickup', 'view-checkout': 'pickup', 'view-orders': 'orders', 'view-cart': 'cart', 'view-card': 'card' }[name];
     if (t) b.classList.toggle('active', b.dataset.tab === t);
   });
+}
+let cardTimer = null;
+function renderCardQr(canvas, text) {
+  const qr = qrcode(0, 'M');
+  qr.addData(text, 'Byte');
+  qr.make();
+  const n = qr.getModuleCount();
+  const px = Math.max(6, Math.floor((canvas.width - 24) / n));
+  const size = n * px + 24;
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#111';
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++)
+    if (qr.isDark(y, x)) ctx.fillRect(12 + x * px, 12 + y * px, px, px);
+}
+async function loadCardView() {
+  const body = $('cardBody');
+  body.innerHTML = '<div class="hint">Загрузка…</div>';
+  let data;
+  try {
+    data = await api(`/api/pickup/${TOKEN}/card`);
+  } catch (e) {
+    body.innerHTML = errBox(e.message);
+    return;
+  }
+  const card = data.card || {};
+  const bal = data.balance && data.balance.ok && data.balance.data ? data.balance.data : null;
+  const balVal = bal != null ? (bal.totalPointBalance ?? bal.balance ?? null) : null;
+  const points = balVal != null
+    ? Number(balVal).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' баллов'
+    : '—';
+  const steps = data.step || 300;
+  body.innerHTML = `
+    <section class="loyalty-card">
+      <div class="lc-left">
+        <div class="lc-brand">магнит<br>плюс</div>
+        <div>
+          <div class="lc-points">${esc(points)}${card.statusName ? '<small> · ' + esc(card.statusName) + '</small>' : ''}</div>
+          <div class="lc-num">${esc(data.identifierNo || '—')}</div>
+        </div>
+      </div>
+      <div class="lc-qr"><canvas id="cardQr" width="260" height="260"></canvas></div>
+    </section>
+    <div class="card-code-panel">
+      <div class="card-code-row">
+        <div class="card-code-label">Код для кассы</div>
+        <div class="card-code-num" id="cardCodeNum">${esc(data.code || '')}</div>
+      </div>
+      <div class="card-code-hint">Покажите QR-код или назовите код на кассе. Код обновляется каждые ${steps} секунд.</div>
+      <div class="card-code-timer" id="cardCodeTimer"></div>
+    </div>`;
+  const qrEl = $('cardQr');
+  if (qrEl && data.qr) renderCardQr(qrEl, data.qr);
+  startCardTimer(data);
+}
+function startCardTimer(data) {
+  clearInterval(cardTimer);
+  let left = Math.max(0, (data.expires_in || data.step || 300) - 1);
+  const tick = () => {
+    if ($('view-card').classList.contains('hidden')) { clearInterval(cardTimer); return; }
+    const t = $('cardCodeTimer');
+    if (t) t.textContent = 'Код обновится через ' + left + ' с';
+    if (left <= 0) { loadCardView(); return; }
+    left--;
+  };
+  tick();
+  cardTimer = setInterval(tick, 1000);
 }
 function saveStore() {
   if (!state.store) return;
@@ -867,6 +979,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderCartView();
       }
       refreshCart();
+    } else if (tab === 'card') {
+      showView('view-card');
+      loadCardView();
     }
   }
   document.querySelectorAll('#tabbar .tab').forEach(b => b.addEventListener('click', () => openTab(b.dataset.tab)));
@@ -889,10 +1004,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.querySelectorAll('#modeSwitch .mode-btn').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
   window.addEventListener('hashchange', () => {
     const h = location.hash.replace('#', '');
-    if (['pickup', 'orders', 'cart'].includes(h)) openTab(h);
+    if (['pickup', 'orders', 'cart', 'card'].includes(h)) openTab(h);
   });
   const hashTab = location.hash.replace('#', '');
-  if (['orders', 'cart'].includes(hashTab)) openTab(hashTab);
+  if (['orders', 'cart', 'card'].includes(hashTab)) openTab(hashTab);
 
   $('storeQuery').addEventListener('input', () => {
     $('storeClear').classList.toggle('hidden', !$('storeQuery').value);

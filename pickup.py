@@ -638,6 +638,46 @@ def user_balance(account):
         return {'ok': False, 'error': str(e)}
 
 
+# ---------- loyalty card QR ----------
+
+def loyalty_card(account):
+    """Данные бонусной карты: номер identifierNo, статус и ключ TOTP для QR."""
+    return _call(account, 'GET', '/v1/user/card')
+
+
+def totp_now(key_hex, step=300, length=6, clock=None):
+    """Код TOTP по RFC 6238 (HMAC-SHA1, ключ в hex). Возвращает строку нужной длины."""
+    import hmac, hashlib, struct, time
+    t = int(time.time() if clock is None else clock)
+    msg = struct.pack('>Q', t // step)
+    d = hmac.new(bytes.fromhex(key_hex), msg, hashlib.sha1).digest()
+    o = d[-1] & 0x0f
+    code = (struct.unpack('>I', d[o:o + 4])[0] & 0x7fffffff) % (10 ** length)
+    return str(code).zfill(length)
+
+
+def card_qr(account):
+    """Строка QR бонусной карты: E{identifierNo}T{TOTP-6} + служебная информация."""
+    import time
+    card = loyalty_card(account)
+    totp = card.get('totp') or {}
+    key = totp.get('key')
+    if not key:
+        raise RuntimeError('карта не содержит ключа TOTP для QR')
+    step = int(totp.get('step') or 300)
+    length = int(totp.get('length') or 6)
+    identifier = card.get('identifierNo') or str(card.get('id') or '')
+    code = totp_now(key, step=step, length=length)
+    return {
+        'card': card,
+        'identifierNo': identifier,
+        'code': code,
+        'qr': f'E{identifier}T{code}',
+        'step': step,
+        'expires_in': step - (int(time.time()) % step),
+    }
+
+
 def coupons(account):
     """Купоны/бонусы пользователя."""
     j = _call(account, 'GET', '/v3/user/coupons/list?limit=20')
