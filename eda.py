@@ -1,4 +1,4 @@
-import sys, os, json, uuid, time, re, random, threading, urllib.parse, html, zlib
+import sys, os, json, uuid, time, re, random, threading, urllib.parse, html, zlib, contextlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
 import requests
@@ -109,12 +109,70 @@ APP = {
 
 # ---------- account storage (bearer-based) ----------
 
-def _eda_store():
+@contextlib.contextmanager
+def _store_lock():
+    """Межпроцессная блокировка файла хранилища (fcntl на Linux, msvcrt на Windows).
+
+    Railway запускает несколько воркеров gunicorn в одном процессе/нескольких —
+    без блокировки одновременные read-modify-write портят JSON и стирают данные.
+    """
+    lock_path = EDA_ACCOUNTS_FILE + '.lock'
+    f = open(lock_path, 'a+')
+    try:
+        if os.name == 'nt':
+            f.seek(0, os.SEEK_END)
+            if f.tell() == 0:
+                f.write('\0')
+                f.flush()
+            f.seek(0)
+            import msvcrt
+            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        if os.name == 'nt':
+            try:
+                f.seek(0)
+                import msvcrt
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+            except Exception:
+                pass
+        else:
+            try:
+                import fcntl
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+        f.close()
+
+
+def _eda_read():
     try:
         with open(EDA_ACCOUNTS_FILE, encoding='utf-8') as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
+
+
+def _eda_write(store):
+    """Атомарная запись: сначала во временный файл, затем os.replace.
+
+    Защищает от битого JSON при одновременных записях (иначе следующий
+    save видел бы пустое хранилище и перезаписывал аккаунты на []).
+    """
+    tmp = EDA_ACCOUNTS_FILE + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(store, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, EDA_ACCOUNTS_FILE)
+
+
+def _eda_store():
+    with _store_lock():
+        return _eda_read()
 
 
 def load_eda_accounts():
@@ -127,17 +185,17 @@ def load_eda_proxies():
 
 
 def save_eda_accounts(accs):
-    store = _eda_store()
-    store['accounts'] = accs
-    with open(EDA_ACCOUNTS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(store, f, ensure_ascii=False, indent=2)
+    with _store_lock():
+        store = _eda_read()
+        store['accounts'] = accs
+        _eda_write(store)
 
 
 def save_eda_proxies(proxies):
-    store = _eda_store()
-    store['proxies'] = proxies
-    with open(EDA_ACCOUNTS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(store, f, ensure_ascii=False, indent=2)
+    with _store_lock():
+        store = _eda_read()
+        store['proxies'] = proxies
+        _eda_write(store)
 
 
 def _norm_proxy(ln):
@@ -184,25 +242,27 @@ def set_eda_proxies(lines):
 
 def assign_eda_proxies():
     """Назначить каждому аккаунту без прокси свой из пула (по кругу)."""
-    pool = load_eda_proxies()
-    n = len(pool)
-    if not n:
-        raise RuntimeError('пул прокси пуст — сначала сохрани прокси')
-    accs = load_eda_accounts()
-    used = {a.get('proxy') for a in accs if a.get('proxy')}
-    free = [p for p in pool if p not in used]
-    i = 0
-    assigned = 0
-    for a in accs:
-        if a.get('proxy'):
-            continue
-        if i >= len(free):
-            free = list(pool)
-            i = 0
-        a['proxy'] = free[i]
-        i += 1
-        assigned += 1
-    save_eda_accounts(accs)
+    with _store_lock():
+        store = _eda_read()
+        pool = store.get('proxies') or []
+        if not pool:
+            raise RuntimeError('пул прокси пуст — сначала сохрани прокси')
+        accs = store.get('accounts') or []
+        used = {a.get('proxy') for a in accs if a.get('proxy')}
+        free = [p for p in pool if p not in used]
+        i = 0
+        assigned = 0
+        for a in accs:
+            if a.get('proxy'):
+                continue
+            if i >= len(free):
+                free = list(pool)
+                i = 0
+            a['proxy'] = free[i]
+            i += 1
+            assigned += 1
+        store['accounts'] = accs
+        _eda_write(store)
     return assigned
 
 
@@ -509,15 +569,18 @@ def set_eda_account_proxy(name, proxy):
 
     Принимает 'host:port' (без авторизации) или 'user:pass@host:port'.
     """
-    accs = load_eda_accounts()
-    for a in accs:
-        if a.get('name') == name:
-            if proxy.strip():
-                a['proxy'] = _norm_proxy(proxy)
-            else:
-                a.pop('proxy', None)
-            save_eda_accounts(accs)
-            return a.get('proxy', '')
+    with _store_lock():
+        store = _eda_read()
+        accs = store.get('accounts') or []
+        for a in accs:
+            if a.get('name') == name:
+                if proxy.strip():
+                    a['proxy'] = _norm_proxy(proxy)
+                else:
+                    a.pop('proxy', None)
+                store['accounts'] = accs
+                _eda_write(store)
+                return a.get('proxy', '')
     raise RuntimeError(f'аккаунт "{name}" не найден')
 
 
@@ -527,12 +590,15 @@ def rotate_eda_device(name):
     Эквивалент «переустановки приложения» / установки в Knox-папке: если
     антифрод забанил старый отпечаток, новые промокоды могут пройти.
     """
-    accs = load_eda_accounts()
-    for a in accs:
-        if a.get('name') == name:
-            a['device'] = new_device_profile()
-            save_eda_accounts(accs)
-            return dict(a['device'])
+    with _store_lock():
+        store = _eda_read()
+        accs = store.get('accounts') or []
+        for a in accs:
+            if a.get('name') == name:
+                a['device'] = new_device_profile()
+                store['accounts'] = accs
+                _eda_write(store)
+                return dict(a['device'])
     raise RuntimeError(f'аккаунт "{name}" не найден')
 
 

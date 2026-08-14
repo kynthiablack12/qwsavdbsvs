@@ -685,7 +685,10 @@ async function loadEdaProxies() {
   box.value = proxies.join('\n');
 }
 
+let edaProxiesInited = false;
 async function initEdaProxies() {
+  if (edaProxiesInited) return;
+  edaProxiesInited = true;
   const save = $('edaProxiesSave');
   const assign = $('edaProxiesAssign');
   if (!save) return;
