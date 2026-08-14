@@ -89,6 +89,10 @@ def _dev(acc):
     }
 
 # App-параметры из перехвата (эмулятор LDPlayer).
+# x-app-version/user-agent: поднимаем до актуальной версии приложения — мобильный
+# эндпоинт cart/promocode гейтит свежие промокоды (500go, FREE500) сообщением
+# «Необходимо обновить приложение» по версии в user-agent (порог ~3.80, проверено:
+# 3.19.0…3.70 — гейт, 3.80+ — реальный ответ). x-code-version на гейт не влияет.
 APP = {
     'x-os-version': '9',
     'x-device-model': 'SM-S906N',
@@ -96,12 +100,12 @@ APP = {
     'x-device-manufacturer': 'samsung',
     'x-android-platform-services-type': 'huawei',
     'x-platform': 'android_app',
-    'x-app-version': '3.19.0',
+    'x-app-version': '3.99.0',
     'x-code-version': '249708',
     'x-device-id': 'dab454cb-f8f4-34cc-950c-91759cc19869',
     'x-appmetrica-deviceid': '1c1e4355a8142f9d52e1f218c928d7de',
     'x-appmetrica-uuid': 'c4a9b2f931aa4e78957a0669566685c9',
-    'user-agent': 'android (3.19.0)',
+    'user-agent': 'android (3.99.0)',
     'accept-language': 'ru',
     'content-type': 'application/json',
 }
