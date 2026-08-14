@@ -76,6 +76,8 @@ def new_device_profile():
         'device_id': str(uuid.uuid4()),
         'appmetrica_deviceid': uuid.uuid4().hex,
         'appmetrica_uuid': uuid.uuid4().hex,
+        'mobile_ifa': str(uuid.uuid4()),
+        'tracker_id': str(uuid.uuid4()),
         'model': m['model'],
         'brand': m['brand'],
         'manufacturer': m['manufacturer'],
@@ -90,6 +92,8 @@ def _dev(acc):
         'device_id': p.get('device_id') or APP['x-device-id'],
         'appmetrica_deviceid': p.get('appmetrica_deviceid') or APP['x-appmetrica-deviceid'],
         'appmetrica_uuid': p.get('appmetrica_uuid') or APP['x-appmetrica-uuid'],
+        'mobile_ifa': p.get('mobile_ifa') or APP.get('x-mobile-ifa', ''),
+        'tracker_id': p.get('tracker_id') or APP.get('x-tracker-id', ''),
         'model': p.get('model') or APP['x-device-model'],
         'brand': p.get('brand') or APP['x-device-brand'],
         'manufacturer': p.get('manufacturer') or APP['x-device-manufacturer'],
@@ -740,6 +744,10 @@ def _hdrs(acc, lat=None, lon=None):
         'x-device-manufacturer': d['manufacturer'],
         'x-os-version': d['os_version'],
     })
+    if d.get('mobile_ifa'):
+        h['x-mobile-ifa'] = d['mobile_ifa']
+    if d.get('tracker_id'):
+        h['x-tracker-id'] = d['tracker_id']
     h['authorization'] = 'Bearer ' + _extract_bearer(acc)
     h['x-yandex-uid'] = str(acc.get('yandexuid', ''))
     h['x-ya-coordinates'] = f'latitude={lat},longitude={lon}'
