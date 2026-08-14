@@ -1,4 +1,4 @@
-import sys, os, json, uuid, time, re, random, threading, urllib.parse, html, zlib, contextlib
+import sys, os, json, uuid, time, re, random, threading, urllib.parse, html, contextlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
 import requests
@@ -179,167 +179,11 @@ def load_eda_accounts():
     return _eda_store().get('accounts', [])
 
 
-def load_eda_proxies():
-    """Пул статических прокси: список строк вида 'host:port' или 'user:pass@host:port'."""
-    return _eda_store().get('proxies', [])
-
-
 def save_eda_accounts(accs):
     with _store_lock():
         store = _eda_read()
         store['accounts'] = accs
         _eda_write(store)
-
-
-def save_eda_proxies(proxies):
-    with _store_lock():
-        store = _eda_read()
-        store['proxies'] = proxies
-        _eda_write(store)
-
-
-def _norm_proxy(ln):
-    """Нормализовать строку прокси: допускаются 'host:port' и 'user:pass@host:port'.
-
-    Без схемы добавляется http:// (поддерживаются прокси без логина/пароля).
-    """
-    ln = (ln or '').strip()
-    if not ln or ln.startswith('#'):
-        return None
-    if '://' not in ln:
-        ln = 'http://' + ln
-    return ln
-
-
-def _proxy_for(acc):
-    """proxies-дикт для requests: свой прокси аккаунта или стабильный из пула."""
-    p = _norm_proxy(acc.get('proxy'))
-    if p:
-        return {'http': p, 'https': p}
-    pool = load_eda_proxies()
-    if not pool:
-        return None
-    idx = zlib.crc32((acc.get('name') or '').encode('utf-8')) % len(pool)
-    p = _norm_proxy(pool[idx])
-    if not p:
-        return None
-    return {'http': p, 'https': p}
-
-
-# Все цели HTTPS: для Я.Еды прокси обязан уметь CONNECT-туннель (HTTPS).
-# Прокси, работающие только по чистому HTTP, отбраковываются (иначе 405 на
-# CONNECT при запросе https://eda.yandex.ru — см. ProxyError/Tunnel connection).
-PROXY_CHECK_TARGETS = [
-    'https://www.gstatic.com/generate_204',
-    'https://api.ipify.org',
-    'https://eda.yandex.ru/',
-]
-
-
-def check_proxy(proxy, timeout=10):
-    """Проверить прокси живой ли (HTTPS CONNECT-туннель через него).
-
-    Возвращает (ok, info): info — время ответа в мс либо причина отказа.
-    """
-    p = _norm_proxy(proxy)
-    if not p:
-        return False, 'пустая строка'
-    proxies = {'http': p, 'https': p}
-    last_err = 'нет доступа'
-    for url in PROXY_CHECK_TARGETS:
-        t0 = time.time()
-        try:
-            r = requests.get(url, proxies=proxies, timeout=timeout,
-                             allow_redirects=False)
-            if r.status_code in (200, 204):
-                return True, f'{int((time.time() - t0) * 1000)} мс'
-            last_err = f'HTTP {r.status_code}'
-        except requests.exceptions.ProxyError as e:
-            msg = str(e)
-            if '405' in msg or 'Tunnel' in msg or 'CONNECT' in msg:
-                last_err = 'нет CONNECT-туннеля (HTTPS не поддерживается)'
-            else:
-                last_err = 'прокси отклонил запрос'
-        except requests.exceptions.ConnectTimeout:
-            last_err = 'таймаут соединения'
-        except requests.exceptions.ConnectionError:
-            last_err = 'соединение не установлено'
-        except Exception as e:
-            last_err = (str(e) or 'ошибка')[:80]
-    return False, last_err
-
-
-def set_eda_proxies(lines, check=True, progress=None):
-    """Заменить пул прокси (по одной строке на прокси, пустые/комменты игнор).
-
-    Формат строки: 'host:port' (без авторизации) или 'user:pass@host:port'.
-    При check=True каждая строка проверяется (параллельно), в пул попадают
-    только рабочие. progress(i, total, raw, ok, info) — по мере проверки.
-
-    Возвращает {'saved': [...], 'working': [...], 'failed': [{proxy, error}]}.
-    """
-    parsed = []
-    for ln in (lines or '').splitlines():
-        raw = ln.strip()
-        if not raw or raw.startswith('#'):
-            continue
-        p = _norm_proxy(raw)
-        if p:
-            parsed.append((raw, p))
-    if check and parsed:
-        results = {}
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=max(8, min(len(parsed), 32))) as ex:
-            futs = {ex.submit(check_proxy, p): (raw, p) for raw, p in parsed}
-            for fut in futs:
-                raw, p = futs[fut]
-                ok, info = fut.result()
-                results[raw] = (ok, info)
-        working, failed = [], []
-        for i, (raw, p) in enumerate(parsed, 1):
-            ok, info = results[raw]
-            if progress:
-                progress(i, len(parsed), raw, ok, info)
-            if ok:
-                working.append(p)
-            else:
-                failed.append({'proxy': raw, 'error': info})
-    else:
-        working = [p for _, p in parsed]
-        failed = []
-        if progress:
-            progress(len(parsed), len(parsed), '', True, '')
-    with _store_lock():
-        store = _eda_read()
-        store['proxies'] = working
-        _eda_write(store)
-    return {'saved': working, 'working': working, 'failed': failed}
-
-
-def assign_eda_proxies():
-    """Назначить каждому аккаунту без прокси свой из пула (по кругу)."""
-    with _store_lock():
-        store = _eda_read()
-        pool = store.get('proxies') or []
-        if not pool:
-            raise RuntimeError('пул прокси пуст — сначала сохрани прокси')
-        accs = store.get('accounts') or []
-        used = {a.get('proxy') for a in accs if a.get('proxy')}
-        free = [p for p in pool if p not in used]
-        i = 0
-        assigned = 0
-        for a in accs:
-            if a.get('proxy'):
-                continue
-            if i >= len(free):
-                free = list(pool)
-                i = 0
-            a['proxy'] = free[i]
-            i += 1
-            assigned += 1
-        store['accounts'] = accs
-        _eda_write(store)
-    return assigned
 
 
 def _parse_keyvals(raw):
@@ -640,26 +484,6 @@ def refresh_eda_account(name):
     raise RuntimeError(f'аккаунт "{name}" не найден')
 
 
-def set_eda_account_proxy(name, proxy):
-    """Задать прокси конкретному аккаунту (пусто — сброс на «из пула»).
-
-    Принимает 'host:port' (без авторизации) или 'user:pass@host:port'.
-    """
-    with _store_lock():
-        store = _eda_read()
-        accs = store.get('accounts') or []
-        for a in accs:
-            if a.get('name') == name:
-                if proxy.strip():
-                    a['proxy'] = _norm_proxy(proxy)
-                else:
-                    a.pop('proxy', None)
-                store['accounts'] = accs
-                _eda_write(store)
-                return a.get('proxy', '')
-    raise RuntimeError(f'аккаунт "{name}" не найден')
-
-
 def rotate_eda_device(name):
     """Сменить device-профиль аккаунта (новые device_id/appmetrica/модель).
 
@@ -921,7 +745,7 @@ def _eda_call(account, method, path, lat=None, lon=None, json_body=None, params=
     url = EDA_HOST + path
     try:
         r = requests.request(method, url, headers=hdrs, json=json_body,
-                             params=params, timeout=timeout, proxies=_proxy_for(acc))
+                             params=params, timeout=timeout)
     except requests.RequestException as e:
         raise RuntimeError(f'Я.Еда: сеть ({method} {path}): {e}')
     if r.status_code in (401, 403):
@@ -984,7 +808,7 @@ def plus_balance(account, lat=None, lon=None):
     }
     try:
         r = requests.post('https://api.plus.yandex.net/graphql', headers=hdrs,
-                          json=body, timeout=25, proxies=_proxy_for(acc))
+                          json=body, timeout=25)
     except requests.RequestException as e:
         raise RuntimeError(f'Я.Плюс: сеть (graphql PlusState): {e}')
     if r.status_code >= 400:
@@ -1390,8 +1214,7 @@ def _web_call(acc, method, path, json_body=None, params=None, timeout=25):
     url = EDA_HOST + path
     try:
         r = requests.request(method, url, headers=hdrs, cookies=ck,
-                             json=json_body, params=params, timeout=timeout,
-                             proxies=_proxy_for(acc))
+                             json=json_body, params=params, timeout=timeout)
     except requests.RequestException as e:
         raise RuntimeError(f'Я.Еда (веб): сеть ({method} {path}): {e}')
     if r.status_code in (401, 403):
@@ -1655,7 +1478,6 @@ def web_sbp_qr(account, order_id, attempts=15, delay=1.5):
                 cookies=ck,
                 params={'purchase_token': purchase_token},
                 timeout=20,
-                proxies=_proxy_for(acc),
             )
             if r.status_code == 200:
                 data = r.json()
@@ -1783,8 +1605,7 @@ def go_food_layout(acc, lat=None, lon=None):
     }
     body = {'location': {'latitude': lat, 'longitude': lon}}
     try:
-        r = requests.post(url, headers=hdrs, json=body, cookies=_go_cookies(acc), timeout=25,
-                          proxies=_proxy_for(acc))
+        r = requests.post(url, headers=hdrs, json=body, cookies=_go_cookies(acc), timeout=25)
     except requests.RequestException as e:
         raise RuntimeError(f'Яндекс Go (Еда): сеть: {e}')
     if r.status_code >= 400:
@@ -2033,7 +1854,7 @@ def sp_daily_layout(acc):
         'operationName': 'pageableSectionGroups',
     }
     try:
-        r = requests.post(url, headers=h, json=body, timeout=30, proxies=_proxy_for(acc))
+        r = requests.post(url, headers=h, json=body, timeout=30)
     except requests.RequestException as e:
         raise RuntimeError(f'Свои Плюсы: сеть (layout): {e}')
     if r.status_code >= 400:
@@ -2080,8 +1901,7 @@ def sp_reward_detail(acc, reward_id):
     url = SP_DAILY_BASE + '/plusometer/v2/view/reward/detail'
     params = {'reward_id': reward_id, 'ext_source': 'PLUSOMETER', 'theme': 'LIGHT'}
     try:
-        r = requests.get(url, headers=sp_headers(acc), params=params, timeout=30,
-                         proxies=_proxy_for(acc))
+        r = requests.get(url, headers=sp_headers(acc), params=params, timeout=30)
     except requests.RequestException as e:
         raise RuntimeError(f'Свои Плюсы: сеть (detail): {e}')
     if r.status_code >= 400:
@@ -2100,8 +1920,7 @@ def sp_claim_reward(acc, reward_id, chosen_reward_id):
     url = (SP_DAILY_BASE + f'/plusometer/v2/view/reward/detail/{reward_id}/claim'
            + '?chosenRewardId=' + urllib.parse.quote(chosen_reward_id) + '&theme=LIGHT')
     try:
-        r = requests.post(url, headers=sp_headers(acc), data=b'', timeout=30,
-                          proxies=_proxy_for(acc))
+        r = requests.post(url, headers=sp_headers(acc), data=b'', timeout=30)
     except requests.RequestException as e:
         raise RuntimeError(f'Свои Плюсы: сеть (claim): {e}')
     if r.status_code >= 400:
@@ -2336,7 +2155,7 @@ def wheel_page_state(acc):
     h = sp_headers(acc)
     h['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
     try:
-        r = requests.get(SP_WHEEL_PAGE, headers=h, timeout=30, proxies=_proxy_for(acc))
+        r = requests.get(SP_WHEEL_PAGE, headers=h, timeout=30)
     except requests.RequestException as e:
         raise RuntimeError(f'Колесо Фортуны: сеть: {e}')
     if r.status_code >= 400:
@@ -2411,8 +2230,7 @@ def _session_uid_web(acc):
     h['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
     h['Accept-Language'] = 'ru'
     try:
-        r = requests.get('https://passport.yandex.ru/am/profile', headers=h, timeout=20,
-                         proxies=_proxy_for(acc))
+        r = requests.get('https://passport.yandex.ru/am/profile', headers=h, timeout=20)
     except requests.RequestException:
         return ''
     m = re.search(r'data-uid="(\d+)"', r.text) or re.search(r'var uid = (\d+)', r.text)
@@ -2465,8 +2283,7 @@ def spin_wheel(acc, signup_id, category_id):
     h['Accept-Language'] = 'ru_RU'
     body = {'id': signup_id, 'categories': [{'id': category_id}], 'passport_id': int(uid)}
     try:
-        r = requests.post(SP_WHEEL_API + '/v1/offers/signup', headers=h, json=body, timeout=25,
-                          proxies=_proxy_for(acc))
+        r = requests.post(SP_WHEEL_API + '/v1/offers/signup', headers=h, json=body, timeout=25)
     except requests.RequestException as e:
         raise RuntimeError(f'Колесо Фортуны: сеть (спин): {e}')
     if r.status_code == 400 and 'match request user' in r.text:
@@ -2474,8 +2291,7 @@ def spin_wheel(acc, signup_id, category_id):
         if new_uid and new_uid != uid:
             body['passport_id'] = int(new_uid)
             try:
-                r = requests.post(SP_WHEEL_API + '/v1/offers/signup', headers=h, json=body, timeout=25,
-                                  proxies=_proxy_for(acc))
+                r = requests.post(SP_WHEEL_API + '/v1/offers/signup', headers=h, json=body, timeout=25)
             except requests.RequestException as e:
                 raise RuntimeError(f'Колесо Фортуны: сеть (спин, повтор): {e}')
     if r.status_code >= 400:

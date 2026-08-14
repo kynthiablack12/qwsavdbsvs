@@ -432,7 +432,6 @@ def api_eda_accounts():
                      'plus_balance': a.get('plus_balance'),
                      'plus_status': a.get('plus_status', ''),
                      'device': (a.get('device') or {}).get('model', ''),
-                     'proxy': a.get('proxy', ''),
                      'orders': counts[i]}
                     for i, a in enumerate(accs)])
 
@@ -480,41 +479,6 @@ def api_eda_accounts_refresh(name):
     except Exception as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, **res})
-
-
-@app.route('/api/eda/proxies')
-def api_eda_proxies():
-    return jsonify({'proxies': eda.load_eda_proxies()})
-
-
-@app.route('/api/eda/proxies', methods=['POST'])
-def api_eda_proxies_set():
-    body = request.get_json(silent=True) or {}
-    try:
-        res = eda.set_eda_proxies(body.get('proxies', ''),
-                                  check=body.get('check', True))
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-    return jsonify({'ok': True, **res})
-
-
-@app.route('/api/eda/proxies/assign', methods=['POST'])
-def api_eda_proxies_assign():
-    try:
-        n = eda.assign_eda_proxies()
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-    return jsonify({'ok': True, 'assigned': n})
-
-
-@app.route('/api/eda/accounts/<name>/proxy', methods=['POST'])
-def api_eda_accounts_proxy(name):
-    body = request.get_json(silent=True) or {}
-    try:
-        eda.set_eda_account_proxy(name, body.get('proxy', ''))
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-    return jsonify({'ok': True})
 
 
 @app.route('/api/eda/accounts/<name>/rotate-device', methods=['POST'])

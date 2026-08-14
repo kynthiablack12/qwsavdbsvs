@@ -632,8 +632,6 @@ async function loadEda() {
   fillEdaAccountSelect();
   fillCouponAccounts();
   fillAccountsSelect();
-  await loadEdaProxies();
-  initEdaProxies();
 }
 
 async function loadEdaAccounts() {
@@ -676,59 +674,6 @@ async function loadEdaAccounts() {
   } catch (e) {
     $('edaAccTable').querySelector('tbody').innerHTML = `<tr><td colspan="10" class="db-empty">${esc(e.message)}</td></tr>`;
   }
-}
-
-async function loadEdaProxies() {
-  const box = $('edaProxiesBox');
-  if (!box) return;
-  const { proxies } = await api('/api/eda/proxies');
-  box.value = proxies.join('\n');
-}
-
-let edaProxiesInited = false;
-async function initEdaProxies() {
-  if (edaProxiesInited) return;
-  edaProxiesInited = true;
-  const save = $('edaProxiesSave');
-  const assign = $('edaProxiesAssign');
-  if (!save) return;
-  save.addEventListener('click', async () => {
-    const msg = $('edaProxiesMsg');
-    const btn = save;
-    msg.textContent = '';
-    const box = $('edaProxiesBox');
-    if (!box.value.trim()) { msg.textContent = 'Введите прокси'; return; }
-    btn.disabled = true;
-    try {
-      const r = await api('/api/eda/proxies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proxies: box.value, check: true }) });
-      box.value = r.working.join('\n');
-      msg.textContent = `Рабочие: ${r.working.length}, отбраковано: ${r.failed.length}`;
-      if (r.failed.length) {
-        const det = document.createElement('div');
-        det.className = 'db-mut';
-        det.style.marginTop = '6px';
-        det.style.fontSize = '11px';
-        det.style.whiteSpace = 'pre-wrap';
-        det.textContent = r.failed.map(f => `${f.proxy} — ${f.error}`).join('\n');
-        msg.appendChild(det);
-      }
-    } catch (e) {
-      msg.textContent = e.message;
-    } finally {
-      btn.disabled = false;
-    }
-  });
-  assign.addEventListener('click', async () => {
-    const msg = $('edaProxiesMsg');
-    msg.textContent = '';
-    try {
-      const r = await api('/api/eda/proxies/assign', { method: 'POST' });
-      msg.textContent = `Назначено аккаунтам: ${r.assigned}`;
-      loadEda();
-    } catch (e) {
-      msg.textContent = e.message;
-    }
-  });
 }
 
 async function runEdaCheck() {
