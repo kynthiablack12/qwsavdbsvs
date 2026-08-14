@@ -1849,22 +1849,31 @@ def api_eda_web_checkout(token):
 def api_eda_promocode(token):
     """Применить промокод к корзине (cart/promocode, мобильный флоу «go»).
 
-    Без блокировки по «свежему устройству». Ответ result содержит
-    status/err — если промокод не применился, причина (например
-    «Не соблюдены условия акции») приходит в result.err.
+    Без блокировки по «свежему устройству». При успехе сразу пересчитывает
+    корзину go-checkout и возвращает свежий checkout/payment/available.
+    Причины отказа (например «Не соблюдены условия акции», «У вас уже был
+    первый заказ…») приходят в result.err.
     """
     try:
         s = eda_session(token)
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 403
     data = request.get_json(silent=True) or {}
+    slug = data.get('place_slug')
+    code = data.get('code')
+    if not slug:
+        return jsonify({'error': 'place_slug обязателен'}), 400
+    if not code:
+        return jsonify({'error': 'code обязателен'}), 400
     try:
-        return jsonify({'ok': True, 'result': eda.go_apply_promocode(
-            s['account'], data.get('place_slug'), data.get('code'),
-            offer_identity=data.get('offer_identity'),
+        out = eda.promo_apply_checkout(
+            s['account'], slug, code, data.get('address') or {},
             lat=data.get('lat'), lon=data.get('lon'),
-            receiving_type=data.get('receiving_type') or 'delivery'),
-            'promo_ready_in': eda.promo_ready_in(token)})
+            payment_id=data.get('payment_id') or 'sbp_qr',
+            payment_type=data.get('payment_type') or 'sbp',
+            offer_identity=data.get('offer_identity'))
+        return jsonify({'ok': True, **out,
+                        'promo_ready_in': eda.promo_ready_in(token)})
     except NotImplementedError as e:
         return jsonify({'error': str(e)}), 501
     except Exception as e:

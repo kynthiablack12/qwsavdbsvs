@@ -1750,19 +1750,27 @@ async function applyPromo() {
       method: 'POST',
       body: JSON.stringify({
         place_slug: state.rest, code,
+        address: chk.addrData,
         offer_identity: (chk.payment || {}).offer_identity,
+        payment_id: (chk.payment || {}).id || 'sbp_qr',
+        payment_type: (chk.payment || {}).type || 'sbp',
         lat: loc.latitude, lon: loc.longitude,
       }),
     });
     const res = r.result || {};
     if (res.status === 'error') {
       msg.textContent = 'Промокод: ' + (res.err || 'не применился');
-    } else if (r.error) {
-      msg.textContent = 'Промокод: ' + r.error;
-    } else {
-      msg.textContent = 'Промокод применён, пересчитываю…';
-      webCheckout();
+      return;
     }
+    if (r.error) {
+      msg.textContent = 'Промокод: ' + r.error;
+      return;
+    }
+    if (r.checkout) chk.checkout = r.checkout;
+    if (r.payment) chk.payment = r.payment;
+    if (r.available) chk.available = r.available;
+    renderChkCheckout();
+    $('chkPromoMsg').textContent = 'Промокод ' + code + ' применён ✓';
   } catch (e) {
     msg.textContent = 'Ошибка: ' + e.message;
   } finally {

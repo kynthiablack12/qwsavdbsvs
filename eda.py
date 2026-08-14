@@ -1353,6 +1353,53 @@ def go_apply_promocode(account, slug, code, offer_identity='', lat=None, lon=Non
     return res
 
 
+def promo_apply_checkout(account, slug, code, address, lat=None, lon=None,
+                         payment_id='sbp_qr', payment_type='sbp', offer_identity=''):
+    """Применить промокод (go_apply_promocode) и пересчитать корзину go-checkout.
+
+    Скидка оседает в корзине (cart/promocode), поэтому повторный go-checkout
+    без кода в теле приходит уже со свежими offers/discounts. Возвращает
+    {'result': ответ cart/promocode, 'checkout', 'payment', 'available'} —
+    если промокод не применился (result.status == 'error'), пересчёт пропускается.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    res = go_apply_promocode(acc, slug, code, offer_identity=offer_identity,
+                             lat=lat, lon=lon)
+    out = {'result': res}
+    if not (isinstance(res, dict) and res.get('status') == 'error'):
+        try:
+            d = web_checkout(acc, slug, address, lat=lat, lon=lon,
+                             payment_id=payment_id, payment_type=payment_type)
+            offer, pp = web_offer(d, payment_id, payment_type)
+            if not offer or not pp:
+                avail = [a for a in web_available_payments(d)
+                         if a.get('type') != 'add_new_card']
+                if avail:
+                    first = avail[0]
+                    offer, pp = web_offer(d, first.get('id') or first.get('type'),
+                                          first.get('type'))
+            payment = None
+            if offer and pp:
+                cfc = pp.get('costForCustomer') or {}
+                if isinstance(cfc, dict):
+                    cfc = cfc.get('value') or ''
+                request_id = offer.get('requestId') or ''
+                payment = {
+                    'id': pp.get('id'), 'type': pp.get('type'),
+                    'title': pp.get('title'),
+                    'costForCustomer': cfc,
+                    'serviceFee': pp.get('serviceFee'),
+                    'offer_identity': offer.get('offer_identity'),
+                    'requestId': request_id,
+                    'cart_id': request_id.split('.')[0] if '.' in request_id else '',
+                }
+            out.update({'checkout': d, 'payment': payment,
+                        'available': web_available_payments(d)})
+        except Exception:
+            pass
+    return out
+
+
 def web_offer(d, payment_id='sbp_qr', payment_type=None):
     """Оффер из go-checkout по способу оплаты. (offer, possiblePayment) или (None, None)."""
     for o in (d.get('offers') or []):
