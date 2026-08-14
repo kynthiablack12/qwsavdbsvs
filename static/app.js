@@ -693,7 +693,7 @@ async function initEdaProxies() {
     const msg = $('edaProxiesMsg');
     msg.textContent = '';
     try {
-      const r = await api('/api/eda/proxies', { method: 'POST', body: JSON.stringify({ proxies: $('edaProxiesBox').value }) });
+      const r = await api('/api/eda/proxies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proxies: $('edaProxiesBox').value }) });
       msg.textContent = `Сохранено прокси: ${r.proxies.length}`;
     } catch (e) {
       msg.textContent = e.message;
