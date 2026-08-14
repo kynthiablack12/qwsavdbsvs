@@ -632,6 +632,8 @@ async function loadEda() {
   fillEdaAccountSelect();
   fillCouponAccounts();
   fillAccountsSelect();
+  await loadEdaProxies();
+  initEdaProxies();
 }
 
 async function loadEdaAccounts() {
@@ -646,17 +648,68 @@ async function loadEdaAccounts() {
         <td class="num">${esc(a.uid || '—')}</td>
         <td>${a.has_token ? '<span class="sd-badge ok">есть</span>' : '<span class="db-mut">—</span>'}</td>
         <td>${a.has_sid ? '<span class="sd-badge ok">есть</span>' : '<span class="db-mut">—</span>'}</td>
+        <td>${esc(a.device || '—')}</td>
         <td class="num">${a.orders != null ? esc(String(a.orders)) : '<span class="db-mut">—</span>'}</td>
         <td class="num">${esc(a.added || '—')}</td>
-        <td class="col-actions"><button class="btn btn-danger btn-sm" data-del="${esc(a.name)}">Удалить</button></td>
-      </tr>`).join('') || '<tr><td colspan="9" class="db-empty">Аккаунтов Я.Еды нет</td></tr>';
+        <td class="col-actions">
+          <button class="btn btn-ghost btn-sm" data-rotate="${esc(a.name)}">Устройство</button>
+          <button class="btn btn-danger btn-sm" data-del="${esc(a.name)}">Удалить</button>
+        </td>
+      </tr>`).join('') || '<tr><td colspan="10" class="db-empty">Аккаунтов Я.Еды нет</td></tr>';
     tb.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
       await api(`/api/eda/accounts/${encodeURIComponent(b.dataset.del)}`, { method: 'DELETE' });
       loadEda();
     }));
+    tb.querySelectorAll('[data-rotate]').forEach(b => b.addEventListener('click', async () => {
+      const btn = b;
+      btn.disabled = true;
+      try {
+        const r = await api(`/api/eda/accounts/${encodeURIComponent(b.dataset.rotate)}/rotate-device`, { method: 'POST' });
+        alert(`Устройство сменено: ${r.device.model}`);
+        loadEda();
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }));
   } catch (e) {
-    $('edaAccTable').querySelector('tbody').innerHTML = `<tr><td colspan="9" class="db-empty">${esc(e.message)}</td></tr>`;
+    $('edaAccTable').querySelector('tbody').innerHTML = `<tr><td colspan="10" class="db-empty">${esc(e.message)}</td></tr>`;
   }
+}
+
+async function loadEdaProxies() {
+  const box = $('edaProxiesBox');
+  if (!box) return;
+  const { proxies } = await api('/api/eda/proxies');
+  box.value = proxies.join('\n');
+}
+
+async function initEdaProxies() {
+  const save = $('edaProxiesSave');
+  const assign = $('edaProxiesAssign');
+  if (!save) return;
+  save.addEventListener('click', async () => {
+    const msg = $('edaProxiesMsg');
+    msg.textContent = '';
+    try {
+      const r = await api('/api/eda/proxies', { method: 'POST', body: JSON.stringify({ proxies: $('edaProxiesBox').value }) });
+      msg.textContent = `Сохранено прокси: ${r.proxies.length}`;
+    } catch (e) {
+      msg.textContent = e.message;
+    }
+  });
+  assign.addEventListener('click', async () => {
+    const msg = $('edaProxiesMsg');
+    msg.textContent = '';
+    try {
+      const r = await api('/api/eda/proxies/assign', { method: 'POST' });
+      msg.textContent = `Назначено аккаунтам: ${r.assigned}`;
+      loadEda();
+    } catch (e) {
+      msg.textContent = e.message;
+    }
+  });
 }
 
 async function runEdaCheck() {

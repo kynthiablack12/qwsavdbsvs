@@ -1,4 +1,4 @@
-import sys, os, json, uuid, time, re, threading, urllib.parse, html
+import sys, os, json, uuid, time, re, random, threading, urllib.parse, html, zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
 import requests
@@ -42,6 +42,52 @@ GO_DEVICE_ID = 'z14561cd16b144d695f05886b6ff21e2'  # webviewuserid из захв
 DEFAULT_LAT = 55.02878527315827
 DEFAULT_LON = 73.27583823706175
 
+# Пул реальных моделей для device-профилей (антифрод: разные устройства).
+DEVICE_MODELS = [
+    {'model': 'SM-S906N', 'brand': 'samsung', 'manufacturer': 'samsung', 'os_version': '9'},
+    {'model': 'SM-A235F', 'brand': 'samsung', 'manufacturer': 'samsung', 'os_version': '13'},
+    {'model': 'SM-S911B', 'brand': 'samsung', 'manufacturer': 'samsung', 'os_version': '14'},
+    {'model': '23127PN0CC', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '14'},
+    {'model': '2210132G', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '12'},
+    {'model': 'Pixel 7', 'brand': 'google', 'manufacturer': 'Google', 'os_version': '14'},
+    {'model': 'Pixel 6a', 'brand': 'google', 'manufacturer': 'Google', 'os_version': '13'},
+    {'model': 'RMX3363', 'brand': 'realme', 'manufacturer': 'realme', 'os_version': '12'},
+    {'model': '2201117TG', 'brand': 'redmi', 'manufacturer': 'Xiaomi', 'os_version': '13'},
+    {'model': 'M2004J19C', 'brand': 'redmi', 'manufacturer': 'Xiaomi', 'os_version': '10'},
+]
+
+
+def new_device_profile():
+    """Свежий отпечаток «устройства» для аккаунта (аналог установки в Knox-папке).
+
+    Каждый аккаунт получает уникальные device_id/appmetrica-идентификаторы,
+    чтобы антифрод не видел «фарм» (много аккаунтов с одного устройства).
+    """
+    m = random.choice(DEVICE_MODELS)
+    return {
+        'device_id': str(uuid.uuid4()),
+        'appmetrica_deviceid': uuid.uuid4().hex,
+        'appmetrica_uuid': uuid.uuid4().hex,
+        'model': m['model'],
+        'brand': m['brand'],
+        'manufacturer': m['manufacturer'],
+        'os_version': m['os_version'],
+    }
+
+
+def _dev(acc):
+    """Device-профиль аккаунта: свои идентификаторы либо глобальные дефолты."""
+    p = acc.get('device') or {}
+    return {
+        'device_id': p.get('device_id') or APP['x-device-id'],
+        'appmetrica_deviceid': p.get('appmetrica_deviceid') or APP['x-appmetrica-deviceid'],
+        'appmetrica_uuid': p.get('appmetrica_uuid') or APP['x-appmetrica-uuid'],
+        'model': p.get('model') or APP['x-device-model'],
+        'brand': p.get('brand') or APP['x-device-brand'],
+        'manufacturer': p.get('manufacturer') or APP['x-device-manufacturer'],
+        'os_version': p.get('os_version') or APP['x-os-version'],
+    }
+
 # App-параметры из перехвата (эмулятор LDPlayer).
 APP = {
     'x-os-version': '9',
@@ -63,17 +109,88 @@ APP = {
 
 # ---------- account storage (bearer-based) ----------
 
-def load_eda_accounts():
+def _eda_store():
     try:
         with open(EDA_ACCOUNTS_FILE, encoding='utf-8') as f:
-            return json.load(f).get('accounts', [])
+            return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        return []
+        return {}
+
+
+def load_eda_accounts():
+    return _eda_store().get('accounts', [])
+
+
+def load_eda_proxies():
+    """Пул статических прокси: список строк вида 'host:port' или 'user:pass@host:port'."""
+    return _eda_store().get('proxies', [])
 
 
 def save_eda_accounts(accs):
+    store = _eda_store()
+    store['accounts'] = accs
     with open(EDA_ACCOUNTS_FILE, 'w', encoding='utf-8') as f:
-        json.dump({'accounts': accs}, f, ensure_ascii=False, indent=2)
+        json.dump(store, f, ensure_ascii=False, indent=2)
+
+
+def save_eda_proxies(proxies):
+    store = _eda_store()
+    store['proxies'] = proxies
+    with open(EDA_ACCOUNTS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(store, f, ensure_ascii=False, indent=2)
+
+
+def _proxy_for(acc):
+    """proxies-дикт для requests: свой прокси аккаунта или стабильный из пула."""
+    p = (acc.get('proxy') or '').strip()
+    if p:
+        return {'http': p, 'https': p}
+    pool = load_eda_proxies()
+    if not pool:
+        return None
+    idx = zlib.crc32((acc.get('name') or '').encode('utf-8')) % len(pool)
+    p = pool[idx].strip()
+    if not p:
+        return None
+    return {'http': p, 'https': p}
+
+
+def set_eda_proxies(lines):
+    """Заменить пул прокси (по одной строке на прокси, пустые/комменты игнор)."""
+    out = []
+    for ln in (lines or '').splitlines():
+        ln = ln.strip()
+        if not ln or ln.startswith('#'):
+            continue
+        if '://' not in ln:
+            ln = 'http://' + ln
+        out.append(ln)
+    save_eda_proxies(out)
+    return out
+
+
+def assign_eda_proxies():
+    """Назначить каждому аккаунту без прокси свой из пула (по кругу)."""
+    pool = load_eda_proxies()
+    n = len(pool)
+    if not n:
+        raise RuntimeError('пул прокси пуст — сначала сохрани прокси')
+    accs = load_eda_accounts()
+    used = {a.get('proxy') for a in accs if a.get('proxy')}
+    free = [p for p in pool if p not in used]
+    i = 0
+    assigned = 0
+    for a in accs:
+        if a.get('proxy'):
+            continue
+        if i >= len(free):
+            free = list(pool)
+            i = 0
+        a['proxy'] = free[i]
+        i += 1
+        assigned += 1
+    save_eda_accounts(accs)
+    return assigned
 
 
 def _parse_keyvals(raw):
@@ -263,7 +380,7 @@ def qr_status(qr_id):
     return {'state': 'waiting', 'hint': f'state={state}'}
 
 
-def add_eda_account(name, cookies_raw, token=None, yandexuid='', session_id=''):
+def add_eda_account(name, cookies_raw, token=None, yandexuid='', session_id='', device=None):
     """Добавить аккаунт Я.Еды.
 
     Авторизация Я.Еды — Bearer-токен (OAuth). Его можно передать:
@@ -273,9 +390,12 @@ def add_eda_account(name, cookies_raw, token=None, yandexuid='', session_id=''):
       - как passport `session_id` (Session_id cookie) — тогда он будет
         обменян на OAuth-токен через mobileproxy passport.
     yandexuid (passport uid) — желателен для x-yandex-uid.
+    device — device-профиль (свежие device_id/appmetrica/модель); если не
+    передан — генерируется автоматически (антифрод: разное «устройство»
+    на каждый аккаунт, как при установке в Knox-папке).
     """
     name = (name or '').strip()
-    acc = {'name': name}
+    acc = {'name': name, 'device': dict(device or new_device_profile())}
     ck = _parse_keyvals(cookies_raw)
     # если передан token отдельно — берём его
     if token:
@@ -368,6 +488,35 @@ def refresh_eda_account(name):
             return {'profile_name': a.get('profile_name', ''),
                     'plus_balance': a.get('plus_balance'),
                     'plus_status': a.get('plus_status', '')}
+    raise RuntimeError(f'аккаунт "{name}" не найден')
+
+
+def set_eda_account_proxy(name, proxy):
+    """Задать прокси конкретному аккаунту (пусто — сброс на «из пула»)."""
+    accs = load_eda_accounts()
+    for a in accs:
+        if a.get('name') == name:
+            if proxy.strip():
+                a['proxy'] = proxy.strip()
+            else:
+                a.pop('proxy', None)
+            save_eda_accounts(accs)
+            return a.get('proxy', '')
+    raise RuntimeError(f'аккаунт "{name}" не найден')
+
+
+def rotate_eda_device(name):
+    """Сменить device-профиль аккаунта (новые device_id/appmetrica/модель).
+
+    Эквивалент «переустановки приложения» / установки в Knox-папке: если
+    антифрод забанил старый отпечаток, новые промокоды могут пройти.
+    """
+    accs = load_eda_accounts()
+    for a in accs:
+        if a.get('name') == name:
+            a['device'] = new_device_profile()
+            save_eda_accounts(accs)
+            return dict(a['device'])
     raise RuntimeError(f'аккаунт "{name}" не найден')
 
 
@@ -472,6 +621,10 @@ def get_eda_account(name):
 
 # ---------- delivery access sessions ----------
 
+# Сколько ждать с момента создания сессии (новое «устройство»),
+# чтобы заказ с промокодом не отменил антифрод Я.Еды.
+DEVICE_WAIT_SECONDS = 22 * 60
+
 def load_eda_sessions():
     try:
         with open(EDA_SESSIONS_FILE, encoding='utf-8') as f:
@@ -493,14 +646,20 @@ def create_eda_session(name, account, hours=24):
     if not get_eda_account(account):
         raise RuntimeError(f'аккаунт "{account}" не найден')
     token = uuid.uuid4().hex + uuid.uuid4().hex[:8]
+    now = time.time()
     sess = load_eda_sessions()
     sess[token] = {
         'name': name,
         'account': account,
-        'created_at': time.strftime('%Y-%m-%d %H:%M:%S'),
-        'expires_at': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time() + hours * 3600)),
+        'created_at': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now)),
+        'expires_at': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now + hours * 3600)),
         'last_seen': None,
         'active': True,
+        # каждая сессия — свежее «устройство» (свои device_id/модель),
+        # поэтому таймер 22 мин считаем с момента создания сессии.
+        'device': new_device_profile(),
+        'device_at': now,
+        'promo_ready_at': now + DEVICE_WAIT_SECONDS,
     }
     save_eda_sessions(sess)
     return token
@@ -515,6 +674,42 @@ def get_eda_session(token):
     if s.get('expires_at') and s['expires_at'] < time.strftime('%Y-%m-%d %H:%M:%S'):
         return None
     return s
+
+
+def get_eda_session_account(token):
+    """Сессия + аккаунт, у которого device подменён на device сессии."""
+    s = get_eda_session(token)
+    if not s:
+        return None, None
+    acc = get_eda_account(s.get('account') or '')
+    if not acc:
+        return s, None
+    if s.get('device'):
+        acc = dict(acc)
+        acc['device'] = dict(s['device'])
+    return s, acc
+
+
+def promo_ready_in(token):
+    """Сколько секунд осталось до готовности промокода сессии (0 — готов)."""
+    s = get_eda_session(token)
+    if not s:
+        return 0
+    ready = s.get('promo_ready_at')
+    if not ready:
+        return 0
+    return max(0, ready - time.time())
+
+
+def guard_promo_ready(token):
+    """Бросить исключение, если устройство сессии ещё «свежее» (менее 22 мин)."""
+    n = promo_ready_in(token)
+    if n > 0:
+        e = RuntimeError(
+            f'устройство свежее: промокод можно применить через '
+            f'{int(n // 60)} мин {int(n % 60)} сек')
+        e.promo_ready_in = n
+        raise e
 
 
 def touch_eda_session(token):
@@ -539,7 +734,17 @@ def _hdrs(acc, lat=None, lon=None):
     """Заголовки запроса к Я.Еде (по образцу из дампа)."""
     lat = lat if lat is not None else float(acc.get('lat', DEFAULT_LAT))
     lon = lon if lon is not None else float(acc.get('lon', DEFAULT_LON))
+    d = _dev(acc)
     h = dict(APP)
+    h.update({
+        'x-device-id': d['device_id'],
+        'x-appmetrica-deviceid': d['appmetrica_deviceid'],
+        'x-appmetrica-uuid': d['appmetrica_uuid'],
+        'x-device-model': d['model'],
+        'x-device-brand': d['brand'],
+        'x-device-manufacturer': d['manufacturer'],
+        'x-os-version': d['os_version'],
+    })
     h['authorization'] = 'Bearer ' + _extract_bearer(acc)
     h['x-yandex-uid'] = str(acc.get('yandexuid', ''))
     h['x-ya-coordinates'] = f'latitude={lat},longitude={lon}'
@@ -558,7 +763,7 @@ def _eda_call(account, method, path, lat=None, lon=None, json_body=None, params=
     url = EDA_HOST + path
     try:
         r = requests.request(method, url, headers=hdrs, json=json_body,
-                             params=params, timeout=timeout)
+                             params=params, timeout=timeout, proxies=_proxy_for(acc))
     except requests.RequestException as e:
         raise RuntimeError(f'Я.Еда: сеть ({method} {path}): {e}')
     if r.status_code in (401, 403):
@@ -610,18 +815,18 @@ def plus_balance(account, lat=None, lon=None):
         'Authorization': f'OAuth {bearer}',
         'X-Yandex-Plus-AppId': 'ru.foodfox.client',
         'X-Yandex-Plus-HostAppVersion': APP['x-app-version'],
-        'X-Yandex-DeviceID': APP['x-device-id'],
+        'X-Yandex-DeviceID': _dev(acc)['device_id'],
         'X-Yandex-Plus-Platform': 'Android',
         'X-Yandex-PUID': uid,
         'X-Yandex-Plus-SdkVersion': '52.0.0',
         'X-Yandex-Plus-Service': 'eda',
         'X-Yandex-Plus-Source': 'PlusSdk',
-        'X-Yandex-UUID': APP['x-appmetrica-uuid'],
+        'X-Yandex-UUID': _dev(acc)['appmetrica_uuid'],
         'User-Agent': 'okhttp/4.11.0',
     }
     try:
         r = requests.post('https://api.plus.yandex.net/graphql', headers=hdrs,
-                          json=body, timeout=25)
+                          json=body, timeout=25, proxies=_proxy_for(acc))
     except requests.RequestException as e:
         raise RuntimeError(f'Я.Плюс: сеть (graphql PlusState): {e}')
     if r.status_code >= 400:
@@ -1011,7 +1216,7 @@ def _web_hdrs(acc, lat=None, lon=None):
         'user-agent': WEB_UA,
         'x-app-version': '18.41.3',
         'x-client-session': uuid.uuid4().hex[:32],
-        'x-device-id': WEB_DEVICE_ID,
+        'x-device-id': _dev(acc)['device_id'],
         'x-platform': 'desktop_web',
         'x-retpath-y': 'https://eda.yandex.ru/checkout',
         'x-taxi': f'{WEB_UA} platform=eats_desktop_web',
@@ -1027,7 +1232,8 @@ def _web_call(acc, method, path, json_body=None, params=None, timeout=25):
     url = EDA_HOST + path
     try:
         r = requests.request(method, url, headers=hdrs, cookies=ck,
-                             json=json_body, params=params, timeout=timeout)
+                             json=json_body, params=params, timeout=timeout,
+                             proxies=_proxy_for(acc))
     except requests.RequestException as e:
         raise RuntimeError(f'Я.Еда (веб): сеть ({method} {path}): {e}')
     if r.status_code in (401, 403):
@@ -1291,6 +1497,7 @@ def web_sbp_qr(account, order_id, attempts=15, delay=1.5):
                 cookies=ck,
                 params={'purchase_token': purchase_token},
                 timeout=20,
+                proxies=_proxy_for(acc),
             )
             if r.status_code == 200:
                 data = r.json()
@@ -1384,7 +1591,8 @@ def _places_from_layout(d):
 
 def _go_cookies(acc):
     """Куки для вкладки «Еда» в Go: webviewuserid + Session_id + yandexuid."""
-    ck = {'webviewuserid': GO_DEVICE_ID, 'webviewuserid_eats': GO_DEVICE_ID}
+    wid = _dev(acc)['device_id']
+    ck = {'webviewuserid': wid, 'webviewuserid_eats': wid}
     sid = (acc.get('session_id') or '').strip() or (acc.get('cookies') or {}).get('Session_id', '').strip()
     if sid:
         ck['Session_id'] = sid
@@ -1413,11 +1621,12 @@ def go_food_layout(acc, lat=None, lon=None):
         'referer': (GO_EATS_HOST + '/?externalEntrypoint=hub_button_eats&mode=fullscreen'
                     '&superappIsOpen=true&themeVariantKey=light'),
         'x-requested-with': 'ru.yandex.taxi',
-        'x-device-id': GO_DEVICE_ID,
+        'x-device-id': _dev(acc)['device_id'],
     }
     body = {'location': {'latitude': lat, 'longitude': lon}}
     try:
-        r = requests.post(url, headers=hdrs, json=body, cookies=_go_cookies(acc), timeout=25)
+        r = requests.post(url, headers=hdrs, json=body, cookies=_go_cookies(acc), timeout=25,
+                          proxies=_proxy_for(acc))
     except requests.RequestException as e:
         raise RuntimeError(f'Яндекс Go (Еда): сеть: {e}')
     if r.status_code >= 400:
@@ -1666,7 +1875,7 @@ def sp_daily_layout(acc):
         'operationName': 'pageableSectionGroups',
     }
     try:
-        r = requests.post(url, headers=h, json=body, timeout=30)
+        r = requests.post(url, headers=h, json=body, timeout=30, proxies=_proxy_for(acc))
     except requests.RequestException as e:
         raise RuntimeError(f'Свои Плюсы: сеть (layout): {e}')
     if r.status_code >= 400:
@@ -1713,7 +1922,8 @@ def sp_reward_detail(acc, reward_id):
     url = SP_DAILY_BASE + '/plusometer/v2/view/reward/detail'
     params = {'reward_id': reward_id, 'ext_source': 'PLUSOMETER', 'theme': 'LIGHT'}
     try:
-        r = requests.get(url, headers=sp_headers(acc), params=params, timeout=30)
+        r = requests.get(url, headers=sp_headers(acc), params=params, timeout=30,
+                         proxies=_proxy_for(acc))
     except requests.RequestException as e:
         raise RuntimeError(f'Свои Плюсы: сеть (detail): {e}')
     if r.status_code >= 400:
@@ -1732,7 +1942,8 @@ def sp_claim_reward(acc, reward_id, chosen_reward_id):
     url = (SP_DAILY_BASE + f'/plusometer/v2/view/reward/detail/{reward_id}/claim'
            + '?chosenRewardId=' + urllib.parse.quote(chosen_reward_id) + '&theme=LIGHT')
     try:
-        r = requests.post(url, headers=sp_headers(acc), data=b'', timeout=30)
+        r = requests.post(url, headers=sp_headers(acc), data=b'', timeout=30,
+                          proxies=_proxy_for(acc))
     except requests.RequestException as e:
         raise RuntimeError(f'Свои Плюсы: сеть (claim): {e}')
     if r.status_code >= 400:
@@ -1967,7 +2178,7 @@ def wheel_page_state(acc):
     h = sp_headers(acc)
     h['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
     try:
-        r = requests.get(SP_WHEEL_PAGE, headers=h, timeout=30)
+        r = requests.get(SP_WHEEL_PAGE, headers=h, timeout=30, proxies=_proxy_for(acc))
     except requests.RequestException as e:
         raise RuntimeError(f'Колесо Фортуны: сеть: {e}')
     if r.status_code >= 400:
@@ -2042,7 +2253,8 @@ def _session_uid_web(acc):
     h['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
     h['Accept-Language'] = 'ru'
     try:
-        r = requests.get('https://passport.yandex.ru/am/profile', headers=h, timeout=20)
+        r = requests.get('https://passport.yandex.ru/am/profile', headers=h, timeout=20,
+                         proxies=_proxy_for(acc))
     except requests.RequestException:
         return ''
     m = re.search(r'data-uid="(\d+)"', r.text) or re.search(r'var uid = (\d+)', r.text)
@@ -2095,7 +2307,8 @@ def spin_wheel(acc, signup_id, category_id):
     h['Accept-Language'] = 'ru_RU'
     body = {'id': signup_id, 'categories': [{'id': category_id}], 'passport_id': int(uid)}
     try:
-        r = requests.post(SP_WHEEL_API + '/v1/offers/signup', headers=h, json=body, timeout=25)
+        r = requests.post(SP_WHEEL_API + '/v1/offers/signup', headers=h, json=body, timeout=25,
+                          proxies=_proxy_for(acc))
     except requests.RequestException as e:
         raise RuntimeError(f'Колесо Фортуны: сеть (спин): {e}')
     if r.status_code == 400 and 'match request user' in r.text:
@@ -2103,7 +2316,8 @@ def spin_wheel(acc, signup_id, category_id):
         if new_uid and new_uid != uid:
             body['passport_id'] = int(new_uid)
             try:
-                r = requests.post(SP_WHEEL_API + '/v1/offers/signup', headers=h, json=body, timeout=25)
+                r = requests.post(SP_WHEEL_API + '/v1/offers/signup', headers=h, json=body, timeout=25,
+                                  proxies=_proxy_for(acc))
             except requests.RequestException as e:
                 raise RuntimeError(f'Колесо Фортуны: сеть (спин, повтор): {e}')
     if r.status_code >= 400:

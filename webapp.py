@@ -431,6 +431,8 @@ def api_eda_accounts():
                      'profile_name': a.get('profile_name', ''),
                      'plus_balance': a.get('plus_balance'),
                      'plus_status': a.get('plus_status', ''),
+                     'device': (a.get('device') or {}).get('model', ''),
+                     'proxy': a.get('proxy', ''),
                      'orders': counts[i]}
                     for i, a in enumerate(accs)])
 
@@ -478,6 +480,49 @@ def api_eda_accounts_refresh(name):
     except Exception as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, **res})
+
+
+@app.route('/api/eda/proxies')
+def api_eda_proxies():
+    return jsonify({'proxies': eda.load_eda_proxies()})
+
+
+@app.route('/api/eda/proxies', methods=['POST'])
+def api_eda_proxies_set():
+    body = request.get_json(silent=True) or {}
+    try:
+        out = eda.set_eda_proxies(body.get('proxies', ''))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'proxies': out})
+
+
+@app.route('/api/eda/proxies/assign', methods=['POST'])
+def api_eda_proxies_assign():
+    try:
+        n = eda.assign_eda_proxies()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'assigned': n})
+
+
+@app.route('/api/eda/accounts/<name>/proxy', methods=['POST'])
+def api_eda_accounts_proxy(name):
+    body = request.get_json(silent=True) or {}
+    try:
+        eda.set_eda_account_proxy(name, body.get('proxy', ''))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True})
+
+
+@app.route('/api/eda/accounts/<name>/rotate-device', methods=['POST'])
+def api_eda_accounts_rotate_device(name):
+    try:
+        dev = eda.rotate_eda_device(name)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'device': dev})
 
 
 # Проверка живости токенов/сессий всех аккаунтов.
@@ -1526,10 +1571,15 @@ def eda_client_page(token):
 
 
 def eda_session(token):
-    s = eda.get_eda_session(token)
-    if not s:
+    sess, acc = eda.get_eda_session_account(token)
+    if not sess:
         raise RuntimeError('сессия не найдена, истекла или отозвана')
+    if acc is None:
+        raise RuntimeError('аккаунт сессии не найден')
     eda.touch_eda_session(token)
+    s = dict(sess)
+    s['account'] = acc
+    s['account_name'] = sess.get('account', '')
     return s
 
 
@@ -1539,8 +1589,10 @@ def api_eda_info(token):
         s = eda_session(token)
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 403
-    return jsonify({'name': s['name'], 'account': s['account'],
-                    'expires_at': s['expires_at']})
+    return jsonify({'name': s['name'], 'account': s['account_name'],
+                    'expires_at': s['expires_at'],
+                    'promo_ready_in': eda.promo_ready_in(token),
+                    'promo_ready_at': s.get('promo_ready_at')})
 
 
 @app.route('/api/eda/<token>/profile')
@@ -1760,6 +1812,100 @@ def api_eda_checkout(token):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/eda/<token>/cities')
+def api_eda_cities(token):
+    """Города из сохранённых адресов аккаунта сессии (для выбора адреса)."""
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'cities': eda.saved_cities(s['account'])})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/web-checkout', methods=['POST'])
+def api_eda_web_checkout(token):
+    """Оформление через веб-флоу (go-checkout): offers + способы оплаты.
+
+    Возвращает checkout + normalized payment + available + promo_ready_in.
+    """
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    data = request.get_json(silent=True) or {}
+    payment_id = data.get('payment_id') or 'sbp_qr'
+    payment_type = data.get('payment_type') or 'sbp'
+    try:
+        d = eda.web_checkout(s['account'], data.get('place_slug'),
+                             data.get('address', {}),
+                             lat=data.get('lat'), lon=data.get('lon'),
+                             payment_id=payment_id, payment_type=payment_type)
+        offer, pp = eda.web_offer(d, payment_id, payment_type)
+        fallback = False
+        if not offer or not pp:
+            avail = [a for a in eda.web_available_payments(d)
+                     if a.get('type') != 'add_new_card']
+            if avail:
+                first = avail[0]
+                offer, pp = eda.web_offer(d, first.get('id') or first.get('type'),
+                                          first.get('type'))
+                fallback = True
+        payment = None
+        if offer and pp:
+            cfc = pp.get('costForCustomer') or {}
+            if isinstance(cfc, dict):
+                cfc = cfc.get('value') or ''
+            request_id = offer.get('requestId') or ''
+            payment = {
+                'id': pp.get('id'), 'type': pp.get('type'),
+                'title': pp.get('title'),
+                'costForCustomer': cfc,
+                'serviceFee': pp.get('serviceFee'),
+                'offer_identity': offer.get('offer_identity'),
+                'requestId': request_id,
+                'cart_id': request_id.split('.')[0] if '.' in request_id else '',
+            }
+        return jsonify({'ok': True, 'checkout': d, 'payment': payment,
+                        'fallback': fallback,
+                        'available': eda.web_available_payments(d),
+                        'promo_ready_in': eda.promo_ready_in(token)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/promocode', methods=['POST'])
+def api_eda_promocode(token):
+    """Применить промокод к корзине (веб). Заблокировано пока устройство свежее."""
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        eda.guard_promo_ready(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e),
+                        'promo_ready_in': getattr(e, 'promo_ready_in', 0)}), 423
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify({'ok': True, 'result': eda.web_apply_promocode(
+            s['account'], data.get('place_slug'), data.get('code'),
+            offer_identity=data.get('offer_identity'),
+            lat=data.get('lat'), lon=data.get('lon'),
+            receiving_type=data.get('receiving_type') or 'delivery'),
+            'promo_ready_in': eda.promo_ready_in(token)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/eda/<token>/payment/methods')
 def api_eda_payment_methods(token):
     try:
@@ -1776,15 +1922,74 @@ def api_eda_payment_methods(token):
 
 @app.route('/api/eda/<token>/order', methods=['POST'])
 def api_eda_order_create(token):
+    """Создать заказ с оплатой СБП (веб-флоу), при наличии промокода — с guard."""
     try:
         s = eda_session(token)
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 403
     data = request.get_json(silent=True) or {}
+    slug = data.get('place_slug')
+    address = data.get('address') or {}
+    if not slug:
+        return jsonify({'error': 'place_slug обязателен'}), 400
+    if not address:
+        return jsonify({'error': 'address обязателен'}), 400
+    if data.get('code'):
+        try:
+            eda.guard_promo_ready(token)
+        except RuntimeError as e:
+            return jsonify({'error': str(e),
+                            'promo_ready_in': getattr(e, 'promo_ready_in', 0)}), 423
+    payment_id = data.get('payment_id') or 'sbp_qr'
+    payment_type = data.get('payment_type') or 'sbp'
     try:
-        return jsonify({'ok': True, 'order': eda.create_order(
-            s['account'], data.get('address_id'), data.get('payment_id'),
-            data.get('items') or [])})
+        d = eda.web_checkout(s['account'], slug, address,
+                             lat=data.get('lat'), lon=data.get('lon'),
+                             payment_id=payment_id, payment_type=payment_type)
+        offer, pp = eda.web_offer(d, payment_id, payment_type)
+        if not offer or not pp:
+            return jsonify({
+                'error': f'Способ оплаты {payment_id} недоступен для этого заказа',
+                'available': eda.web_available_payments(d)}), 400
+        res = eda.web_create_order(
+            s['account'], slug, address, offer.get('offer_identity'), pp,
+            phone=data.get('phone') or '',
+            code=data.get('code') or None,
+            lat=data.get('lat'), lon=data.get('lon'),
+            request_id=offer.get('requestId') or None,
+            user_address_id=data.get('user_address_id') or None,
+        )
+        return jsonify({'ok': True, 'order': res})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/order/<oid>/tracking', methods=['POST'])
+def api_eda_order_tracking(token, oid):
+    """Статус оплаты заказа (order/tracking)."""
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'tracking': eda.web_order_tracking(s['account'], oid)})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/order/<oid>/qr', methods=['POST'])
+def api_eda_order_qr(token, oid):
+    """QR для СБП: поллит tracking до purchase_token, затем Trust get_payment."""
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        return jsonify({'ok': True, 'qr': eda.web_sbp_qr(s['account'], oid)})
     except NotImplementedError as e:
         return jsonify({'error': str(e)}), 501
     except Exception as e:

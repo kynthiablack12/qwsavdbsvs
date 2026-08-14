@@ -262,6 +262,17 @@ h1,h2,h3{font-family:'YSCompressed','YSText',sans-serif;font-weight:800}
 .pay-opt .st.no{color:var(--ink45)}
 .btn-main{width:calc(100% - 32px);margin:6px 16px;border:none;border-radius:16px;background:var(--yellow);color:var(--ink);font-family:inherit;font-size:15px;font-weight:500;padding:16px;cursor:pointer}
 .btn-main:disabled{opacity:.5}
+.promo-timer{margin:10px 16px 0;background:linear-gradient(135deg,#FCE000,#FFB100);color:var(--ink);border-radius:14px;padding:12px 14px;font-size:13px;font-weight:500;display:flex;align-items:center;gap:8px}
+.promo-timer b{font-weight:800}
+.promo-timer .sp{width:14px;height:14px;border:2px solid rgba(33,32,31,.2);border-top-color:var(--ink);border-radius:50%;animation:apspin .8s linear infinite;flex-shrink:0}
+.inp{width:100%;box-sizing:border-box;border:1px solid #e8e6e3;border-radius:12px;background:#f7f6f4;padding:12px;font-family:inherit;font-size:15px;color:var(--ink)}
+.inp:focus{outline:none;border-color:var(--yellow);background:#fff}
+.cart-row{display:flex;gap:8px}
+.cart-row .inp{flex:1}
+.cart-row .btn-main{width:auto;margin:0;padding:12px 16px;white-space:nowrap}
+select.inp,.ap-field select{appearance:none;-webkit-appearance:none}
+.chk-block details summary{cursor:pointer;color:var(--ink45);font-size:13px}
+.db-mut{color:var(--ink45);font-size:12px;line-height:1.5}
 /* пустая корзина */
 .cart-empty{padding:60px 24px 24px;text-align:center}
 .cart-empty .ce-em{font-size:64px;margin-bottom:20px}
@@ -323,6 +334,8 @@ h1,h2,h3{font-family:'YSCompressed','YSText',sans-serif;font-weight:800}
       </div>
       <button class="plus" onclick="toast('Яндекс Плюс: пока недоступно')">Плюс</button>
     </header>
+
+    <div class="promo-timer hidden" id="promoTimer"></div>
 
     <div class="search">
       <i>🔍</i>
@@ -545,7 +558,12 @@ async function api(url, opts) {
   }));
   let data = null;
   try { data = await r.json(); } catch (e) {}
-  if (!r.ok) throw new Error((data && (data.error || data.message)) || ('HTTP ' + r.status));
+  if (!r.ok) {
+    const err = new Error((data && (data.error || data.message)) || ('HTTP ' + r.status));
+    err.data = data || {};
+    err.status = r.status;
+    throw err;
+  }
   return data;
 }
 const qs = (obj) => {
@@ -608,6 +626,7 @@ function applyQuery(q, biz) {
 }
 
 async function loadHome() {
+  loadReady();
   try {
     const info = await api(`/api/eda/${TOKEN}/info`);
     const c = $('addrCity');
@@ -1391,84 +1410,332 @@ function renderCart() {
   $('btnCheckout').addEventListener('click', () => checkoutFlow());
 }
 
-/* ---------- оформление ---------- */
-async function checkoutFlow() {
-  const address = prompt('Адрес доставки (например: Омск, проспект Мира, 33):', 'Омск, проспект Мира, 33');
-  if (!address) return;
-  const addr = parseAddress(address);
+/* ---------- оформление (перенесено из автозаказа) ---------- */
+const chk = {
+  cities: [], city: '', addrSel: 0, addrData: null,
+  payment: null, available: [], checkout: null,
+  promo: '', phone: '', orderNr: '', readyIn: 0,
+};
+
+/* ---------- таймер 22 мин (свежее устройство сессии) ---------- */
+async function loadReady() {
   try {
-    const r = await api(`/api/eda/${TOKEN}/checkout`, {
-      method: 'POST',
-      body: JSON.stringify({place_slug: state.rest, address: addr, lat: null, lon: null}),
-    });
-    state.checkout = r.checkout;
-    renderCheckout(addr);
+    const r = await api(`/api/eda/${TOKEN}/info`);
+    chk.readyIn = Math.max(0, Math.ceil(Number(r.promo_ready_in) || 0));
+  } catch (e) { chk.readyIn = 0; }
+  renderPromoTimer();
+}
+function fmtReady(sec) {
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return `${m} мин ${s} сек`;
+}
+function renderPromoTimer() {
+  const txt = chk.readyIn > 0
+    ? `<span class="sp"></span>Промокод можно будет применить через <b>${fmtReady(chk.readyIn)}</b>`
+    : '';
+  document.querySelectorAll('.promo-timer').forEach(el => {
+    el.classList.toggle('hidden', !txt);
+    if (txt) {
+      const cur = el.querySelector('b');
+      if (!cur || cur.textContent !== fmtReady(chk.readyIn)) el.innerHTML = txt;
+    }
+  });
+  document.querySelectorAll('.order-gated').forEach(b => b.disabled = chk.readyIn > 0);
+  const pm = $('chkPromoMsg');
+  if (pm && chk.readyIn > 0) pm.textContent = `Промокод станет доступен через ${fmtReady(chk.readyIn)}`;
+}
+setInterval(() => { if (chk.readyIn > 0) { chk.readyIn--; renderPromoTimer(); } }, 1000);
+setInterval(loadReady, 30000);
+
+/* ---------- шаг 1: выбор сохранённого адреса ---------- */
+async function checkoutFlow() {
+  const box = $('cartBox');
+  box.innerHTML = '<div class="hint">Загрузка…</div>';
+  try {
+    if (!chk.cities.length) {
+      const r = await api(`/api/eda/${TOKEN}/cities`);
+      chk.cities = r.cities || [];
+    }
+    if (!chk.cities.length) {
+      box.innerHTML = '<div class="hint">Нет сохранённых адресов в аккаунте.</div>';
+      return;
+    }
+    renderAddressStep();
   } catch (e) {
-    toast('Оформление: ' + e.message);
+    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
   }
 }
 
-function parseAddress(text) {
-  let city = 'Омск', street = '', house = '';
-  const parts = text.split(',').map(s => s.trim()).filter(Boolean);
-  if (parts.length >= 3) { city = parts[0]; street = parts[1]; house = parts[2]; }
-  else if (parts.length === 2) { street = parts[0]; house = parts[1]; }
-  else { street = text; }
-  return {
-    city, street, house, country: 'Россия',
-    short_text: [street, house].filter(Boolean).join(', '),
-    full_text: [city, street, house].filter(Boolean).join(', '),
-    location: {latitude: 55.02878527315827, longitude: 73.27583823706175},
-  };
-}
-
-function crossCheckLines(cc) {
-  const lines = [];
-  (cc && cc.items || []).forEach(it => {
-    if (it.type === 'category') {
-      (it.category_items || []).forEach(ci => {
-        lines.push({name: (ci.name||{}).value || '', amount: (ci.amount||{}).value || ''});
-      });
-    } else {
-      lines.push({name: (it.name||{}).value || '', amount: (it.amount||{}).value || ''});
-    }
-  });
-  return lines;
-}
-
-function renderCheckout(addr) {
-  const co = state.checkout || {};
+function renderAddressStep() {
   const box = $('cartBox');
-  const seen = {};
-  const offers = (co.offers || []).filter(o => {
-    if (!o || !o.possiblePayment) return false;
-    const k = o.possiblePayment.title || o.possiblePayment.id || 'x';
-    if (seen[k]) return false;
-    seen[k] = true;
-    return true;
-  });
-  const first = offers[0] || (co.offers || [])[0] || {};
-  const pay = first.possiblePayment || {};
-  const lines = crossCheckLines(pay.cross_check);
+  const cities = chk.cities;
+  const city = chk.city || cities[0].city;
+  const cur = cities.find(c => c.city === city) || cities[0];
+  const addrSel = chk.addrSel || 0;
   box.innerHTML = `
-    <button class="backlink" onclick="state.checkout=null;loadCart()">‹</button>
-    <div class="vhead"><h2>Оформление</h2><p>${esc(addr.full_text)}</p></div>
-    ${lines.length ? `<div class="chk-block">
-      <h3>Состав заказа</h3>
-      ${lines.map(l => `<div class="chk-row"><span class="k">${esc(l.name)}</span><span class="v">${esc(l.amount)}</span></div>`).join('')}
-    </div>` : ''}
+    <button class="backlink" onclick="showView('cart')">‹</button>
+    <div class="vhead"><h2>Адрес доставки</h2><p>Сохранённые адреса аккаунта</p></div>
     <div class="chk-block">
-      <h3>Способы оплаты</h3>
-      ${offers.length ? offers.map(o => {
-        const p = o.possiblePayment || {};
-        const av = p.availability && p.availability.available;
-        const cfc = p.costForCustomer ? p.costForCustomer.value : '';
-        const ic = p.type === 'sbp' ? '🏦' : p.type === 'add_new_card' ? '💳' : p.type === 'create_yandex_bank' ? '🅿️' : '💳';
-        return `<div class="pay-opt"><span>${ic} ${esc(p.title||p.id||'—')}</span>
-                <span class="st ${av?'':'no'}">${av?(cfc?fmtRub(parseFloat(cfc)):''):'недоступно'}</span></div>`;
-      }).join('') : '<div class="hint" style="padding:10px 0">Нет предложений</div>'}
+      <h3>Город</h3>
+      <select class="inp" id="chkCity">
+        ${cities.map(c => `<option value="${esc(c.city)}" ${c.city === city ? 'selected' : ''}>${esc(c.city)}</option>`).join('')}
+      </select>
+      <h3 style="margin-top:14px">Адрес</h3>
+      <select class="inp" id="chkAddr">
+        ${(cur.addresses || []).map((a, i) =>
+          `<option value="${i}" ${i === addrSel ? 'selected' : ''}>${esc(a.full_text || a.short_text || '—')}</option>`).join('')}
+      </select>
     </div>
-    <button class="btn-main" id="btnOrder" disabled>Подтверждение заказа — дорабатывается</button>`;
+    <div class="chk-block">
+      <h3>Квартира / этаж / подъезд / домофон</h3>
+      <div class="ap-fields">
+        <label class="ap-field"><span>Квартира</span><input id="chkFlat" type="text" inputmode="numeric" placeholder="Кв."></label>
+        <label class="ap-field"><span>Этаж</span><input id="chkFloor" type="text" inputmode="numeric" placeholder="—"></label>
+        <label class="ap-field"><span>Подъезд</span><input id="chkEntrance" type="text" inputmode="numeric" placeholder="—"></label>
+        <label class="ap-field"><span>Домофон</span><input id="chkIntercom" type="text" inputmode="numeric" placeholder="—"></label>
+      </div>
+    </div>
+    <button class="btn-main" id="chkAddrGo">Продолжить → способы оплаты</button>`;
+  $('chkCity').addEventListener('change', () => {
+    chk.city = $('chkCity').value;
+    chk.addrSel = 0;
+    renderAddressStep();
+  });
+  $('chkAddrGo').addEventListener('click', () => {
+    const cur2 = chk.cities.find(c => c.city === $('chkCity').value) || cur;
+    chk.addrSel = Number($('chkAddr').value || 0);
+    chk.addrData = buildChkAddr(cur2.addresses[chk.addrSel]);
+    webCheckout();
+  });
+}
+
+function buildChkAddr(a) {
+  if (!a) return null;
+  const loc = a.location || {};
+  const addr = {
+    city: a.city, street: a.street, house: a.house,
+    country: a.country || 'Российская Федерация',
+    short_text: a.short_text, full_text: a.full_text,
+    location: { latitude: loc.latitude, longitude: loc.longitude },
+  };
+  if (a.uri) addr.uri = a.uri;
+  const flat = $('chkFlat').value.trim();
+  const entrance = $('chkEntrance').value.trim();
+  const floor = $('chkFloor').value.trim();
+  const intercom = $('chkIntercom').value.trim();
+  if (flat) addr.office = flat;
+  if (entrance) addr.entrance = entrance;
+  if (floor) addr.floor = floor;
+  if (intercom) addr.doorcode = intercom;
+  return addr;
+}
+
+/* ---------- шаг 2: оформление (go-checkout) ---------- */
+async function webCheckout(paymentId, paymentType) {
+  if (!chk.addrData) { toast('Выберите адрес'); return; }
+  const box = $('cartBox');
+  box.innerHTML = '<div class="hint">Оформляю…</div>';
+  const loc = chk.addrData.location || {};
+  try {
+    const r = await api(`/api/eda/${TOKEN}/web-checkout`, {
+      method: 'POST',
+      body: JSON.stringify({
+        place_slug: state.rest, address: chk.addrData,
+        lat: loc.latitude, lon: loc.longitude,
+        payment_id: paymentId || 'sbp_qr',
+        payment_type: paymentType || 'sbp',
+      }),
+    });
+    chk.checkout = r.checkout;
+    chk.payment = r.payment;
+    chk.available = r.available || [];
+    if (typeof r.promo_ready_in === 'number') chk.readyIn = Math.max(0, Math.ceil(r.promo_ready_in));
+    renderChkCheckout();
+  } catch (e) {
+    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function chkPayIcon(t) {
+  return t === 'sbp' ? '🏦' : t === 'add_new_card' ? '➕' : t === 'create_yandex_bank' ? '🅿️' : '💳';
+}
+
+function renderChkPayOpts() {
+  const cur = chk.payment || {};
+  let avail = (chk.available && chk.available.length) ? chk.available
+    : (cur.id || cur.type ? [{ id: cur.id, type: cur.type, title: cur.title }] : []);
+  avail = avail.filter((o) => o && o.type !== 'add_new_card');
+  const cards = avail.filter((o) => o.type === 'card');
+  const others = avail.filter((o) => o.type !== 'card');
+  const curId = cur.id || cur.type || '';
+  const row = (o) => `
+    <div class="pay-opt" onclick="webCheckout(${esc(JSON.stringify(o.id || o.type))}, ${esc(JSON.stringify(o.type))})">
+      <span>${chkPayIcon(o.type)} ${esc(o.title || o.type)}</span>
+      <span class="st">${o.costForCustomer ? fmtRub(o.costForCustomer) : ''}</span>
+      ${curId === (o.id || o.type) ? '<span class="st">✓</span>' : ''}
+    </div>`;
+  return `<div>${others.map(row).join('')}${cards.map(row).join('')}</div>`
+    + `<div class="db-mut" style="margin-top:8px">Текущий: ${esc(cur.title || curId || 'не выбран')}</div>`;
+}
+
+function renderChkCheckout() {
+  const box = $('cartBox');
+  const addr = chk.addrData || {};
+  const loc = addr.location || {};
+  box.innerHTML = `
+    <button class="backlink" onclick="chk.cities=[];checkoutFlow()">‹</button>
+    <div class="vhead"><h2>Оформление</h2><p>${esc(addr.full_text || addr.short_text || '')}</p></div>
+    <div class="promo-timer hidden" id="chkTimer"></div>
+    <div class="chk-block">
+      <h3>Способ оплаты</h3>
+      ${renderChkPayOpts()}
+    </div>
+    <div class="chk-block">
+      <h3>Промокод</h3>
+      <div class="cart-row">
+        <input class="inp" id="chkPromo" placeholder="Например SALE20" value="${esc(chk.promo)}">
+        <button class="btn-main order-gated" id="chkPromoGo">Применить</button>
+      </div>
+      <div class="db-mut" id="chkPromoMsg" style="margin-top:8px"></div>
+    </div>
+    <div class="chk-block">
+      <h3>Телефон получателя</h3>
+      <input class="inp" id="chkPhone" placeholder="+7 900 000-00-00" value="${esc(chk.phone)}">
+    </div>
+    <button class="btn-main order-gated" id="chkOrderBtn">💳 Оформить заказ</button>`;
+  $('chkPromoGo').addEventListener('click', applyPromo);
+  $('chkPromo').addEventListener('keydown', (e) => { if (e.key === 'Enter') applyPromo(); });
+  $('chkOrderBtn').addEventListener('click', placeOrder);
+  renderPromoTimer();
+}
+
+async function applyPromo() {
+  const code = $('chkPromo').value.trim();
+  if (!code) return;
+  chk.promo = code;
+  const msg = $('chkPromoMsg');
+  msg.textContent = 'Применяю…';
+  const loc = chk.addrData.location || {};
+  try {
+    const r = await api(`/api/eda/${TOKEN}/promocode`, {
+      method: 'POST',
+      body: JSON.stringify({
+        place_slug: state.rest, code,
+        offer_identity: (chk.payment || {}).offer_identity,
+        lat: loc.latitude, lon: loc.longitude,
+      }),
+    });
+    const res = r.result || {};
+    if (res.status === 'error') {
+      msg.textContent = 'Промокод: ' + (res.err || 'не применился');
+    } else {
+      msg.textContent = 'Промокод применён, пересчитываю…';
+      webCheckout();
+    }
+  } catch (e) {
+    if (e.data && e.data.promo_ready_in != null) {
+      chk.readyIn = Math.max(0, Math.ceil(Number(e.data.promo_ready_in) || 0));
+      renderPromoTimer();
+      msg.textContent = e.message;
+    } else {
+      msg.textContent = 'Ошибка: ' + e.message;
+    }
+  }
+}
+
+async function placeOrder() {
+  if (!chk.addrData) { toast('Сначала оформите корзину'); return; }
+  const phone = $('chkPhone').value.trim();
+  chk.phone = phone;
+  if (!phone) { toast('Укажите телефон получателя'); return; }
+  const btn = $('chkOrderBtn');
+  btn.disabled = true;
+  btn.textContent = 'Создаю заказ…';
+  const pay = chk.payment || {};
+  const firstAvail = (chk.available || []).find((a) => a && a.type !== 'add_new_card');
+  const payment_id = pay.id || pay.type || (firstAvail ? (firstAvail.id || firstAvail.type) : 'sbp_qr');
+  const payment_type = pay.type || (firstAvail ? firstAvail.type : 'sbp');
+  const loc = chk.addrData.location || {};
+  try {
+    const r = await api(`/api/eda/${TOKEN}/order`, {
+      method: 'POST',
+      body: JSON.stringify({
+        place_slug: state.rest, address: chk.addrData, phone,
+        code: chk.promo || undefined,
+        lat: loc.latitude, lon: loc.longitude,
+        payment_id, payment_type,
+      }),
+    });
+    chk.orderNr = (r.order || {}).orderNr || '';
+    renderChkOrder(r.order);
+  } catch (e) {
+    if (e.data && e.data.promo_ready_in != null) {
+      chk.readyIn = Math.max(0, Math.ceil(Number(e.data.promo_ready_in) || 0));
+      renderPromoTimer();
+    }
+    toast('Ошибка: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = '💳 Оформить заказ';
+  }
+}
+
+/* ---------- шаг 3: заказ создан + QR/оплата ---------- */
+function renderChkOrder(o) {
+  const box = $('cartBox');
+  box.innerHTML = `
+    <button class="backlink" onclick="showView('orders')">‹</button>
+    <div class="vhead"><h2>Заказ создан</h2><p>Номер: <b>${esc((o && o.orderNr) || chk.orderNr || '—')}</b></p></div>
+    <div class="chk-block">
+      <button class="btn-main" id="chkTrackBtn">🏦 Показать QR / статус оплаты</button>
+      <div id="chkTrackBox" style="margin-top:12px"></div>
+    </div>
+    <details class="chk-block"><summary class="db-mut">Сырой ответ заказа</summary>
+      <pre class="db-mut" style="white-space:pre-wrap;word-break:break-all;font-size:11px">${esc(JSON.stringify(o, null, 2))}</pre>
+    </details>`;
+  $('chkTrackBtn').addEventListener('click', trackChkOrder);
+}
+
+function chkQrSvg(text) {
+  try {
+    const qr = qrcode(0, 'M');
+    qr.addData(String(text));
+    qr.make();
+    return qr.createSvgTag({ cellSize: 4, margin: 0 });
+  } catch (e) {
+    return `<div class="db-mut">Не удалось построить QR: ${esc(e.message)}</div>`;
+  }
+}
+
+async function trackChkOrder() {
+  const oid = chk.orderNr;
+  if (!oid) { toast('Нет номера заказа'); return; }
+  const box = $('chkTrackBox');
+  box.innerHTML = '<div class="hint">Запрашиваю статус оплаты и QR…</div>';
+  try {
+    const r = await api(`/api/eda/${TOKEN}/order/${encodeURIComponent(oid)}/qr`, {
+      method: 'POST', body: '{}',
+    });
+    const q = r.qr || {};
+    const pay = q.payment || {};
+    const status = pay.status || '';
+    const out = [];
+    out.push(`<div><h3>Статус оплаты: ${esc(status) || '—'}</h3>`);
+    if (q.qr_url) {
+      out.push(`<div style="margin:8px 0;text-align:center">${chkQrSvg(q.qr_url)}</div>`);
+      out.push(`<div class="db-mut" style="word-break:break-all">Содержимое QR: ${esc(q.qr_url)}</div>`);
+    }
+    if (pay.error_message) out.push(`<div class="err">${esc(pay.error_message)}</div>`);
+    out.push('</div>');
+    if (q.purchase_token) {
+      let u = `https://trust.yandex.ru/web/payment?purchase_token=${encodeURIComponent(q.purchase_token)}&template_tag=desktop%2Fform`;
+      if (q.service_token) u += `&service_token=${encodeURIComponent(q.service_token)}`;
+      out.push(`<div class="db-mut" style="margin-top:8px"><a href="${esc(u)}" target="_blank" rel="noopener">Открыть страницу оплаты Траста</a></div>`);
+    }
+    out.push(`<div class="db-mut" style="margin-top:8px">order_id: ${esc(q.order_id || '')}</div>`);
+    box.innerHTML = out.join('');
+  } catch (e) {
+    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
 }
 
 /* ---------- заказы ---------- */
@@ -1713,5 +1980,6 @@ try {
   }
 } catch (e) {}
 </script>
+<script src="/static/js/qrcode.min.js"></script>
 </body>
 </html>
