@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Вход по QR — Яндекс</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f3f4f7; --surface: #ffffff; --surface-2: #f6f7f9;
+  --text: #1a1a1a; --muted: #7b7f89; --line: #e7e8ed;
+  --brand: #fc3f1d; --brand-soft: rgba(252,63,29,.08);
+  --good: #2fd17c; --good-soft: rgba(47,209,124,.1);
+  --warn: #e08a00; --warn-soft: rgba(224,138,0,.1);
+  --shadow: 0 8px 24px rgba(20,20,25,.08);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+  background: var(--bg); color: var(--text);
+  min-height: 100vh; -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 520px; margin: 0 auto; padding: 20px 16px 60px; }
+.hero {
+  background: linear-gradient(120deg, #fc3f1d, #ff7a1a);
+  border-radius: 0 0 22px 22px; color: #fff; padding: 16px 18px 20px; margin-bottom: 18px;
+}
+.hero-brand { font-size: 18px; font-weight: 800; letter-spacing: -.01em; }
+.hero-sub { color: rgba(255,255,255,.9); font-size: 12.5px; margin-top: 3px; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
+  padding: 20px; box-shadow: var(--shadow);
+}
+.card + .card { margin-top: 14px; }
+h2 { font-size: 15px; font-weight: 800; margin-bottom: 12px; }
+.muted { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.btn {
+  border: none; cursor: pointer; border-radius: 12px; padding: 11px 16px;
+  font-family: inherit; font-size: 13.5px; font-weight: 700;
+}
+.btn-primary { background: var(--brand); color: #fff; }
+.btn-primary:disabled { opacity: .55; cursor: default; }
+.btn-ghost { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); }
+.btn:disabled { opacity: .55; cursor: default; }
+
+.qr-box {
+  display: flex; align-items: center; justify-content: center; flex-direction: column;
+  background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 14px;
+}
+.qr-box canvas { display: block; }
+.link-box {
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; word-break: break-all; font-family: ui-monospace, monospace;
+  font-size: 12px; line-height: 1.5; color: var(--muted);
+}
+.badge {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 12px;
+  border-radius: 10px; padding: 8px 12px; font-size: 13px; font-weight: 700;
+}
+.badge.ok { background: var(--good-soft); color: #1c9d5c; }
+.badge.warn { background: var(--warn-soft); color: var(--warn); }
+.status {
+  display: flex; align-items: center; gap: 10px; min-height: 22px;
+  font-size: 13px; font-weight: 600; margin-top: 12px;
+}
+.spin {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid var(--line); border-top-color: var(--brand);
+  animation: sp 1s linear infinite;
+}
+@keyframes sp { to { transform: rotate(360deg); } }
+.hidden { display: none !important; }
+a.link { color: var(--brand); font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div class="hero-brand">Вход по QR — Яндекс</div>
+    <div class="hero-sub">Добавление аккаунта: ссылка вместо сканирования</div>
+  </div>
+
+  <div class="card">
+    <h2>1. Создать ссылку входа</h2>
+    <p class="muted">Нажмите кнопку — сгенерируется уникальная ссылка входа. Она действует ~10 минут.</p>
+    <div class="row">
+      <button class="btn btn-primary" id="btnCreate">Создать ссылку</button>
+      <button class="btn btn-ghost hidden" id="btnCopy">Копировать</button>
+    </div>
+    <div id="linkWrap" class="hidden">
+      <div class="row" style="margin-top:14px">
+        <div class="qr-box"><canvas id="qr" width="240" height="240"></canvas></div>
+      </div>
+      <div class="row">
+        <div class="link-box" id="linkText"></div>
+      </div>
+      <div class="row">
+        <button class="btn btn-ghost" id="btnOpen">Открыть ссылку и подтвердить</button>
+        <button class="btn btn-ghost" id="btnNew">Новая ссылка</button>
+      </div>
+      <div class="status" id="status"><div class="spin"></div><span>Ожидание подтверждения…</span></div>
+    </div>
+  </div>
+
+  <div class="card hidden" id="resultCard">
+    <h2>2. Результат</h2>
+    <div class="badge ok" id="resultBadge"></div>
+    <div class="status" id="resultDetail"></div>
+    <div class="row">
+      <button class="btn btn-primary" onclick="location.href='/'" type="button">Открыть админку</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Как это работает</h2>
+    <p class="muted">Ссылку можно открыть в любом браузере, где вы уже вошли в Яндекс (или в приложении Яндекса) — сканировать QR не обязательно. После подтверждения сервер получит <b>Session_id</b> аккаунта и автоматически добавит его в «Яндекс Еду» (обмен на OAuth-токен произойдёт сам).</p>
+  </div>
+</div>
+
+<script src="/static/js/qrcode.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const btnCreate = $('btnCreate'), btnCopy = $('btnCopy'), btnOpen = $('btnOpen'), btnNew = $('btnNew');
+let qrId = null, pollTimer = null;
+
+function renderQr(text) {
+  const canvas = $('qr');
+  const qr = qrcode(0, 'M');
+  qr.addData(text, 'Byte');
+  qr.make();
+  const n = qr.getModuleCount();
+  const px = Math.max(4, Math.floor((canvas.width - 20) / n));
+  const size = n * px + 20;
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#111';
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++)
+    if (qr.isDark(y, x)) ctx.fillRect(10 + x * px, 10 + y * px, px, px);
+}
+
+function setStatus(text, busy) {
+  const box = $('status');
+  box.innerHTML = busy
+    ? `<div class="spin"></div><span>${text}</span>`
+    : `<span>${text}</span>`;
+}
+
+function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+async function poll() {
+  if (!qrId) return;
+  try {
+    const r = await fetch(`/api/eda/qr/status/${qrId}`);
+    const d = await r.json();
+    if (d.state === 'waiting') {
+      setStatus(d.hint ? 'Ожидание: ' + d.hint : 'Ожидание подтверждения…', true);
+      return;
+    }
+    stopPoll();
+    if (d.state === 'ok') {
+      setStatus('Подтверждено, добавляю аккаунт…', true);
+      await finalize(d);
+    } else if (d.state === 'expired') {
+      setStatus('Ссылка устарела. Нажмите «Новая ссылка».', false);
+    } else {
+      setStatus('Ошибка: ' + (d.message || d.state), false);
+    }
+  } catch (e) {
+    stopPoll();
+    setStatus('Сеть: ' + e.message, false);
+  }
+}
+
+async function finalize(d) {
+  try {
+    const r = await fetch('/api/eda/accounts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '', session_id: d.session_id, yandexuid: d.yandexuid || '' }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    $('resultCard').classList.remove('hidden');
+    $('resultBadge').textContent = '✓ Аккаунт добавлен в Яндекс Еду';
+    $('resultDetail').textContent = 'Session_id получен, OAuth-токен обменян, профиль подтянут.';
+    $('status').classList.add('hidden');
+  } catch (e) {
+    setStatus('Не удалось добавить аккаунт: ' + e.message, false);
+    $('linkWrap').classList.add('hidden');
+    btnCreate.classList.remove('hidden');
+  }
+}
+
+async function createLink() {
+  btnCreate.disabled = true;
+  btnCreate.textContent = 'Генерация…';
+  try {
+    const r = await fetch('/api/eda/qr/start', { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.status);
+    qrId = d.qr_id;
+    $('linkText').textContent = d.link;
+    $('linkText').setAttribute('data-link', d.link);
+    renderQr(d.link);
+    $('linkWrap').classList.remove('hidden');
+    btnCopy.classList.remove('hidden');
+    $('resultCard').classList.add('hidden');
+    setStatus('Ожидание подтверждения…', true);
+    stopPoll();
+    pollTimer = setInterval(poll, 1500);
+    poll();
+  } catch (e) {
+    setStatus('Ошибка: ' + e.message, false);
+  } finally {
+    btnCreate.disabled = false;
+    btnCreate.textContent = 'Создать ссылку';
+  }
+}
+
+btnCreate.addEventListener('click', createLink);
+btnNew.addEventListener('click', createLink);
+btnOpen.addEventListener('click', () => {
+  const l = $('linkText').getAttribute('data-link');
+  if (l) window.open(l, '_blank');
+});
+btnCopy.addEventListener('click', () => {
+  const l = $('linkText').getAttribute('data-link');
+  if (navigator.clipboard) navigator.clipboard.writeText(l);
+  btnCopy.textContent = 'Скопировано';
+  setTimeout(() => { btnCopy.textContent = 'Копировать'; }, 1500);
+});
+</script>
+</body>
+</html>

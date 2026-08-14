@@ -1,4 +1,4 @@
-import sys, os, json, uuid, time, re, urllib.parse, html
+import sys, os, json, uuid, time, re, threading, urllib.parse, html
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
 import requests
@@ -152,6 +152,115 @@ def exchange_sessionid(session_id, client_id=None, client_secret=None):
         raise RuntimeError(f'Паспорт: нет access_token в ответе: {d}')
     uid = str(d.get('uid') or '')
     return tok, uid
+
+
+# ---------- QR-вход (passport magic link) ----------
+
+# Протокол (вход по QR-ссылке, без сканирования):
+#   GET  /pwl-yandex                       -> __CSRF__, cookies (yandexuid, ...)
+#   POST /pwl-yandex/api/passport/auth/password/submit -> track_id, csrf_token
+#   POST /pwl-yandex/api/passport/auth/magic/code      -> link (qrsecure?track_id&magic)
+#   POST /pwl-yandex/api/passport/auth/magic/code/status (поллинг) -> otp_auth_finished
+#   POST /pwl-yandex/api/passport/sessions/get_session -> Session_id в cookies
+# Ссылку можно открыть в браузере/приложении, где уже залогинен Яндекс,
+# — сканировать QR не обязательно.
+
+PASSPORT_PWL = 'https://passport.yandex.ru/pwl-yandex'
+QR_STATE = {}
+QR_LOCK = threading.Lock()
+QR_TTL = 600  # 10 минут — TTL QR-ссылки на стороне паспорта
+
+def _qr_headers(csrf):
+    return {
+        'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                       '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'),
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-CSRF-Token': csrf,
+    }
+
+
+def qr_start():
+    """Создать QR-сессию входа. Возвращает (qr_id, link)."""
+    s = requests.Session()
+    try:
+        r = s.get(PASSPORT_PWL, headers=_qr_headers(''), timeout=25)
+        r.raise_for_status()
+        m = re.search(r'__CSRF__\s*=\s*"([^"]+)"', r.text)
+        if not m:
+            raise RuntimeError('passport: CSRF не найден в странице')
+        csrf = m.group(1)
+        h = _qr_headers(csrf)
+        r = s.post(PASSPORT_PWL + '/api/passport/auth/password/submit',
+                   headers=h, data=json.dumps({'retpath': 'https://passport.yandex.ru/'}), timeout=25)
+        r.raise_for_status()
+        magic = r.json()
+        track_id = magic.get('track_id') or ''
+        csrf_token = magic.get('csrf_token') or ''
+        if not track_id:
+            raise RuntimeError('passport: нет track_id: ' + r.text[:200])
+        r = s.post(PASSPORT_PWL + '/api/passport/auth/magic/code',
+                   headers=h,
+                   data=json.dumps({'location_id': '0', 'magic_track_id': track_id, 'track_id': ''}),
+                   timeout=25)
+        r.raise_for_status()
+        link = r.json().get('link') or ''
+        if not link:
+            raise RuntimeError('passport: нет link: ' + r.text[:200])
+    except requests.RequestException as e:
+        raise RuntimeError(f'passport: сеть: {e}')
+    qr_id = uuid.uuid4().hex
+    with QR_LOCK:
+        QR_STATE[qr_id] = {
+            'session': s, 'csrf': csrf, 'magic_track_id': track_id,
+            'csrf_token': csrf_token, 'link': link, 'created_at': time.time(),
+        }
+    return qr_id, link
+
+
+def qr_status(qr_id):
+    """Поллинг статуса QR-входа. Вернёт {'state': 'waiting'|'ok'|'error'|'expired', ...}."""
+    with QR_LOCK:
+        st = QR_STATE.get(qr_id)
+    if not st:
+        return {'state': 'error', 'message': 'сессия не найдена (сервер перезапущен?)'}
+    if time.time() - st['created_at'] > QR_TTL:
+        with QR_LOCK:
+            QR_STATE.pop(qr_id, None)
+        return {'state': 'expired', 'message': 'ссылка устарела — создайте новую'}
+    s, h = st['session'], _qr_headers(st['csrf'])
+    try:
+        r = s.post(PASSPORT_PWL + '/api/passport/auth/magic/code/status',
+                   headers=h, data=json.dumps({
+                       'track_id': st['magic_track_id'], 'csrf_token': st['csrf_token'],
+                       'yandexAllowedDomains': []}), timeout=25)
+        r.raise_for_status()
+        d = r.json()
+    except requests.RequestException as e:
+        return {'state': 'error', 'message': f'поллинг: {e}'}
+    state = d.get('state')
+    if state in (None, 'otp_auth_not_ready'):
+        return {'state': 'waiting'}
+    if state == 'otp_auth_finished':
+        track_id = d.get('trackId')
+        if not track_id:
+            return {'state': 'error', 'message': f'нет trackId: {d}'}
+        try:
+            r = s.post(PASSPORT_PWL + '/api/passport/sessions/get_session',
+                       headers=h, data=json.dumps({'track_id': track_id}), timeout=25)
+            r.raise_for_status()
+        except requests.RequestException as e:
+            return {'state': 'error', 'message': f'get_session: {e}'}
+        ck = {c.name: c.value for c in s.cookies}
+        session_id = ck.get('Session_id') or ''
+        if not session_id:
+            return {'state': 'error', 'message': f'нет Session_id в cookies: {ck}'}
+        with QR_LOCK:
+            QR_STATE.pop(qr_id, None)
+        return {'state': 'ok', 'session_id': session_id, 'yandexuid': ck.get('yandexuid', '')}
+    if state == 'auth_challenge':
+        return {'state': 'waiting', 'hint': 'нужно доп. подтверждение в Яндекс-приложении'}
+    return {'state': 'waiting', 'hint': f'state={state}'}
 
 
 def add_eda_account(name, cookies_raw, token=None, yandexuid='', session_id=''):

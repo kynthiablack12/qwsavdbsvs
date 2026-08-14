@@ -447,6 +447,25 @@ def api_eda_accounts_add():
     return jsonify({'ok': True})
 
 
+@app.route('/api/eda/qr/start', methods=['POST'])
+def api_eda_qr_start():
+    try:
+        qr_id, link = eda.qr_start()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'ok': True, 'qr_id': qr_id, 'link': link})
+
+
+@app.route('/api/eda/qr/status/<qr_id>')
+def api_eda_qr_status(qr_id):
+    return jsonify(eda.qr_status(qr_id))
+
+
+@app.route('/qr')
+def page_qr():
+    return render_template('qr.html')
+
+
 @app.route('/api/eda/accounts/<name>', methods=['DELETE'])
 def api_eda_accounts_delete(name):
     eda.delete_eda_account(name)
