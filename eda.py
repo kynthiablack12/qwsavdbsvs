@@ -1323,8 +1323,21 @@ def go_apply_promocode(account, slug, code, offer_identity='', lat=None, lon=Non
     if _use_web(acc):
         return _web_call(acc, 'POST', '/api/v2/cart/promocode',
                          {'code': code}, params=params)
-    return _eda_call(acc, 'POST', '/api/v2/cart/promocode',
-                     lat, lon, params=params, json_body={'code': code})
+    res = _eda_call(acc, 'POST', '/api/v2/cart/promocode',
+                    lat, lon, params=params, json_body={'code': code})
+    # Мобильный флоу для свежих промокодов (500go, FREE500 и т.п.) прячет
+    # реальную причину за гейтом «Необходимо обновить приложение» — он не
+    # зависит от заголовка x-app-version (проверено на 3.19.0…100.0.0),
+    # а привязан к фингерпринту/каналу. Веб-флоу (Session_id) отвечает
+    # честно и применяет код — при этом гейте уточняем причину через него.
+    if isinstance(res, dict) and 'обновить приложение' in (res.get('err') or '') and (
+            acc.get('session_id') or (acc.get('cookies') or {}).get('Session_id')):
+        wr = _web_call(acc, 'POST', '/api/v2/cart/promocode',
+                       {'code': code}, params=params)
+        if isinstance(wr, dict) and wr.get('err'):
+            wr['via'] = 'web'
+            return wr
+    return res
 
 
 def web_offer(d, payment_id='sbp_qr', payment_type=None):
