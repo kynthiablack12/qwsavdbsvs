@@ -43,17 +43,25 @@ DEFAULT_LAT = 55.02878527315827
 DEFAULT_LON = 73.27583823706175
 
 # Пул реальных моделей для device-профилей (антифрод: разные устройства).
+# Каждая пара модель/версия ОС реалистична (версия не ниже той, с которой
+# модель вышла) — несоответствия типа S22 на Android 9 палят эмулятор.
 DEVICE_MODELS = [
-    {'model': 'SM-S906N', 'brand': 'samsung', 'manufacturer': 'samsung', 'os_version': '9'},
+    {'model': 'SM-S906N', 'brand': 'samsung', 'manufacturer': 'samsung', 'os_version': '13'},
     {'model': 'SM-A235F', 'brand': 'samsung', 'manufacturer': 'samsung', 'os_version': '13'},
+    {'model': 'SM-A515F', 'brand': 'samsung', 'manufacturer': 'samsung', 'os_version': '10'},
+    {'model': 'SM-G991B', 'brand': 'samsung', 'manufacturer': 'samsung', 'os_version': '11'},
     {'model': 'SM-S911B', 'brand': 'samsung', 'manufacturer': 'samsung', 'os_version': '14'},
     {'model': '23127PN0CC', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '14'},
     {'model': '2210132G', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '12'},
-    {'model': 'Pixel 7', 'brand': 'google', 'manufacturer': 'Google', 'os_version': '14'},
-    {'model': 'Pixel 6a', 'brand': 'google', 'manufacturer': 'Google', 'os_version': '13'},
+    {'model': '2201117TG', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '12'},
+    {'model': '2107119DC', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '11'},
+    {'model': 'M2004J19C', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '10'},
+    {'model': 'Pixel 7', 'brand': 'google', 'manufacturer': 'Google', 'os_version': '13'},
+    {'model': 'Pixel 6a', 'brand': 'google', 'manufacturer': 'Google', 'os_version': '12'},
+    {'model': 'Pixel 4a', 'brand': 'google', 'manufacturer': 'Google', 'os_version': '10'},
     {'model': 'RMX3363', 'brand': 'realme', 'manufacturer': 'realme', 'os_version': '12'},
-    {'model': '2201117TG', 'brand': 'redmi', 'manufacturer': 'Xiaomi', 'os_version': '13'},
-    {'model': 'M2004J19C', 'brand': 'redmi', 'manufacturer': 'Xiaomi', 'os_version': '10'},
+    {'model': 'RMX1921', 'brand': 'realme', 'manufacturer': 'realme', 'os_version': '9'},
+    {'model': 'LRA-NX9', 'brand': 'honor', 'manufacturer': 'HONOR', 'os_version': '12'},
 ]
 
 
@@ -88,17 +96,18 @@ def _dev(acc):
         'os_version': p.get('os_version') or APP['x-os-version'],
     }
 
-# App-параметры из перехвата (эмулятор LDPlayer).
+# App-параметры (дефолт — реальная модель Galaxy A23 на Android 13,
+# а не эмуляторная S22+Android 9: такие несоответствия палят антифрод).
 # x-app-version/user-agent: поднимаем до актуальной версии приложения — мобильный
 # эндпоинт cart/promocode гейтит свежие промокоды (500go, FREE500) сообщением
 # «Необходимо обновить приложение» по версии в user-agent (порог ~3.80, проверено:
 # 3.19.0…3.70 — гейт, 3.80+ — реальный ответ). x-code-version на гейт не влияет.
 APP = {
-    'x-os-version': '9',
-    'x-device-model': 'SM-S906N',
+    'x-os-version': '13',
+    'x-device-model': 'SM-A235F',
     'x-device-brand': 'samsung',
     'x-device-manufacturer': 'samsung',
-    'x-android-platform-services-type': 'huawei',
+    'x-android-platform-services-type': 'google',
     'x-platform': 'android_app',
     'x-app-version': '3.99.0',
     'x-code-version': '249708',

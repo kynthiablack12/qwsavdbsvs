@@ -1741,7 +1741,9 @@ async function applyPromo() {
   if (!code) return;
   chk.promo = code;
   const msg = $('chkPromoMsg');
+  const btn = $('chkPromoGo');
   msg.textContent = 'Применяю…';
+  btn.disabled = true;
   const loc = chk.addrData.location || {};
   try {
     const r = await api(`/api/eda/${TOKEN}/promocode`, {
@@ -1755,12 +1757,16 @@ async function applyPromo() {
     const res = r.result || {};
     if (res.status === 'error') {
       msg.textContent = 'Промокод: ' + (res.err || 'не применился');
+    } else if (r.error) {
+      msg.textContent = 'Промокод: ' + r.error;
     } else {
       msg.textContent = 'Промокод применён, пересчитываю…';
       webCheckout();
     }
   } catch (e) {
     msg.textContent = 'Ошибка: ' + e.message;
+  } finally {
+    btn.disabled = false;
   }
 }
 
