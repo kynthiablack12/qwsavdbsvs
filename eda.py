@@ -226,15 +226,18 @@ def _proxy_for(acc):
     return {'http': p, 'https': p}
 
 
+# Все цели HTTPS: для Я.Еды прокси обязан уметь CONNECT-туннель (HTTPS).
+# Прокси, работающие только по чистому HTTP, отбраковываются (иначе 405 на
+# CONNECT при запросе https://eda.yandex.ru — см. ProxyError/Tunnel connection).
 PROXY_CHECK_TARGETS = [
-    'http://connectivitycheck.gstatic.com/generate_204',
+    'https://www.gstatic.com/generate_204',
     'https://api.ipify.org',
     'https://eda.yandex.ru/',
 ]
 
 
 def check_proxy(proxy, timeout=10):
-    """Проверить прокси живой ли (коннект через него до 204-эндпоинта).
+    """Проверить прокси живой ли (HTTPS CONNECT-туннель через него).
 
     Возвращает (ok, info): info — время ответа в мс либо причина отказа.
     """
@@ -252,7 +255,11 @@ def check_proxy(proxy, timeout=10):
                 return True, f'{int((time.time() - t0) * 1000)} мс'
             last_err = f'HTTP {r.status_code}'
         except requests.exceptions.ProxyError as e:
-            last_err = 'прокси отклонил запрос'
+            msg = str(e)
+            if '405' in msg or 'Tunnel' in msg or 'CONNECT' in msg:
+                last_err = 'нет CONNECT-туннеля (HTTPS не поддерживается)'
+            else:
+                last_err = 'прокси отклонил запрос'
         except requests.exceptions.ConnectTimeout:
             last_err = 'таймаут соединения'
         except requests.exceptions.ConnectionError:
