@@ -254,6 +254,9 @@ h1,h2,h3{font-family:'YSCompressed','YSText',sans-serif;font-weight:800}
 .cart-sum .sum-val{font-weight:800;font-family:'YSText',sans-serif}
 .chk-block{background:#fff;border-radius:20px;margin:0 16px 12px;padding:16px;box-shadow:0 2px 10px rgba(33,32,31,.05)}
 .chk-block h3{font-size:15px;font-weight:700;margin-bottom:10px}
+.chk-search{position:relative}
+.chk-search .search{margin:0}
+.chk-addr-res{margin-top:10px;font-size:14px;color:var(--ink);background:var(--search);border-radius:14px;padding:10px 14px;display:flex;align-items:center;gap:8px}
 .chk-row{display:flex;justify-content:space-between;font-size:14px;padding:5px 0}
 .chk-row .k{color:var(--ink45)}
 .chk-row .v{font-weight:500;text-align:right}
@@ -1412,7 +1415,7 @@ function renderCart() {
 
 /* ---------- оформление (перенесено из автозаказа) ---------- */
 const chk = {
-  cities: [], city: '', addrSel: 0, addrData: null,
+  cities: [], city: '', addrSel: 0, addrData: null, manualAddr: null,
   payment: null, available: [], checkout: null,
   promo: '', phone: '', orderNr: '', readyIn: 0,
 };
@@ -1447,7 +1450,7 @@ function renderPromoTimer() {
 setInterval(() => { if (chk.readyIn > 0) { chk.readyIn--; renderPromoTimer(); } }, 1000);
 setInterval(loadReady, 30000);
 
-/* ---------- шаг 1: выбор сохранённого адреса ---------- */
+/* ---------- шаг 1: выбор адреса (сохранённый или поиск/ввод) ---------- */
 async function checkoutFlow() {
   const box = $('cartBox');
   box.innerHTML = '<div class="hint">Загрузка…</div>';
@@ -1455,10 +1458,6 @@ async function checkoutFlow() {
     if (!chk.cities.length) {
       const r = await api(`/api/eda/${TOKEN}/cities`);
       chk.cities = r.cities || [];
-    }
-    if (!chk.cities.length) {
-      box.innerHTML = '<div class="hint">Нет сохранённых адресов в аккаунте.</div>';
-      return;
     }
     renderAddressStep();
   } catch (e) {
@@ -1469,22 +1468,36 @@ async function checkoutFlow() {
 function renderAddressStep() {
   const box = $('cartBox');
   const cities = chk.cities;
-  const city = chk.city || cities[0].city;
-  const cur = cities.find(c => c.city === city) || cities[0];
+  const hasSaved = cities && cities.length;
+  const city = chk.city || (cities[0] ? cities[0].city : '');
+  const cur = cities.find(c => c.city === city) || (cities[0] || null);
   const addrSel = chk.addrSel || 0;
   box.innerHTML = `
     <button class="backlink" onclick="showView('cart')">‹</button>
-    <div class="vhead"><h2>Адрес доставки</h2><p>Сохранённые адреса аккаунта</p></div>
+    <div class="vhead"><h2>Адрес доставки</h2><p>${hasSaved ? 'Сохранённый или любой другой адрес' : 'Укажите адрес доставки'}</p></div>
+    ${hasSaved ? `
     <div class="chk-block">
       <h3>Город</h3>
       <select class="inp" id="chkCity">
         ${cities.map(c => `<option value="${esc(c.city)}" ${c.city === city ? 'selected' : ''}>${esc(c.city)}</option>`).join('')}
       </select>
-      <h3 style="margin-top:14px">Адрес</h3>
+      <h3 style="margin-top:14px">Сохранённый адрес</h3>
       <select class="inp" id="chkAddr">
         ${(cur.addresses || []).map((a, i) =>
           `<option value="${i}" ${i === addrSel ? 'selected' : ''}>${esc(a.full_text || a.short_text || '—')}</option>`).join('')}
       </select>
+    </div>` : ''}
+    <div class="chk-block">
+      <h3>${hasSaved ? 'Или найдите другой адрес' : 'Адрес доставки'}</h3>
+      <div class="chk-search">
+        <div class="search">
+          <i>🔍</i>
+          <input id="chkSearch" type="text" placeholder="Улица, дом, город…" autocomplete="off">
+          <button class="clear hidden" id="chkClear" type="button">✕</button>
+        </div>
+        <div id="chkSuggest" class="addr-suggest hidden"></div>
+      </div>
+      <div id="chkAddrRes" class="chk-addr-res hidden"></div>
     </div>
     <div class="chk-block">
       <h3>Квартира / этаж / подъезд / домофон</h3>
@@ -1496,38 +1509,152 @@ function renderAddressStep() {
       </div>
     </div>
     <button class="btn-main" id="chkAddrGo">Продолжить → способы оплаты</button>`;
-  $('chkCity').addEventListener('change', () => {
-    chk.city = $('chkCity').value;
-    chk.addrSel = 0;
-    renderAddressStep();
-  });
+  if (hasSaved) {
+    $('chkCity').addEventListener('change', () => {
+      chk.city = $('chkCity').value;
+      chk.addrSel = 0;
+      chk.manualAddr = null;
+      renderAddressStep();
+    });
+  }
   $('chkAddrGo').addEventListener('click', () => {
-    const cur2 = chk.cities.find(c => c.city === $('chkCity').value) || cur;
-    chk.addrSel = Number($('chkAddr').value || 0);
-    chk.addrData = buildChkAddr(cur2.addresses[chk.addrSel]);
+    const fields = {
+      flat: $('chkFlat').value.trim(),
+      entrance: $('chkEntrance').value.trim(),
+      floor: $('chkFloor').value.trim(),
+      intercom: $('chkIntercom').value.trim(),
+    };
+    if (chk.manualAddr) {
+      chk.addrData = buildChkAddr(chk.manualAddr, fields);
+    } else if (hasSaved) {
+      const cur2 = chk.cities.find(c => c.city === $('chkCity').value) || cur;
+      chk.addrSel = Number($('chkAddr').value || 0);
+      chk.addrData = buildChkAddr(cur2.addresses[chk.addrSel], fields);
+    } else {
+      toast('Найдите или введите адрес доставки');
+      return;
+    }
     webCheckout();
+  });
+  $('chkSearch').addEventListener('input', () => {
+    const v = $('chkSearch').value.trim();
+    $('chkClear').classList.toggle('hidden', !v);
+    if (chk.manualAddr) chk.manualAddr = null;
+    $('chkAddrRes').classList.add('hidden');
+    chkDoSearch(v);
+  });
+  $('chkClear').addEventListener('click', () => {
+    $('chkSearch').value = '';
+    $('chkClear').classList.add('hidden');
+    $('chkSuggest').classList.add('hidden');
+    $('chkAddrRes').classList.add('hidden');
+    chk.manualAddr = null;
   });
 }
 
-function buildChkAddr(a) {
+function buildChkAddr(a, f) {
   if (!a) return null;
   const loc = a.location || {};
   const addr = {
     city: a.city, street: a.street, house: a.house,
-    country: a.country || 'Российская Федерация',
+    country: a.country || 'Россия',
     short_text: a.short_text, full_text: a.full_text,
     location: { latitude: loc.latitude, longitude: loc.longitude },
   };
   if (a.uri) addr.uri = a.uri;
-  const flat = $('chkFlat').value.trim();
-  const entrance = $('chkEntrance').value.trim();
-  const floor = $('chkFloor').value.trim();
-  const intercom = $('chkIntercom').value.trim();
+  if (a.id) addr.id = a.id;
+  const flat = f && f.flat != null ? f.flat : $('chkFlat').value.trim();
+  const entrance = f && f.entrance != null ? f.entrance : $('chkEntrance').value.trim();
+  const floor = f && f.floor != null ? f.floor : $('chkFloor').value.trim();
+  const intercom = f && f.intercom != null ? f.intercom : $('chkIntercom').value.trim();
   if (flat) addr.office = flat;
   if (entrance) addr.entrance = entrance;
   if (floor) addr.floor = floor;
   if (intercom) addr.doorcode = intercom;
   return addr;
+}
+
+/* поиск и выбор произвольного адреса через ymaps */
+let chkST = null;
+
+function chkDoSearch(q) {
+  const box = $('chkSuggest');
+  clearTimeout(chkST);
+  if (!q) { box.classList.add('hidden'); return; }
+  box.innerHTML = '<div class="hint" style="padding:20px">Поиск…</div>';
+  box.classList.remove('hidden');
+  chkST = setTimeout(() => {
+    ymaps.suggest(q, { results: 7 }).then(res => {
+      const items = res.map(s => ({
+        value: s.value,
+        pos: s.items && s.items[0] && s.items[0].position,
+      }));
+      if (!items.length) {
+        box.innerHTML = '<div class="hint" style="padding:20px">Ничего не найдено</div>';
+        return;
+      }
+      box.innerHTML = addrSuggestItems(items);
+      box.querySelectorAll('.as-item').forEach(b => b.addEventListener('click', () => {
+        const pos = (b.dataset.pos || '').split(',');
+        const lat = pos[1] ? Number(pos[1]) : null;
+        const lon = pos[0] ? Number(pos[0]) : null;
+        chkPickAddr(b.dataset.t, lat, lon);
+      }));
+    });
+  }, 300);
+}
+
+function chkPickAddr(text, lat, lon) {
+  $('chkSearch').value = text;
+  $('chkSuggest').classList.add('hidden');
+  $('chkClear').classList.remove('hidden');
+  const res = $('chkAddrRes');
+  res.classList.remove('hidden');
+  res.innerHTML = '<span class="sp"></span> Уточняю адрес…';
+  const apply = (obj, la, lo) => {
+    chk.manualAddr = chkStructured(obj, text, la, lo);
+    res.innerHTML = '✅ ' + esc(chk.manualAddr.full_text || text);
+  };
+  if (lat) {
+    ymaps.geocode([lat, lon], { results: 1 }).then(r => {
+      apply(r.geoObjects.get(0), lat, lon);
+    }).catch(() => apply(null, lat, lon));
+  } else {
+    ymaps.geocode(text, { results: 1 }).then(r => {
+      const o = r.geoObjects.get(0);
+      if (o) {
+        const c = o.geometry.getCoordinates();
+        apply(o, c[0], c[1]);
+      } else {
+        apply(null, null, null);
+      }
+    }).catch(() => apply(null, null, null));
+  }
+}
+
+function chkStructured(obj, text, lat, lon) {
+  let country = 'Россия', city = '', street = '', house = '';
+  if (obj && obj.properties) {
+    const comps = obj.properties.get('metaDataProperty.GeocoderMetaData.Address.Components');
+    if (Array.isArray(comps)) {
+      for (const c of comps) {
+        const n = c && c.name;
+        if (!n) continue;
+        if (c.kind === 'country') country = n;
+        else if (c.kind === 'locality') city = n;
+        else if (c.kind === 'street') street = n;
+        else if (c.kind === 'house') house = n;
+      }
+    }
+  }
+  const full = obj ? obj.getAddressLine() : (text || '');
+  const short = (street ? street + (house ? ', ' + house : '') : full) || text || '';
+  return {
+    country, city, street, house,
+    short_text: short,
+    full_text: full || text || '',
+    location: lat ? { latitude: lat, longitude: lon } : null,
+  };
 }
 
 /* ---------- шаг 2: оформление (go-checkout) ---------- */
