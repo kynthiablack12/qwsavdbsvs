@@ -1270,8 +1270,12 @@ def web_saved_addresses(account, lat=None, lon=None):
     return out
 
 
-def web_checkout(account, slug, address, lat=None, lon=None, payment_id='sbp_qr', payment_type='sbp'):
+def web_checkout(account, slug, address, lat=None, lon=None, payment_id='sbp_qr', payment_type='sbp', promocode=None):
     """Оформление (веб): go-checkout с выбором СБП.
+
+    Промокод применяется прямо в теле go-checkout (как делает приложение
+    «Еда»/Go): {'promocode': {'promocode': CODE}} — ответ приходит уже со
+    скидкой и promocodeParams.
 
     Возвращает offers — каждый с offer_identity, requestId
     (= cart_id.offer_identity) и possiblePayment{id,type,costForCustomer}.
@@ -1291,8 +1295,41 @@ def web_checkout(account, slug, address, lat=None, lon=None, payment_id='sbp_qr'
             'selected_payment_type': {'id': payment_id, 'type': payment_type},
         },
     }
+    if promocode:
+        body['promocode'] = {'promocode': promocode}
     return _web_call(acc, 'POST', '/api/v2/cart/go-checkout', body,
                      params={'longitude': lon, 'latitude': lat})
+
+
+def web_promocode_status(d, code=''):
+    """Статус промокода из ответа go-checkout (promocodeParams).
+
+    Применённый код приходит в верхнеуровневом promocodeParams
+    {status, promocode, discount}. Если поля нет — пробуем угадать по
+    discounts в офферах; иначе считаем код не применённым.
+    """
+    p = d.get('promocodeParams') or {}
+    if not isinstance(p, dict):
+        p = {}
+    status = str(p.get('status') or p.get('displayStatus') or '').upper()
+    applied = status in ('ACTIVATED', 'ACTIVE', 'APPLIED', 'OK', 'SUCCESS')
+    if not applied:
+        applied = bool(p.get('promocode') or p.get('code')) or bool(p.get('discount'))
+    if not applied:
+        for o in (d.get('offers') or []):
+            pp = o.get('possiblePayment') or {}
+            discounts = pp.get('discounts') or []
+            if any(isinstance(ds, dict) and ds.get('promocode') for ds in discounts):
+                applied = True
+                break
+    err = status if status and not applied else None
+    return {
+        'applied': applied,
+        'status': status,
+        'promocode': p.get('promocode') or p.get('code') or code or '',
+        'discount': p.get('discount') or None,
+        'error': err,
+    }
 
 
 def web_offer(d, payment_id='sbp_qr', payment_type=None):

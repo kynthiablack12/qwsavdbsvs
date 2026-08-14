@@ -1847,24 +1847,59 @@ def api_eda_web_checkout(token):
 
 @app.route('/api/eda/<token>/promocode', methods=['POST'])
 def api_eda_promocode(token):
-    """Применить промокод к корзине (веб). Заблокировано пока устройство свежее."""
+    """Применить промокод через go-checkout (promocode в теле go-checkout).
+
+    Возвращает checkout + payment + available + promocode_status
+    ({applied, status, promocode, discount, error}).
+    """
     try:
         s = eda_session(token)
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 403
-    try:
-        eda.guard_promo_ready(token)
-    except RuntimeError as e:
-        return jsonify({'error': str(e),
-                        'promo_ready_in': getattr(e, 'promo_ready_in', 0)}), 423
     data = request.get_json(silent=True) or {}
+    slug = data.get('place_slug')
+    code = data.get('code')
+    address = data.get('address') or {}
+    if not slug:
+        return jsonify({'error': 'place_slug обязателен'}), 400
+    if not code:
+        return jsonify({'error': 'code обязателен'}), 400
+    if not address:
+        return jsonify({'error': 'address обязателен'}), 400
+    payment_id = data.get('payment_id') or 'sbp_qr'
+    payment_type = data.get('payment_type') or 'sbp'
     try:
-        return jsonify({'ok': True, 'result': eda.web_apply_promocode(
-            s['account'], data.get('place_slug'), data.get('code'),
-            offer_identity=data.get('offer_identity'),
-            lat=data.get('lat'), lon=data.get('lon'),
-            receiving_type=data.get('receiving_type') or 'delivery'),
-            'promo_ready_in': eda.promo_ready_in(token)})
+        d = eda.web_checkout(s['account'], slug, address,
+                             lat=data.get('lat'), lon=data.get('lon'),
+                             payment_id=payment_id, payment_type=payment_type,
+                             promocode=code)
+        payment = None
+        offer, pp = eda.web_offer(d, payment_id, payment_type)
+        if not offer or not pp:
+            avail = [a for a in eda.web_available_payments(d)
+                     if a.get('type') != 'add_new_card']
+            if avail:
+                first = avail[0]
+                offer, pp = eda.web_offer(d, first.get('id') or first.get('type'),
+                                          first.get('type'))
+        if offer and pp:
+            cfc = pp.get('costForCustomer') or {}
+            if isinstance(cfc, dict):
+                cfc = cfc.get('value') or ''
+            request_id = offer.get('requestId') or ''
+            payment = {
+                'id': pp.get('id'), 'type': pp.get('type'),
+                'title': pp.get('title'),
+                'costForCustomer': cfc,
+                'serviceFee': pp.get('serviceFee'),
+                'offer_identity': offer.get('offer_identity'),
+                'requestId': request_id,
+                'cart_id': request_id.split('.')[0] if '.' in request_id else '',
+            }
+        return jsonify({'ok': True, 'checkout': d, 'payment': payment,
+                        'available': eda.web_available_payments(d),
+                        'promocode_status': eda.web_promocode_status(d, code),
+                        'promo_ready_in': eda.promo_ready_in(token)})
     except NotImplementedError as e:
         return jsonify({'error': str(e)}), 501
     except Exception as e:
@@ -1899,12 +1934,6 @@ def api_eda_order_create(token):
         return jsonify({'error': 'place_slug обязателен'}), 400
     if not address:
         return jsonify({'error': 'address обязателен'}), 400
-    if data.get('code'):
-        try:
-            eda.guard_promo_ready(token)
-        except RuntimeError as e:
-            return jsonify({'error': str(e),
-                            'promo_ready_in': getattr(e, 'promo_ready_in', 0)}), 423
     payment_id = data.get('payment_id') or 'sbp_qr'
     payment_type = data.get('payment_type') or 'sbp'
     try:

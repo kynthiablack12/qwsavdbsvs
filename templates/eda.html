@@ -1443,7 +1443,7 @@ function renderPromoTimer() {
       if (!cur || cur.textContent !== fmtReady(chk.readyIn)) el.innerHTML = txt;
     }
   });
-  document.querySelectorAll('.order-gated').forEach(b => b.disabled = chk.readyIn > 0);
+  document.querySelectorAll('.order-gated').forEach(b => b.disabled = false);
   const pm = $('chkPromoMsg');
   if (pm && chk.readyIn > 0) pm.textContent = `Промокод станет доступен через ${fmtReady(chk.readyIn)}`;
 }
@@ -1743,30 +1743,33 @@ async function applyPromo() {
   const msg = $('chkPromoMsg');
   msg.textContent = 'Применяю…';
   const loc = chk.addrData.location || {};
+  const pay = chk.payment || {};
   try {
     const r = await api(`/api/eda/${TOKEN}/promocode`, {
       method: 'POST',
       body: JSON.stringify({
         place_slug: state.rest, code,
-        offer_identity: (chk.payment || {}).offer_identity,
+        address: chk.addrData,
+        offer_identity: pay.offer_identity,
+        payment_id: pay.id || pay.type || 'sbp_qr',
+        payment_type: pay.type || 'sbp',
         lat: loc.latitude, lon: loc.longitude,
       }),
     });
-    const res = r.result || {};
-    if (res.status === 'error') {
-      msg.textContent = 'Промокод: ' + (res.err || 'не применился');
+    const st = r.promocode_status || {};
+    if (r.payment) {
+      chk.payment = r.payment;
+      chk.available = r.available || [];
+      chk.checkout = r.checkout;
+    }
+    if (st.applied) {
+      renderChkCheckout();
+      $('chkPromoMsg').textContent = 'Промокод ' + code + ' применён ✓';
     } else {
-      msg.textContent = 'Промокод применён, пересчитываю…';
-      webCheckout();
+      msg.textContent = 'Промокод не применился' + (st.error ? ': ' + st.error : '');
     }
   } catch (e) {
-    if (e.data && e.data.promo_ready_in != null) {
-      chk.readyIn = Math.max(0, Math.ceil(Number(e.data.promo_ready_in) || 0));
-      renderPromoTimer();
-      msg.textContent = e.message;
-    } else {
-      msg.textContent = 'Ошибка: ' + e.message;
-    }
+    msg.textContent = 'Ошибка: ' + e.message;
   }
 }
 
