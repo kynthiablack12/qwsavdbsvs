@@ -140,31 +140,44 @@ def save_eda_proxies(proxies):
         json.dump(store, f, ensure_ascii=False, indent=2)
 
 
+def _norm_proxy(ln):
+    """Нормализовать строку прокси: допускаются 'host:port' и 'user:pass@host:port'.
+
+    Без схемы добавляется http:// (поддерживаются прокси без логина/пароля).
+    """
+    ln = (ln or '').strip()
+    if not ln or ln.startswith('#'):
+        return None
+    if '://' not in ln:
+        ln = 'http://' + ln
+    return ln
+
+
 def _proxy_for(acc):
     """proxies-дикт для requests: свой прокси аккаунта или стабильный из пула."""
-    p = (acc.get('proxy') or '').strip()
+    p = _norm_proxy(acc.get('proxy'))
     if p:
         return {'http': p, 'https': p}
     pool = load_eda_proxies()
     if not pool:
         return None
     idx = zlib.crc32((acc.get('name') or '').encode('utf-8')) % len(pool)
-    p = pool[idx].strip()
+    p = _norm_proxy(pool[idx])
     if not p:
         return None
     return {'http': p, 'https': p}
 
 
 def set_eda_proxies(lines):
-    """Заменить пул прокси (по одной строке на прокси, пустые/комменты игнор)."""
+    """Заменить пул прокси (по одной строке на прокси, пустые/комменты игнор).
+
+    Формат строки: 'host:port' (без авторизации) или 'user:pass@host:port'.
+    """
     out = []
     for ln in (lines or '').splitlines():
-        ln = ln.strip()
-        if not ln or ln.startswith('#'):
-            continue
-        if '://' not in ln:
-            ln = 'http://' + ln
-        out.append(ln)
+        p = _norm_proxy(ln)
+        if p:
+            out.append(p)
     save_eda_proxies(out)
     return out
 
@@ -492,12 +505,15 @@ def refresh_eda_account(name):
 
 
 def set_eda_account_proxy(name, proxy):
-    """Задать прокси конкретному аккаунту (пусто — сброс на «из пула»)."""
+    """Задать прокси конкретному аккаунту (пусто — сброс на «из пула»).
+
+    Принимает 'host:port' (без авторизации) или 'user:pass@host:port'.
+    """
     accs = load_eda_accounts()
     for a in accs:
         if a.get('name') == name:
             if proxy.strip():
-                a['proxy'] = proxy.strip()
+                a['proxy'] = _norm_proxy(proxy)
             else:
                 a.pop('proxy', None)
             save_eda_accounts(accs)
