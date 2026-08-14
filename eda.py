@@ -1401,12 +1401,20 @@ def promo_apply_checkout(account, slug, code, address, lat=None, lon=None,
 
 
 def web_offer(d, payment_id='sbp_qr', payment_type=None):
-    """Оффер из go-checkout по способу оплаты. (offer, possiblePayment) или (None, None)."""
+    """Оффер из go-checkout по способу оплаты. (offer, possiblePayment) или (None, None).
+
+    sbp_qr — собирательный id из paymentTypeConfig: реальный оффер приходит
+    с type sbp/sbp_token (например «СБП • Яндекс»), поэтому матчим и его.
+    """
     for o in (d.get('offers') or []):
         pp = o.get('possiblePayment') or {}
-        if pp.get('id') == payment_id or (payment_id and payment_id == pp.get('type')):
-            if payment_type and pp.get('type') not in (payment_type, payment_id):
-                continue
+        pid = pp.get('id')
+        ptype = pp.get('type')
+        if payment_id and pid and payment_id == pid:
+            return o, pp
+        if payment_id == 'sbp_qr' and ptype in ('sbp', 'sbp_token'):
+            return o, pp
+        if payment_type and ptype and payment_type == ptype:
             return o, pp
     return None, None
 

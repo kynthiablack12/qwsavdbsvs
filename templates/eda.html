@@ -1821,13 +1821,14 @@ function renderChkOrder(o) {
     <button class="backlink" onclick="showView('orders')">‹</button>
     <div class="vhead"><h2>Заказ создан</h2><p>Номер: <b>${esc((o && o.orderNr) || chk.orderNr || '—')}</b></p></div>
     <div class="chk-block">
-      <button class="btn-main" id="chkTrackBtn">🏦 Показать QR / статус оплаты</button>
+      <button class="btn-main" id="chkTrackBtn">🔄 Обновить QR / статус оплаты</button>
       <div id="chkTrackBox" style="margin-top:12px"></div>
     </div>
     <details class="chk-block"><summary class="db-mut">Сырой ответ заказа</summary>
       <pre class="db-mut" style="white-space:pre-wrap;word-break:break-all;font-size:11px">${esc(JSON.stringify(o, null, 2))}</pre>
     </details>`;
   $('chkTrackBtn').addEventListener('click', trackChkOrder);
+  trackChkOrder();
 }
 
 function chkQrSvg(text) {
