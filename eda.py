@@ -226,18 +226,87 @@ def _proxy_for(acc):
     return {'http': p, 'https': p}
 
 
-def set_eda_proxies(lines):
+PROXY_CHECK_TARGETS = [
+    'http://connectivitycheck.gstatic.com/generate_204',
+    'https://api.ipify.org',
+    'https://eda.yandex.ru/',
+]
+
+
+def check_proxy(proxy, timeout=10):
+    """Проверить прокси живой ли (коннект через него до 204-эндпоинта).
+
+    Возвращает (ok, info): info — время ответа в мс либо причина отказа.
+    """
+    p = _norm_proxy(proxy)
+    if not p:
+        return False, 'пустая строка'
+    proxies = {'http': p, 'https': p}
+    last_err = 'нет доступа'
+    for url in PROXY_CHECK_TARGETS:
+        t0 = time.time()
+        try:
+            r = requests.get(url, proxies=proxies, timeout=timeout,
+                             allow_redirects=False)
+            if r.status_code in (200, 204):
+                return True, f'{int((time.time() - t0) * 1000)} мс'
+            last_err = f'HTTP {r.status_code}'
+        except requests.exceptions.ProxyError as e:
+            last_err = 'прокси отклонил запрос'
+        except requests.exceptions.ConnectTimeout:
+            last_err = 'таймаут соединения'
+        except requests.exceptions.ConnectionError:
+            last_err = 'соединение не установлено'
+        except Exception as e:
+            last_err = (str(e) or 'ошибка')[:80]
+    return False, last_err
+
+
+def set_eda_proxies(lines, check=True, progress=None):
     """Заменить пул прокси (по одной строке на прокси, пустые/комменты игнор).
 
     Формат строки: 'host:port' (без авторизации) или 'user:pass@host:port'.
+    При check=True каждая строка проверяется (параллельно), в пул попадают
+    только рабочие. progress(i, total, raw, ok, info) — по мере проверки.
+
+    Возвращает {'saved': [...], 'working': [...], 'failed': [{proxy, error}]}.
     """
-    out = []
+    parsed = []
     for ln in (lines or '').splitlines():
-        p = _norm_proxy(ln)
+        raw = ln.strip()
+        if not raw or raw.startswith('#'):
+            continue
+        p = _norm_proxy(raw)
         if p:
-            out.append(p)
-    save_eda_proxies(out)
-    return out
+            parsed.append((raw, p))
+    if check and parsed:
+        results = {}
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=max(8, min(len(parsed), 32))) as ex:
+            futs = {ex.submit(check_proxy, p): (raw, p) for raw, p in parsed}
+            for fut in futs:
+                raw, p = futs[fut]
+                ok, info = fut.result()
+                results[raw] = (ok, info)
+        working, failed = [], []
+        for i, (raw, p) in enumerate(parsed, 1):
+            ok, info = results[raw]
+            if progress:
+                progress(i, len(parsed), raw, ok, info)
+            if ok:
+                working.append(p)
+            else:
+                failed.append({'proxy': raw, 'error': info})
+    else:
+        working = [p for _, p in parsed]
+        failed = []
+        if progress:
+            progress(len(parsed), len(parsed), '', True, '')
+    with _store_lock():
+        store = _eda_read()
+        store['proxies'] = working
+        _eda_write(store)
+    return {'saved': working, 'working': working, 'failed': failed}
 
 
 def assign_eda_proxies():

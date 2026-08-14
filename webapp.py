@@ -491,10 +491,11 @@ def api_eda_proxies():
 def api_eda_proxies_set():
     body = request.get_json(silent=True) or {}
     try:
-        out = eda.set_eda_proxies(body.get('proxies', ''))
+        res = eda.set_eda_proxies(body.get('proxies', ''),
+                                  check=body.get('check', True))
     except Exception as e:
         return jsonify({'error': str(e)}), 400
-    return jsonify({'ok': True, 'proxies': out})
+    return jsonify({'ok': True, **res})
 
 
 @app.route('/api/eda/proxies/assign', methods=['POST'])

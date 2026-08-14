@@ -272,11 +272,11 @@
       <details style="margin-top:12px">
         <summary class="db-mut">Прокси (пул статических, по одному на аккаунт)</summary>
         <div class="eda-add" style="margin-top:8px">
-          <label>Пул прокси (по строке на прокси: host:port или user:pass@host:port)
+          <label>Пул прокси (по строке на прокси: host:port или user:pass@host:port; при сохранении проверяются и отбраковываются нерабочие)
             <textarea id="edaProxiesBox" rows="6" style="width:100%" placeholder="1.2.3.4:8080&#10;login:pass@5.6.7.8:8080"></textarea>
           </label>
           <div>
-            <button class="btn btn-ghost btn-sm" id="edaProxiesSave">Сохранить пул</button>
+            <button class="btn btn-ghost btn-sm" id="edaProxiesSave">Сохранить и проверить</button>
             <button class="btn btn-ghost btn-sm" id="edaProxiesAssign">Назначить аккаунтам</button>
             <span class="db-mut" id="edaProxiesMsg"></span>
           </div>
