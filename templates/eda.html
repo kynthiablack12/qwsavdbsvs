@@ -1743,30 +1743,21 @@ async function applyPromo() {
   const msg = $('chkPromoMsg');
   msg.textContent = 'Применяю…';
   const loc = chk.addrData.location || {};
-  const pay = chk.payment || {};
   try {
     const r = await api(`/api/eda/${TOKEN}/promocode`, {
       method: 'POST',
       body: JSON.stringify({
         place_slug: state.rest, code,
-        address: chk.addrData,
-        offer_identity: pay.offer_identity,
-        payment_id: pay.id || pay.type || 'sbp_qr',
-        payment_type: pay.type || 'sbp',
+        offer_identity: (chk.payment || {}).offer_identity,
         lat: loc.latitude, lon: loc.longitude,
       }),
     });
-    const st = r.promocode_status || {};
-    if (r.payment) {
-      chk.payment = r.payment;
-      chk.available = r.available || [];
-      chk.checkout = r.checkout;
-    }
-    if (st.applied) {
-      renderChkCheckout();
-      $('chkPromoMsg').textContent = 'Промокод ' + code + ' применён ✓';
+    const res = r.result || {};
+    if (res.status === 'error') {
+      msg.textContent = 'Промокод: ' + (res.err || 'не применился');
     } else {
-      msg.textContent = 'Промокод не применился' + (st.error ? ': ' + st.error : '');
+      msg.textContent = 'Промокод применён, пересчитываю…';
+      webCheckout();
     }
   } catch (e) {
     msg.textContent = 'Ошибка: ' + e.message;
