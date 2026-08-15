@@ -1945,7 +1945,7 @@ def api_eda_order_create(token):
     payment_id = data.get('payment_id') or 'sbp_qr'
     payment_type = data.get('payment_type') or 'sbp'
     try:
-        res, meta = eda.mob_order_with_retry(
+        res, meta = eda.eda_order_create(
             s['account'], slug, address,
             phone=data.get('phone') or '',
             payment_id=payment_id, payment_type=payment_type,
@@ -1955,11 +1955,13 @@ def api_eda_order_create(token):
         )
         if not res:
             if meta.get('code59'):
-                print('EDA ORDER code59', payment_id, 'attempts=', meta.get('attempts'),
+                print('EDA ORDER code59', payment_id, 'channel=', meta.get('channel'),
+                      'attempts=', meta.get('attempts'),
                       'fallback=', meta.get('fallback'),
                       'fb_offer=', meta.get('fallback_offer'),
                       'pays=', meta.get('offers_pays'),
                       'sbp_cfg=', meta.get('sbp_in_config'),
+                      'web_err=', (meta.get('web_error') or '')[:120],
                       'err=', (meta.get('last_error') or '')[:140])
                 return jsonify({
                     'error': 'Стоимость доставки изменилась — сумма обновлена, '
@@ -1968,17 +1970,18 @@ def api_eda_order_create(token):
                     'checkout': meta.get('_d'),
                     'payment': meta.get('payment'),
                     'available': eda.web_available_payments(meta.get('_d') or {}),
-                    'meta': {k: v for k, v in meta.items() if k not in ('_d', 'payment')},
+                    'meta': {k: v for k, v in meta.items() if k not in ('_d', 'payment', 'mob_meta')},
                     'attempts': meta.get('attempts')}), 409
-            print('EDA ORDER unavailable', payment_id,
+            print('EDA ORDER unavailable', payment_id, 'channel=', meta.get('channel'),
                   'pays=', meta.get('offers_pays'),
-                  'sbp_cfg=', meta.get('sbp_in_config'))
+                  'sbp_cfg=', meta.get('sbp_in_config'),
+                  'web_err=', (meta.get('web_error') or '')[:120])
             return jsonify({
                 'error': f'Способ оплаты {payment_id} недоступен для этого заказа',
                 'available': eda.web_available_payments(meta.get('_d') or {}),
                 'offers_pays': meta.get('offers_pays', []),
                 'sbp_in_config': meta.get('sbp_in_config')}), 400
-        return jsonify({'ok': True, 'order': res})
+        return jsonify({'ok': True, 'order': res, 'channel': meta.get('channel')})
     except NotImplementedError as e:
         return jsonify({'error': str(e)}), 501
     except Exception as e:
@@ -2002,13 +2005,22 @@ def api_eda_order_tracking(token, oid):
 
 @app.route('/api/eda/<token>/order/<oid>/qr', methods=['POST'])
 def api_eda_order_qr(token, oid):
-    """QR для СБП: поллит tracking до purchase_token, затем Trust get_payment."""
+    """QR для СБП: поллит tracking до purchase_token, затем Trust get_payment.
+
+    Канал ('mob'|'web') берётся из тела — для заказов, созданных веб-флоу
+    (оплата на сайте), tracking идёт тем же веб-каналом.
+    """
     try:
         s = eda_session(token)
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 403
+    data = request.get_json(silent=True) or {}
     try:
-        return jsonify({'ok': True, 'qr': eda.mob_sbp_qr(s['account'], oid)})
+        if (data.get('channel') or 'mob') == 'web':
+            qr = eda.web_sbp_qr(s['account'], oid)
+        else:
+            qr = eda.mob_sbp_qr(s['account'], oid)
+        return jsonify({'ok': True, 'qr': qr})
     except NotImplementedError as e:
         return jsonify({'error': str(e)}), 501
     except Exception as e:
@@ -2384,9 +2396,8 @@ def api_eda_az_order_create(name):
         )
         if not res:
             if meta.get('code59'):
-                print('AZ ORDER code59', payment_id, 'attempts=', meta.get('attempts'),
-                      'fallback=', meta.get('fallback'),
-                      'fb_offer=', meta.get('fallback_offer'),
+                print('AZ ORDER code59', payment_id, 'channel=', 'mob',
+                      'attempts=', meta.get('attempts'),
                       'pays=', meta.get('offers_pays'),
                       'sbp_cfg=', meta.get('sbp_in_config'),
                       'err=', (meta.get('last_error') or '')[:140])
@@ -2399,7 +2410,7 @@ def api_eda_az_order_create(name):
                     'available': eda.web_available_payments(meta.get('_d') or {}),
                     'meta': {k: v for k, v in meta.items() if k not in ('_d', 'payment')},
                     'attempts': meta.get('attempts')}), 409
-            print('AZ ORDER unavailable', payment_id,
+            print('AZ ORDER unavailable', payment_id, 'channel=', 'mob',
                   'pays=', meta.get('offers_pays'),
                   'sbp_cfg=', meta.get('sbp_in_config'))
             return jsonify({

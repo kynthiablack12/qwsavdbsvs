@@ -1312,10 +1312,12 @@ def web_saved_addresses(account, lat=None, lon=None):
 
 
 def web_checkout(account, slug, address, lat=None, lon=None, payment_id='sbp_qr', payment_type='sbp'):
-    """Оформление (веб): go-checkout с выбором СБП.
+    """Оформление (веб): go-checkout.
 
     Возвращает offers — каждый с offer_identity, requestId
     (= cart_id.offer_identity) и possiblePayment{id,type,costForCustomer}.
+    Пред-выбор способа (selected_payment_type) шлём только если payment_id
+    задан — иначе сервер фильтрует офферы под невалидный способ.
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     lat, lon = _coords(acc, lat, lon)
@@ -1329,9 +1331,11 @@ def web_checkout(account, slug, address, lat=None, lon=None, payment_id='sbp_qr'
         'place_slug': slug,
         'payment': {
             'recently_link_cards': False,
-            'selected_payment_type': {'id': payment_id, 'type': payment_type},
         },
     }
+    if payment_id:
+        body['payment']['selected_payment_type'] = {'id': payment_id,
+                                                    'type': payment_type}
     return _web_call(acc, 'POST', '/api/v2/cart/go-checkout', body,
                      params={'longitude': lon, 'latitude': lat})
 
@@ -1845,6 +1849,111 @@ def mob_order_with_retry(account, slug, address, phone='',
     if last:
         raise last
     return None, meta
+
+
+def is_sbp_payment(payment_id, payment_type=None):
+    """True, если запрошенный способ оплаты — СБП (по QR / токен)."""
+    return (payment_id in ('sbp_qr', 'sbp', 'sbp_token')
+            or payment_type in ('sbp', 'sbp_token'))
+
+
+def web_order_with_retry(account, slug, address, phone='',
+                         payment_id='sbp_qr', payment_type='sbp',
+                         lat=None, lon=None, recently_link_cards=False,
+                         attempts=2, delays=(1.0,)):
+    """Создать заказ веб-флоу (оплата на сайте, payment_method_id EATS).
+
+    Аналог mob_order_with_retry, но каналом eda.yandex.ru (cookie Session_id,
+    desktop_web). На сайте СБП-оплата даётся единым способом EATS_PAYMENTS —
+    независимо от мобильных офферов, поэтому это запасной путь для СБП.
+    Возвращает (res, meta) как mob_order_with_retry, meta['channel']='web'.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    meta = {'channel': 'web'}
+    last = None
+    for i in range(max(1, attempts)):
+        meta['attempts'] = i + 1
+        try:
+            d = web_checkout(acc, slug, address, lat=lat, lon=lon,
+                             payment_id=None, payment_type=None)
+            offer, pp, m = order_payment_pick(d, payment_id, payment_type)
+            meta.update({k: v for k, v in m.items() if k not in ('_d',)})
+            if not offer or not pp:
+                meta['_d'] = d
+                return None, meta
+            meta['_d'] = d
+            meta['payment'] = {
+                'id': pp.get('id'), 'type': pp.get('type'),
+                'title': pp.get('title'),
+                'costForCustomer': pp.get('costForCustomer'),
+                'serviceFee': pp.get('serviceFee'),
+                'offer_identity': offer.get('offer_identity'),
+                'requestId': offer.get('requestId'),
+            }
+            res = web_create_order(
+                acc, slug, address, offer.get('offer_identity'), pp,
+                phone=phone, code=None, lat=lat, lon=lon,
+                request_id=offer.get('requestId') or None,
+                recently_link_cards=recently_link_cards)
+            meta['created'] = True
+            return res, meta
+        except RuntimeError as e:
+            last = e
+            meta['last_error'] = str(e)[:300]
+            if not re.search(r'"code"\s*:\s*59', str(e)):
+                raise
+            meta['code59'] = True
+            if i < attempts - 1:
+                dl = delays[i] if isinstance(delays, (list, tuple)) and i < len(delays) else delays
+                time.sleep(dl)
+                continue
+            return None, meta
+    if last:
+        raise last
+    return None, meta
+
+
+def eda_order_create(account, slug, address, phone='',
+                     payment_id='sbp_qr', payment_type='sbp',
+                     lat=None, lon=None, recently_link_cards=False):
+    """Создать заказ, выбирая канал: мобильный → (для СБП) веб.
+
+    Сначала пробуем мобильный флоу (mob_order_with_retry). Если СБП в нём
+    недоступно (нет оффера/конфига — бывает для некоторых аккаунтов на
+    старом клиенте Foodfox) или мобильный ловит постоянный code 59, а
+    способ СБП — повторяем через веб-флоу (оплата «на сайте»).
+    Возвращает (res, meta); res None — заказ не создан, meta['channel']
+    = 'mob'|'web', в meta диагностика для маршрута.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if not is_sbp_payment(payment_id, payment_type):
+        return mob_order_with_retry(
+            acc, slug, address, phone=phone,
+            payment_id=payment_id, payment_type=payment_type,
+            lat=lat, lon=lon, recently_link_cards=recently_link_cards)
+    try:
+        res, meta = mob_order_with_retry(
+            acc, slug, address, phone=phone,
+            payment_id=payment_id, payment_type=payment_type,
+            lat=lat, lon=lon, recently_link_cards=recently_link_cards)
+    except RuntimeError as e:
+        res, meta = None, {'last_error': str(e)[:300]}
+    if res:
+        meta['channel'] = 'mob'
+        return res, meta
+    meta['channel'] = 'mob'
+    try:
+        res, wmeta = web_order_with_retry(
+            acc, slug, address, phone=phone,
+            payment_id=payment_id, payment_type=payment_type,
+            lat=lat, lon=lon, recently_link_cards=recently_link_cards)
+    except RuntimeError as e:
+        meta['web_error'] = str(e)[:300]
+        return None, meta
+    if res:
+        return res, wmeta
+    wmeta['mob_meta'] = meta
+    return None, wmeta
 
 
 def mob_order_tracking(account, order_id):

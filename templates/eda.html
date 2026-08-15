@@ -1967,6 +1967,7 @@ async function placeOrder() {
       }),
     });
     chk.orderNr = (r.order || {}).orderNr || '';
+    chk.orderChannel = r.channel || 'mob';
     renderChkOrder(r.order);
   } catch (e) {
     if (e.data && e.data.code === 59 && e.data.retry) {
@@ -2033,7 +2034,7 @@ async function trackChkOrder() {
     box.innerHTML = `<div class="hint">Запрашиваю статус оплаты и QR… (${attempt + 1})</div>`;
     try {
       const r = await api(`/api/eda/${TOKEN}/order/${encodeURIComponent(oid)}/qr`, {
-        method: 'POST', body: '{}',
+        method: 'POST', body: JSON.stringify({ channel: chk.orderChannel || 'mob' }),
       });
       const q = r.qr || {};
       const pay = q.payment || {};
