@@ -1700,6 +1700,7 @@ def mob_apply_promocode(account, slug, code, offer_identity='', lat=None, lon=No
 
 
 def mob_create_order(account, slug, address, offer_identity, payment_info, phone='',
+                     lat=None, lon=None,
                      request_id=None, cart_id=None, extended_options=None,
                      recently_link_cards=False,
                      plus_subscription_toggle_state=False):
