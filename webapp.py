@@ -1945,23 +1945,20 @@ def api_eda_order_create(token):
     payment_id = data.get('payment_id') or 'sbp_qr'
     payment_type = data.get('payment_type') or 'sbp'
     try:
-        d = eda.mob_checkout(s['account'], slug, address,
-                             lat=data.get('lat'), lon=data.get('lon'),
-                             payment_id=payment_id, payment_type=payment_type)
-        offer, pp, meta = eda.order_payment_pick(d, payment_id, payment_type)
-        if not offer or not pp:
-            return jsonify({
-                'error': f'Способ оплаты {payment_id} недоступен для этого заказа',
-                'available': eda.web_available_payments(d),
-                'offers_pays': meta.get('offers_pays', []),
-                'sbp_in_config': meta.get('sbp_in_config')}), 400
-        res = eda.mob_create_order(
-            s['account'], slug, address, offer.get('offer_identity'), pp,
+        res, meta = eda.mob_order_with_retry(
+            s['account'], slug, address,
             phone=data.get('phone') or '',
-            request_id=offer.get('requestId') or None,
+            payment_id=payment_id, payment_type=payment_type,
+            lat=data.get('lat'), lon=data.get('lon'),
             recently_link_cards=bool(data.get('recently_link_cards'))
             or payment_id == 'add_new_card',
         )
+        if not res:
+            return jsonify({
+                'error': f'Способ оплаты {payment_id} недоступен для этого заказа',
+                'available': eda.web_available_payments(meta.get('_d') or {}),
+                'offers_pays': meta.get('offers_pays', []),
+                'sbp_in_config': meta.get('sbp_in_config')}), 400
         return jsonify({'ok': True, 'order': res})
     except NotImplementedError as e:
         return jsonify({'error': str(e)}), 501
@@ -2358,23 +2355,20 @@ def api_eda_az_order_create(name):
     payment_id = data.get('payment_id') or 'sbp_qr'
     payment_type = data.get('payment_type') or 'sbp'
     try:
-        d = eda.mob_checkout(name, slug, address,
-                             lat=data.get('lat'), lon=data.get('lon'),
-                             payment_id=payment_id, payment_type=payment_type)
-        offer, pp, meta = eda.order_payment_pick(d, payment_id, payment_type)
-        if not offer or not pp:
-            return jsonify({
-                'error': f'Способ оплаты {payment_id} недоступен для этого заказа',
-                'available': eda.web_available_payments(d),
-                'offers_pays': meta.get('offers_pays', []),
-                'sbp_in_config': meta.get('sbp_in_config')}), 400
-        res = eda.mob_create_order(
-            name, slug, address, offer.get('offer_identity'), pp,
+        res, meta = eda.mob_order_with_retry(
+            name, slug, address,
             phone=data.get('phone') or '',
-            request_id=offer.get('requestId') or None,
+            payment_id=payment_id, payment_type=payment_type,
+            lat=data.get('lat'), lon=data.get('lon'),
             recently_link_cards=bool(data.get('recently_link_cards'))
             or payment_id == 'add_new_card',
         )
+        if not res:
+            return jsonify({
+                'error': f'Способ оплаты {payment_id} недоступен для этого заказа',
+                'available': eda.web_available_payments(meta.get('_d') or {}),
+                'offers_pays': meta.get('offers_pays', []),
+                'sbp_in_config': meta.get('sbp_in_config')}), 400
         return jsonify({'ok': True, 'order': res})
     except NotImplementedError as e:
         return jsonify({'error': str(e)}), 501

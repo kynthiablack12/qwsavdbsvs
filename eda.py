@@ -1802,6 +1802,43 @@ def mob_create_order(account, slug, address, offer_identity, payment_info, phone
     return _eda_call(acc, 'POST', '/api/v1/orders', lat, lon, json_body=body)
 
 
+def mob_order_with_retry(account, slug, address, phone='',
+                         payment_id='sbp_qr', payment_type='sbp',
+                         lat=None, lon=None, recently_link_cards=False,
+                         attempts=3, delay=0.8):
+    """Создать заказ мобильным каналом с повторами при изменении цены.
+
+    go-checkout → выбор оффера → /api/v1/orders. Если сервер отвечает
+    code 59 («стоимость доставки временно увеличилась» / «спрос вырос»)
+    на POST /api/v1/orders, оффер устарел — перезапрашиваем go-checkout
+    (цена и request_id актуализируются) и пробуем ещё раз.
+    Возвращает (res, meta); если способ оплаты не найден — (None, meta)
+    (маршрут сам отдаёт 400 с диагносткой из meta).
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    last = None
+    for _ in range(max(1, attempts)):
+        d = mob_checkout(acc, slug, address, lat=lat, lon=lon,
+                         payment_id=payment_id, payment_type=payment_type)
+        offer, pp, meta = order_payment_pick(d, payment_id, payment_type)
+        if not offer or not pp:
+            meta['_d'] = d
+            return None, meta
+        try:
+            res = mob_create_order(
+                acc, slug, address, offer.get('offer_identity'), pp,
+                phone=phone, lat=lat, lon=lon,
+                request_id=offer.get('requestId') or None,
+                recently_link_cards=recently_link_cards)
+            return res, meta
+        except RuntimeError as e:
+            last = e
+            if not re.search(r'"code"\s*:\s*59', str(e)) or _ == attempts - 1:
+                raise
+            time.sleep(delay)
+    raise last
+
+
 def mob_order_tracking(account, order_id):
     """Статус оплаты мобильным каналом: POST /eats/v1/eats-payments/v1/order/tracking."""
     acc = get_eda_account(account) if isinstance(account, str) else account
