@@ -1214,7 +1214,7 @@ function azRenderSavedCards() {
 }
 
 async function azOpenBind() {
-  const msg = $('azBindMsg');
+  const msg = $('azBindMsg') || $('azCardsMsg');
   if (!msg) return;
   msg.textContent = 'Создаю форму привязки…';
   try {
@@ -1226,8 +1226,9 @@ async function azOpenBind() {
       }),
     });
     if (!r.form_url) { msg.textContent = 'Ошибка: ' + (r.error || 'Траст не вернул форму привязки'); return; }
-    msg.innerHTML = 'Форма привязки открыта в новой вкладке — введите номер, срок и CVC, затем код из SMS.<br>После успешной привязки вернитесь сюда и нажмите <b>⟳ Обновить карты</b>.';
-    $('azBindRefresh').disabled = false;
+    msg.innerHTML = 'Форма привязки открыта в новой вкладке — введите номер, срок и CVC, затем код из SMS.<br>После успешной привязки вернитесь сюда и нажмите <b>⟳ Обновить</b>.';
+    const rb = $('azBindRefresh') || $('azCardsRefresh');
+    if (rb) rb.disabled = false;
     window.open(r.form_url, '_blank', 'noopener');
   } catch (e) {
     msg.textContent = 'Ошибка: ' + e.message;
@@ -1235,18 +1236,65 @@ async function azOpenBind() {
 }
 
 async function azRefreshCards() {
-  const msg = $('azBindMsg');
+  const msg = $('azBindMsg') || $('azCardsMsg');
   if (!msg) return;
   msg.textContent = 'Обновляю карты из Траста…';
   try {
     await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/cards/refresh`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
     });
-    msg.textContent = 'Карты обновлены, пересчитываю оформление…';
-    az.payment = null;
-    await azCheckout();
+    msg.textContent = 'Карты обновлены.';
+    if ($('azCardsList')) {
+      await azLoadCardsList();
+    } else if ($('azBindMsg')) {
+      msg.textContent += ' Пересчитываю оформление…';
+      az.payment = null;
+      await azCheckout();
+    }
   } catch (e) {
     msg.textContent = 'Ошибка обновления карт: ' + e.message;
+  }
+}
+
+function azCardsBack() {
+  if (az.addr) azRenderPlaces();
+  else azSelectAccount();
+}
+
+async function azCardsPanel() {
+  if (!az.account) { azRender('<div class="hint">Сначала выберите аккаунт</div>'); return; }
+  azRender(`
+    <div class="db-toolbar">
+      <button class="backlink" onclick="azCardsBack()">‹ Назад</button>
+      <span class="db-count">Мои карты</span>
+    </div>
+    <div class="db-toolbar" style="margin-top:8px;gap:8px">
+      <button class="btn btn-primary btn-sm" id="azCardsAdd">➕ Добавить карту</button>
+      <button class="btn btn-outline btn-sm" id="azCardsRefresh">⟳ Обновить из Траста</button>
+    </div>
+    <div class="db-mut" id="azCardsMsg"></div>
+    <div id="azCardsList" class="hint" style="margin-top:8px">Загружаю…</div>`);
+  $('azCardsAdd').addEventListener('click', azOpenBind);
+  $('azCardsRefresh').addEventListener('click', azRefreshCards);
+  await azLoadCardsList();
+}
+
+async function azLoadCardsList() {
+  const box = $('azCardsList');
+  if (!box) return;
+  try {
+    const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/cards`);
+    const cards = (r.cards || []).filter((c) => c && c.id);
+    if (!cards.length) {
+      box.innerHTML = '<div class="db-mut">Сохранённых карт нет. Нажмите «➕ Добавить карту» — откроется форма Траста.</div>';
+      return;
+    }
+    box.innerHTML = cards.map((c) => {
+      const n = String(c.number || c.method_id || '').slice(-4);
+      return `<div class="pay-opt"><span>💳 ${esc(c.title || c.id)}</span>${n ? `<span class="db-mut">·· ${esc(n)}</span>` : ''}</div>`;
+    }).join('');
+  } catch (e) {
+    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
   }
 }
 
@@ -1401,6 +1449,7 @@ $('azAddr').addEventListener('change', azSelectAddr);
 $('azSearchGo').addEventListener('click', azSearch);
 $('azSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') azSearch(); });
 $('azCartShow').addEventListener('click', azShowCart);
+$('azCardsBtn').addEventListener('click', azCardsPanel);
 $('azClear').addEventListener('click', () => {
   az = { account: az.account, city: '', addr: null, addrs: [], addrLoc: null, restaurants: [], rest: null, menu: null, cart: null, checkout: null, payment: null, addrData: null, promo: '', phone: '', orderNr: '', items: {} };
   if (az.account) azSelectAccount(); else loadAuto();
