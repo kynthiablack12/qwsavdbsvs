@@ -2296,6 +2296,89 @@ def api_eda_az_order_qr(name, oid):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/eda/autozakaz/<name>/cards', methods=['GET'])
+def api_eda_az_cards(name):
+    """Сохранённые карты аккаунта (кэш в eda_accounts.json)."""
+    try:
+        eda_account_guard(name)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 404
+    return jsonify({'ok': True, 'cards': eda.eda_cards(name)})
+
+
+@app.route('/api/eda/autozakaz/<name>/cards/refresh', methods=['POST'])
+def api_eda_az_cards_refresh(name):
+    """Обновить карты из Траста (web/payment_methods) и сохранить кэш."""
+    try:
+        eda_account_guard(name)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        cards = eda.web_payment_methods(name, data.get('service_token') or '')
+        eda.eda_save_cards(name, cards)
+        return jsonify({'ok': True, 'cards': cards})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/autozakaz/<name>/cards/save', methods=['POST'])
+def api_eda_az_cards_save(name):
+    """Сохранить список карт (id/title/number) в конфиг аккаунта."""
+    try:
+        eda_account_guard(name)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 404
+    data = request.get_json(silent=True) or {}
+    cards = data.get('cards')
+    if not isinstance(cards, list):
+        return jsonify({'error': 'cards обязателен (list)'}), 400
+    try:
+        saved = eda.eda_save_cards(name, cards)
+        return jsonify({'ok': True, 'cards': saved})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/autozakaz/<name>/cards/bind', methods=['POST'])
+def api_eda_az_cards_bind(name):
+    """Начать привязку новой карты.
+
+    Тело: {place_slug?, address?, lat?, lon?, service_token?, theme?}.
+    Возвращает {form_url, service_token, integration_profile_id} — форма
+    Траста, где пользователь вводит данные карты и код из SMS. Если
+    service_token не передан, берётся из go-checkout (cardBindingServiceToken).
+    """
+    try:
+        eda_account_guard(name)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 404
+    data = request.get_json(silent=True) or {}
+    service_token = data.get('service_token') or ''
+    try:
+        if not service_token:
+            try:
+                token = eda.web_binding_token(eda.web_checkout(
+                    name, data.get('place_slug') or '', data.get('address') or {},
+                    lat=data.get('lat'), lon=data.get('lon'),
+                    payment_id='sbp_qr', payment_type='sbp'))
+            except Exception:
+                token = ''
+            service_token = token
+        res = eda.web_bind_form_url(name, service_token=service_token,
+                                    theme=data.get('theme') or 'light')
+        if not (res.get('form_url') or ''):
+            return jsonify({'ok': False, 'error': 'Траст не вернул form_url',
+                            'raw': res}), 502
+        return jsonify({'ok': True, **res})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ---------- Самокат: аккаунты и сессии ----------
 
 @app.route('/api/samokat/accounts')

@@ -1124,6 +1124,17 @@ async function azCheckout(paymentId, paymentType) {
     az.checkout = r.checkout;
     az.payment = r.payment;
     az.available = r.available || [];
+    const cardOffers = az.available.filter((o) => o && o.type === 'card');
+    if (cardOffers.length) {
+      api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/cards/save`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cards: cardOffers.map((o) => ({ id: o.id, type: 'card', title: o.title || 'Карта' })) }),
+      }).catch(() => {});
+    }
+    try {
+      const cc = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/cards`);
+      az.cards = cc.cards || [];
+    } catch (e) { az.cards = az.cards || []; }
     azRenderCheckout(addr);
   } catch (e) {
     azRender(`<div class="err">${esc(e.message)}</div>`);
@@ -1165,6 +1176,7 @@ function azRenderCheckout(addr) {
       <span class="db-count">Оформление</span>
     </div>
     <div class="hint">Доставка на: <b>${esc(addr ? addr.full_text : '')}</b>${addr && azAddrComment(addr) ? `<div class="db-mut">${esc(azAddrComment(addr))}</div>` : ''}</div>
+    ${azRenderSavedCards()}
     <div class="chk-block">
       <h3>Способ оплаты</h3>
       ${azRenderPayOpts()}
@@ -1187,6 +1199,55 @@ function azRenderCheckout(addr) {
   $('azPromoGo').addEventListener('click', azApplyPromo);
   $('azPromo').addEventListener('keydown', (e) => { if (e.key === 'Enter') azApplyPromo(); });
   $('azOrderBtn').addEventListener('click', azOrder);
+  $('azBindCardBtn').addEventListener('click', azOpenBind);
+  $('azBindRefresh').addEventListener('click', azRefreshCards);
+}
+
+function azRenderSavedCards() {
+  const cards = (az.cards || []).filter((c) => c && (c.type === 'card' || /^card-/.test(c.id || '')));
+  if (!cards.length) return '';
+  const items = cards.map((c) => {
+    const n = c.number || c.short_number || c.method_id || '';
+    return `<span class="sd-badge ok">💳 ${esc(c.title || c.id)}${n ? ` · ${esc(String(n).slice(-4))}` : ''}</span>`;
+  }).join(' ');
+  return `<div class="hint">Мои карты: ${items}</div>`;
+}
+
+async function azOpenBind() {
+  const msg = $('azBindMsg');
+  if (!msg) return;
+  msg.textContent = 'Создаю форму привязки…';
+  try {
+    const r = await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/cards/bind`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        place_slug: az.rest, address: az.addrData,
+        lat: az.addrLoc?.latitude, lon: az.addrLoc?.longitude,
+      }),
+    });
+    if (!r.form_url) { msg.textContent = 'Ошибка: ' + (r.error || 'Траст не вернул форму привязки'); return; }
+    msg.innerHTML = 'Форма привязки открыта в новой вкладке — введите номер, срок и CVC, затем код из SMS.<br>После успешной привязки вернитесь сюда и нажмите <b>⟳ Обновить карты</b>.';
+    $('azBindRefresh').disabled = false;
+    window.open(r.form_url, '_blank', 'noopener');
+  } catch (e) {
+    msg.textContent = 'Ошибка: ' + e.message;
+  }
+}
+
+async function azRefreshCards() {
+  const msg = $('azBindMsg');
+  if (!msg) return;
+  msg.textContent = 'Обновляю карты из Траста…';
+  try {
+    await api(`/api/eda/autozakaz/${encodeURIComponent(az.account)}/cards/refresh`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    msg.textContent = 'Карты обновлены, пересчитываю оформление…';
+    az.payment = null;
+    await azCheckout();
+  } catch (e) {
+    msg.textContent = 'Ошибка обновления карт: ' + e.message;
+  }
 }
 
 function azPayIcon(t) {
@@ -1208,7 +1269,12 @@ function azRenderPayOpts() {
       ${curId === (o.id || o.type) ? '<span class="st">✓</span>' : ''}
     </div>`;
   return `<div id="azPayOpts">${others.map(row).join('')}${cards.map(row).join('')}</div>`
-    + `<div class="db-mut">Текущий: ${esc(cur.title || curId || 'не выбран')}${cur.offer_identity ? ` · offer ${esc(String(cur.offer_identity).slice(0, 20))}…` : ''}</div>`;
+    + `<div class="db-toolbar" style="margin-top:8px;gap:8px">
+         <button class="btn btn-outline btn-sm" id="azBindCardBtn">➕ Добавить карту</button>
+         <button class="btn btn-outline btn-sm" id="azBindRefresh" disabled>⟳ Обновить карты</button>
+       </div>
+       <div class="db-mut" id="azBindMsg"></div>
+       <div class="db-mut">Текущий: ${esc(cur.title || curId || 'не выбран')}${cur.offer_identity ? ` · offer ${esc(String(cur.offer_identity).slice(0, 20))}…` : ''}</div>`;
 }
 
 async function azApplyPromo() {

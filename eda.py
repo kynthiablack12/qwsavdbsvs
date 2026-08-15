@@ -1184,6 +1184,23 @@ WEB_DEVICE_ID = 'mihhc5ty-e22czsd3bl6-cr2qbh6hwbe-unsat9s5u1'
 # константа веб-фронта (enum EATS_PAYMENTS), не из ответов API.
 WEB_PAYMENT_METHOD_EATS = 5
 
+# Привязка карт — Trust-флоу (YandexTrustWebSDK, суперапп).
+#   v2: POST trust.yandex.ru/web/create_form_url?service_token=… →
+#       {form_url} — форма Траста: пользователь вводит данные карты,
+#       Траст сам проводит SMS/OTP-челлендж и по success привязывает
+#       карту к аккаунту (метод tokenize, flow card, integration
+#       profile «yandex_default» для RU). Тела/поля взяты из
+#       eats.superapp.PaymentOptions-*.js (bindCardV2 → jg → Og).
+TRUST_HOST = 'https://trust.yandex.ru'
+TRUST_INTEGRATION_PROFILE_RU = 'yandex_default'
+TRUST_BIND_LAYOUT = 'compact'
+TRUST_BIND_METHOD = 'tokenize'
+TRUST_BIND_FLOW = 'card'
+# Service-токен Еды (пища/руб) — тот же, что приходит в go-checkout
+# (cardBindingServiceToken / add_new_card.offer.bindingServiceToken):
+# fallback на захардкоженный из перехвата flows_eda_mumu.mitm.
+DEFAULT_FOOD_SERVICE_TOKEN = 'food_payment_c808ddc93ffec050bf0624a4d3f3707c'
+
 
 def _web_cookies(acc):
     ck = {}
@@ -1609,6 +1626,176 @@ def web_sbp_qr(account, order_id, attempts=15, delay=1.5):
         except (requests.RequestException, ValueError) as e:
             out['trust_error'] = str(e)
     return out
+
+
+# ---------- Привязка банковских карт (Trust web-флоу) ----------
+
+def _trust_call(acc, method, path, json_body=None, params=None,
+                service_token='', timeout=25):
+    """Запрос к trust.yandex.ru (веб-флоу привязки/оплаты).
+
+    Куки передаются как у веб-флоу еды (Session_id/yandexuid живут на
+    общем домене yandex.ru, Траст их видит). service_token уходит либо
+    заголовком X-Service-Token, либо query-параметром.
+    """
+    hdrs = {
+        'accept': 'application/json, text/plain, */*',
+        'accept-language': 'ru',
+        'content-type': 'application/json;charset=UTF-8',
+        'origin': 'https://eda.yandex.ru',
+        'referer': 'https://eda.yandex.ru/checkout',
+        'user-agent': WEB_UA,
+    }
+    if service_token:
+        hdrs['X-Service-Token'] = service_token
+    url = TRUST_HOST + path
+    try:
+        r = requests.request(method, url, headers=hdrs,
+                             cookies=_web_cookies(acc),
+                             json=json_body, params=params, timeout=timeout)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Траст: сеть ({method} {path}): {e}')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Траст: HTTP {r.status_code} на {method} {path}: {r.text[:300]}')
+    try:
+        return r.json()
+    except Exception:
+        return {'_status': r.status_code, '_text': r.text[:1000]}
+
+
+def web_binding_token(d):
+    """Service-токен для привязки карты из ответа go-checkout.
+
+    Сначала верхнеуровневый cardBindingServiceToken (его шлёт сайт в
+    add_new_card), иначе bindingServiceToken из оффера add_new_card.
+    """
+    if not isinstance(d, dict):
+        return ''
+    token = d.get('cardBindingServiceToken') or ''
+    if token:
+        return token
+    for o in (d.get('offers') or []):
+        pp = o.get('possiblePayment') or {}
+        if not isinstance(pp, dict):
+            continue
+        if (pp.get('type') in ('add_new_card', 'card')
+                and pp.get('bindingServiceToken')):
+            return pp.get('bindingServiceToken')
+    return ''
+
+
+def web_food_service_token(account, slug, address, lat=None, lon=None):
+    """Токен сервиса Еды для Траста (берётся из go-checkout)."""
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    try:
+        d = web_checkout(acc, slug, address, lat=lat, lon=lon)
+        return web_binding_token(d)
+    except Exception:
+        return ''
+
+
+def web_bind_form_url(account, service_token='', theme='light', operation_id=''):
+    """Начать привязку карты: POST trust.yandex.ru/web/create_form_url.
+
+    Возвращает {form_url, integration_profile_id, service_token}: форма
+    Траста, где пользователь вводит данные карты и код из SMS; на
+    success карта привязана к аккаунту. Затем карта видна в
+    web/payment_methods и в offers go-checkout.
+
+    operation_id — идентификатор операции (обязателен для Траста,
+    min 1); фронт генерирует свой, для нас достаточно uuid.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    token = service_token or DEFAULT_FOOD_SERVICE_TOKEN
+    body = {
+        'operation_id': operation_id or uuid.uuid4().hex,
+        'anonymously': False,
+        'integration_profile_id': TRUST_INTEGRATION_PROFILE_RU,
+        'flow': TRUST_BIND_FLOW,
+        'theme': theme or 'light',
+        'lang': 'ru',
+        'layout': TRUST_BIND_LAYOUT,
+        'method': TRUST_BIND_METHOD,
+    }
+    d = _trust_call(acc, 'POST', '/web/create_form_url',
+                    json_body=body, params={'service_token': token})
+    form_url = d.get('form_url') or ''
+    return {
+        'form_url': form_url,
+        'integration_profile_id': TRUST_INTEGRATION_PROFILE_RU,
+        'service_token': token,
+        '_status': d.get('_status') if '_status' in d else (200 if form_url else 204),
+    }
+
+
+def web_payment_methods(account, service_token=''):
+    """Привязанные карты/способы оплаты через Траст.
+
+    GET trust.yandex.ru/web/payment_methods?show_sbp_tokens=true с
+    заголовком X-Service-Token (как loadCards в супераппе). Возвращает
+    список {id: 'card-…'|'sbp-…', method_id, number, payment_system,
+    card_bank, exp, ...} — только карты и СБП.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    token = service_token or DEFAULT_FOOD_SERVICE_TOKEN
+    d = _trust_call(acc, 'GET', '/web/payment_methods',
+                    params={'show_sbp_tokens': 'true'}, service_token=token)
+    out = []
+    for key, val in (d.get('payment_methods') or {}).items():
+        if not isinstance(val, dict):
+            continue
+        if not (key.startswith('card') or key.startswith('sbp')):
+            continue
+        item = dict(val)
+        item['id'] = key
+        item['method_id'] = item.get('id')
+        out.append(item)
+    return out
+
+
+def web_card_payments(d):
+    """Карты из go-checkout (для сохранения): {id, type, title, bank?}."""
+    out = []
+    seen = set()
+    for o in (d.get('offers') or []):
+        pp = o.get('possiblePayment') or {}
+        if not isinstance(pp, dict):
+            continue
+        if pp.get('type') != 'card' or not pp.get('id'):
+            continue
+        if pp['id'] in seen:
+            continue
+        seen.add(pp['id'])
+        out.append({
+            'id': pp.get('id'),
+            'type': 'card',
+            'title': pp.get('title') or pp.get('shortTitle') or 'Карта',
+            'number': pp.get('number') or pp.get('short_number') or '',
+            'description': pp.get('description') or '',
+        })
+    return out
+
+
+def eda_cards(account):
+    """Сохранённые карты аккаунта (кэш в eda_accounts.json)."""
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    cards = acc.get('cards') or []
+    return cards if isinstance(cards, list) else []
+
+
+def eda_save_cards(account, cards):
+    """Сохранить список карт аккаунта (кэш для UI/заказов)."""
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if not isinstance(cards, list):
+        return acc.get('cards') or []
+    with _store_lock():
+        store = _eda_read()
+        for a in store.get('accounts', []):
+            if a.get('name') == acc.get('name'):
+                a['cards'] = cards
+                _eda_write(store)
+                return cards
+    return acc.get('cards') or []
 
 
 def order_status(account, order_id):
