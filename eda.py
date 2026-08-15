@@ -1628,6 +1628,225 @@ def web_sbp_qr(account, order_id, attempts=15, delay=1.5):
     return out
 
 
+# ---------- Мобильный канал (api.eda.yandex.ru, Bearer, android_app) ----------
+#
+#  Нативный мобильный клиент: те же пути /api/v2/cart/go-checkout и
+#  /api/v1/orders, но авторизация Bearer-токеном (OAuth) и x-platform
+#  android_app. Промокоды тут честно «оседают» в корзине через
+#  cart/promocode (мобильный флоу), поэтому code в /api/v1/orders НЕ
+#  передаём — иначе сервер перепроверяет акцию при создании заказа и
+#  отдаёт 58 «Promo %promo_name% is not available anymore» (как было на
+#  desktop_web). Скидка из корзины подхватывается сама.
+
+def _ensure_bearer(acc):
+    """Если у аккаунта нет Bearer, но есть Session_id — обменять на OAuth."""
+    if _extract_bearer(acc):
+        return acc
+    sid = ((acc.get('session_id') or '').strip()
+           or (acc.get('cookies') or {}).get('Session_id', '').strip())
+    if not sid:
+        raise RuntimeError('у аккаунта нет Bearer-токена и Session_id для обмена')
+    tok, uid = exchange_sessionid(sid)
+    acc['token'] = tok
+    if not acc.get('yandexuid'):
+        acc['yandexuid'] = uid
+    return acc
+
+
+def mob_checkout(account, slug, address, lat=None, lon=None,
+                 payment_id='sbp_qr', payment_type='sbp'):
+    """Оформление мобильным каналом: POST /api/v2/cart/go-checkout.
+
+    Тело и формат адреса — как у веб-флоу (мобильный клиент использует
+    тот же go-checkout API); авторизация Bearer + x-platform android_app.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    _ensure_bearer(acc)
+    lat, lon = _coords(acc, lat, lon)
+    if isinstance(payment_id, dict):
+        payment_id = payment_id.get('id') or 'sbp_qr'
+        payment_type = payment_type or payment_id.get('type') or 'sbp'
+    if isinstance(payment_type, dict):
+        payment_type = payment_type.get('type') or 'sbp'
+    body = {
+        'address': address,
+        'place_slug': slug,
+        'payment': {
+            'recently_link_cards': False,
+            'selected_payment_type': {'id': payment_id, 'type': payment_type},
+        },
+    }
+    return _eda_call(acc, 'POST', '/api/v2/cart/go-checkout', lat, lon,
+                     json_body=body, params={'longitude': lon, 'latitude': lat})
+
+
+def mob_apply_promocode(account, slug, code, offer_identity='', lat=None, lon=None,
+                        receiving_type='delivery'):
+    """Применить промокод мобильным каналом: POST /api/v2/cart/promocode."""
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    _ensure_bearer(acc)
+    lat, lon = _coords(acc, lat, lon)
+    params = {
+        'placeSlug': slug,
+        'soft_multi': 'true',
+        'shippingType': 'delivery',
+        'receiving_type': receiving_type,
+        'is_delivery_without_address': 'false',
+    }
+    if offer_identity:
+        params['offer_identity'] = offer_identity
+    return _eda_call(acc, 'POST', '/api/v2/cart/promocode', lat, lon,
+                     params=params, json_body={'code': code})
+
+
+def mob_create_order(account, slug, address, offer_identity, payment_info, phone='',
+                     request_id=None, cart_id=None, extended_options=None,
+                     recently_link_cards=False,
+                     plus_subscription_toggle_state=False):
+    """Создать заказ мобильным каналом: POST /api/v1/orders (без code!).
+
+    code не передаём: промокод уже применён к корзине через cart/promocode,
+    передача code заново вызывает перепроверку акции и ошибку 58.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    _ensure_bearer(acc)
+    lat, lon = _coords(acc, lat, lon)
+    if not request_id and cart_id:
+        request_id = f'{cart_id}.{offer_identity}'
+    cfc = payment_info.get('costForCustomer') or {}
+    if isinstance(cfc, dict):
+        currency = cfc.get('currency') or ''
+        cfc = cfc.get('value') or cfc.get('amount') or ''
+    else:
+        currency = payment_info.get('currency') or ''
+    try:
+        cfc_str = f'{float(cfc):.2f}'
+    except (TypeError, ValueError):
+        cfc_str = str(cfc)
+    body = {
+        'payment_method_id': WEB_PAYMENT_METHOD_EATS,
+        'phone': phone,
+        'change_on': 0,
+        'persons_quantity': 0,
+        'payment_information': {
+            'type': payment_info.get('type') or 'sbp',
+            'costForCustomer': cfc_str,
+            'id': payment_info.get('id') or 'sbp_qr',
+            'currency': currency or 'RUB',
+        },
+        'extended_options': (extended_options if extended_options is not None else
+                             [{'type': 'delivery_options', 'leave_at_the_door': False}]),
+        'payment': {'recently_link_cards': recently_link_cards},
+        'place_slug': slug,
+        'address': address,
+        'plus_subscription_toggle_state': plus_subscription_toggle_state,
+        'request_id': request_id or '',
+    }
+    return _eda_call(acc, 'POST', '/api/v1/orders', lat, lon, json_body=body)
+
+
+def mob_order_tracking(account, order_id):
+    """Статус оплаты мобильным каналом: POST /eats/v1/eats-payments/v1/order/tracking."""
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    _ensure_bearer(acc)
+    return _eda_call(acc, 'POST', '/eats/v1/eats-payments/v1/order/tracking',
+                     json_body={'order_id': order_id})
+
+
+def mob_sbp_qr(account, order_id, attempts=15, delay=1.5):
+    """QR для СБП по заказу (мобильный канал). Аналог web_sbp_qr, но _eda_call."""
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    _ensure_bearer(acc)
+    purchase_token = service_token = ''
+    tracking = None
+    for _ in range(attempts):
+        tracking = _eda_call(acc, 'POST',
+                             '/eats/v1/eats-payments/v1/order/tracking',
+                             json_body={'order_id': order_id})
+        pay = (tracking or {}).get('payment')
+        if pay is None:
+            pay = ((tracking or {}).get('order') or {}).get('payment') or {}
+        payload = pay.get('payload') or {}
+        purchase_token = payload.get('purchase_token') or ''
+        service_token = payload.get('service_token') or ''
+        if purchase_token:
+            break
+        time.sleep(delay)
+    order = (tracking or {}).get('order') or {}
+    out = {
+        'order_id': (order.get('order_id') or order_id),
+        'title': order.get('title'),
+        'description': order.get('description'),
+        'payment': pay if tracking else {},
+        'purchase_token': purchase_token,
+        'service_token': service_token,
+    }
+    if purchase_token:
+        try:
+            r = requests.get(
+                'https://trust.yandex.ru/web/get_payment',
+                headers={'user-agent': WEB_UA, 'accept': '*/*',
+                         'referer': 'https://trust.yandex.ru/web/payment?template_tag=desktop%2Fform'},
+                cookies=_web_cookies(acc),
+                params={'purchase_token': purchase_token},
+                timeout=20,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                out['qr_url'] = data.get('processing_payment_form_url') or ''
+                out['amount'] = data.get('amount')
+                out['currency'] = data.get('currency')
+                out['trust_status'] = data.get('status')
+        except (requests.RequestException, ValueError) as e:
+            out['trust_error'] = str(e)
+    return out
+
+
+def mob_promo_apply_checkout(account, slug, code, address, lat=None, lon=None,
+                             payment_id='sbp_qr', payment_type='sbp',
+                             offer_identity=''):
+    """Применить промокод мобильным каналом и пересчитать корзину.
+
+    Аналог promo_apply_checkout, но целиком на мобильном канале (Bearer).
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    res = mob_apply_promocode(acc, slug, code, offer_identity=offer_identity,
+                              lat=lat, lon=lon)
+    out = {'result': res}
+    if not (isinstance(res, dict) and res.get('status') == 'error'):
+        try:
+            d = mob_checkout(acc, slug, address, lat=lat, lon=lon,
+                             payment_id=payment_id, payment_type=payment_type)
+            offer, pp = web_offer(d, payment_id, payment_type)
+            if not offer or not pp:
+                avail = [a for a in web_available_payments(d)
+                         if a.get('type') != 'add_new_card']
+                if avail:
+                    first = avail[0]
+                    offer, pp = web_offer(d, first.get('id') or first.get('type'),
+                                          first.get('type'))
+            payment = None
+            if offer and pp:
+                cfc = pp.get('costForCustomer') or {}
+                if isinstance(cfc, dict):
+                    cfc = cfc.get('value') or ''
+                request_id = offer.get('requestId') or ''
+                payment = {
+                    'id': pp.get('id'), 'type': pp.get('type'),
+                    'title': pp.get('title'),
+                    'costForCustomer': cfc,
+                    'serviceFee': pp.get('serviceFee'),
+                    'offer_identity': offer.get('offer_identity'),
+                    'requestId': request_id,
+                    'cart_id': request_id.split('.')[0] if '.' in request_id else '',
+                }
+            out.update({'checkout': d, 'payment': payment,
+                        'available': web_available_payments(d)})
+        except Exception:
+            pass
+    return out
+
+
 # ---------- Привязка банковских карт (Trust web-флоу) ----------
 
 def _trust_call(acc, method, path, json_body=None, params=None,
