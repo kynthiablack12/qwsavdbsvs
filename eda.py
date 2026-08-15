@@ -2405,11 +2405,13 @@ def _plus_widget_hdrs():
     }
 
 
-def plus_csrf(account, method='POST'):
+def plus_csrf(account, method='GET'):
     """CSRF-токен для api.plus.yandex.ru (generate-csrf-token).
 
-    Как в перехвате: POST без тела, Origin/Referer payment-widget.plus.yandex.ru,
-    заголовки x-yandex-plus-*. Возвращает строку токена; ищем по именам csrf/token.
+    Как в перехвате: GET без тела, Origin/Referer payment-widget.plus.yandex.ru,
+    заголовки x-yandex-plus-* (в curl запрос не показывал метод — сервер
+    отдаёт 405 на POST, значит это GET). Возвращает строку токена; ищем по
+    именам csrf/token.
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     d = _plus_call(acc, PLUS_API, method, '/generate-csrf-token',
@@ -2848,7 +2850,7 @@ def plus_purchase_init(account, csrf=''):
     if not csrf:
         csrf = plus_csrf(acc)
     # 1) CSRF обычно возвращает дополнительную инфу инициации.
-    d = _plus_call(acc, PLUS_API, 'POST', '/generate-csrf-token',
+    d = _plus_call(acc, PLUS_API, 'GET', '/generate-csrf-token',
                    referer=CARD_WIDGET_ORIGIN + '/',
                    extra_headers=_plus_widget_hdrs())
     toks = _plus_token(d)
