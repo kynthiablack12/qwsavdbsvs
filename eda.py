@@ -1491,13 +1491,11 @@ def web_available_payments(d):
 def order_payment_pick(d, payment_id='sbp_qr', payment_type=None):
     """Выбрать (offer, possiblePayment) для создания заказа.
 
-    Сначала ищем оффер под запрошенный способ (web_offer). Для СБП, если
-    отдельного оффера в go-checkout нет (бывает: СБП есть только в
-    paymentTypeConfig, сайт платит единым способом EATS_PAYMENTS), берём
-    первый доступный оффер корзины и подставляем способ sbp/sbp_qr.
-    costForCustomer у оффера зависит только от варианта доставки, а не от
-    способа оплаты (см. probe_checkout_resp.json: у всех payment одной
-    группы сумма одинаковая), поэтому его можно переносить как есть.
+    Ищем оффер под запрошенный способ (web_offer). Форсировать способ, для
+    которого нет своего оффера, нельзя: сервер отвечает code 59 («спрос
+    вырос, доставка подорожала») — это маскировка невалидной пары
+    request_id/способ оплаты. Поэтому при отсутствии оффера возвращаем
+    (None, None, meta) — маршрут отдаст честную ошибку 'недоступен'.
     Возвращает (offer, pp, meta) — meta с диагностикой.
     """
     offer, pp = web_offer(d, payment_id, payment_type)
@@ -1508,29 +1506,9 @@ def order_payment_pick(d, payment_id='sbp_qr', payment_type=None):
     meta = {'offers_pays': pays, 'fallback': False}
     if offer and pp:
         return offer, pp, meta
-    want_sbp = (payment_id in ('sbp_qr', 'sbp', 'sbp_token')
-                or payment_type in ('sbp', 'sbp_token'))
     meta['sbp_in_config'] = any(
         c.get('id') == 'sbp_qr' or c.get('type') in ('sbp', 'sbp_token')
         for c in (d.get('paymentTypeConfig') or []))
-    if want_sbp:
-        for o in (d.get('offers') or []):
-            avail = (o.get('availability') or {}).get('available')
-            if avail is False:
-                continue
-            if not (o.get('requestId') and o.get('offer_identity')):
-                continue
-            o_pp = o.get('possiblePayment') or {}
-            if o_pp.get('type') == 'add_new_card':
-                continue
-            sbp_pp = {'id': 'sbp_qr', 'type': 'sbp', 'title': 'СБП',
-                      'serviceFee': o_pp.get('serviceFee')}
-            cfc = o_pp.get('costForCustomer')
-            if cfc is not None:
-                sbp_pp['costForCustomer'] = cfc
-            meta['fallback'] = True
-            meta['fallback_offer'] = (o_pp.get('id'), o_pp.get('type'))
-            return o, sbp_pp, meta
     return None, None, meta
 
 
@@ -1720,7 +1698,7 @@ def mob_checkout(account, slug, address, lat=None, lon=None,
     _ensure_bearer(acc)
     lat, lon = _coords(acc, lat, lon)
     if isinstance(payment_id, dict):
-        payment_id = payment_id.get('id') or 'sbp_qr'
+        payment_id = payment_id.get('id') or ''
         payment_type = payment_type or payment_id.get('type') or 'sbp'
     if isinstance(payment_type, dict):
         payment_type = payment_type.get('type') or 'sbp'
@@ -1729,9 +1707,14 @@ def mob_checkout(account, slug, address, lat=None, lon=None,
         'place_slug': slug,
         'payment': {
             'recently_link_cards': False,
-            'selected_payment_type': {'id': payment_id, 'type': payment_type},
         },
     }
+    # Пред-выбор способа заставляет сервер фильтровать офферы: если способ
+    # невалиден, возвращаются только карты. Для честной проверки доступности
+    # и получения всех офферов пред-выбор опускаем (payment_id пустой).
+    if payment_id:
+        body['payment']['selected_payment_type'] = {'id': payment_id,
+                                                    'type': payment_type}
     return _eda_call(acc, 'POST', '/api/v2/cart/go-checkout', lat, lon,
                      json_body=body, params={'longitude': lon, 'latitude': lat})
 
@@ -1825,7 +1808,7 @@ def mob_order_with_retry(account, slug, address, phone='',
         meta['attempts'] = i + 1
         try:
             d = mob_checkout(acc, slug, address, lat=lat, lon=lon,
-                             payment_id=payment_id, payment_type=payment_type)
+                             payment_id=None, payment_type=None)
             offer, pp, m = order_payment_pick(d, payment_id, payment_type)
             meta.update({k: v for k, v in m.items() if k != '_d'})
             if not offer or not pp:
@@ -1945,7 +1928,7 @@ def mob_promo_apply_checkout(account, slug, code, address, lat=None, lon=None,
     if not (isinstance(res, dict) and res.get('status') == 'error'):
         try:
             d = mob_checkout(acc, slug, address, lat=lat, lon=lon,
-                             payment_id=payment_id, payment_type=payment_type)
+                             payment_id=None, payment_type=None)
             offer, pp = web_offer(d, payment_id, payment_type)
             if not offer or not pp:
                 avail = [a for a in web_available_payments(d)

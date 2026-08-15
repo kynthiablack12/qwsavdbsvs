@@ -1843,7 +1843,7 @@ def api_eda_web_checkout(token):
         d = eda.mob_checkout(s['account'], data.get('place_slug'),
                              data.get('address', {}),
                              lat=data.get('lat'), lon=data.get('lon'),
-                             payment_id=payment_id, payment_type=payment_type)
+                             payment_id=None, payment_type=None)
         offer, pp = eda.web_offer(d, payment_id, payment_type)
         fallback = False
         if not offer or not pp:
@@ -2279,7 +2279,7 @@ def api_eda_az_web_checkout(name):
     try:
         d = eda.mob_checkout(name, data.get('place_slug'), data.get('address', {}),
                              lat=data.get('lat'), lon=data.get('lon'),
-                             payment_id=payment_id, payment_type=payment_type)
+                             payment_id=None, payment_type=None)
         offer, pp = eda.web_offer(d, payment_id, payment_type)
         fallback = False
         if not offer or not pp:
