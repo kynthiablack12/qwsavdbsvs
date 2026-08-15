@@ -1798,6 +1798,306 @@ def eda_save_cards(account, cards):
     return acc.get('cards') or []
 
 
+# ---------- Суперапп-флоу (мобильный WebView, tc.eats.yandex.ru) ----------
+#
+#  Полное оформление заказа «как в Я.Го/VWebView»: те же хосты, заголовки
+#  и тела, что в flows_eda_mumu.mitm (x-platform: superapp_taxi_web,
+#  x-year-superapp-version: 1, Session_id cookie). В отличие от desktop_web,
+#  этот канал консистентен для карт/промокодов (акции «Бесплатная доставка»
+#  и т.п. не «умирают» между cart/promocode и созданием заказа).
+
+def _go_hdrs(acc, lat=None, lon=None):
+    """Заголовки суперапп-запроса (копия из перехвата flows_eda_mumu.mitm)."""
+    lat = lat if lat is not None else float(acc.get('lat', DEFAULT_LAT))
+    lon = lon if lon is not None else float(acc.get('lon', DEFAULT_LON))
+    d = _dev(acc)
+    ref = 'https://tc.eats.yandex.ru/4.0/eda-superapp/checkout'
+    return {
+        'accept': 'application/json, text/plain, */*',
+        'accept-language': 'ru',
+        'content-type': 'application/json;charset=UTF-8',
+        'origin': 'https://tc.eats.yandex.ru',
+        'referer': ref,
+        'x-retpath-y': ref,
+        'user-agent': GO_EATS_UA,
+        'x-platform': 'superapp_taxi_web',
+        'x-superapp-version': '1',
+        'x-app-version': '18.38.2',
+        'x-appmetrica-deviceid': d['appmetrica_deviceid'],
+        'x-appmetrica-uuid': d['appmetrica_uuid'],
+        'x-client-session': uuid.uuid4().hex[:23],
+        'x-device-id': d['device_id'],
+        'x-requested-with': 'ru.yandex.taxi',
+        'x-ya-coordinates': f'latitude={lat},longitude={lon}',
+        'x-yandex-uid': str(acc.get('yandexuid', '')),
+        'x-yataxi-userid': '1f2a6fcef4814723845622276de8c876',
+        'x-yataxi-user': '',
+    }
+
+
+def _go_call(acc, method, path, json_body=None, params=None, timeout=25):
+    """Запрос к суперапп-бэкенду (tc.eats.yandex.ru/4.0/eda-superapp)."""
+    ck = _web_cookies(acc)
+    url = GO_EATS_HOST + path
+    try:
+        r = requests.request(method, url, headers=_go_hdrs(acc), cookies=ck,
+                             json=json_body, params=params, timeout=timeout)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Я.Еда (суперапп): сеть ({method} {path}): {e}')
+    if r.status_code in (401, 403):
+        raise RuntimeError(f'Я.Еда (суперапп): авторизация отклонена ({r.status_code}): Session_id невалиден')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Я.Еда (суперапп): HTTP {r.status_code} на {method} {path}: {r.text[:300]}')
+    try:
+        return r.json()
+    except Exception:
+        return {'_status': r.status_code, '_text': r.text[:1000]}
+
+
+def _addr_superapp(addr):
+    """Перевести адрес веб-флоу в формат супераппа: {base_info, details}.
+
+    Элементы details всегда четыре (office/entrance/doorcode/floor) — как
+    в захвате; отсутствующие поля — пустые строки. Комментарий уходит в
+    base_info.comment.
+    """
+    a = addr or {}
+    loc = a.get('location') or {}
+    if isinstance(loc, dict):
+        lat = loc.get('latitude') or DEFAULT_LAT
+        lon = loc.get('longitude') or DEFAULT_LON
+    else:
+        lat, lon = DEFAULT_LAT, DEFAULT_LON
+    base = {
+        'type': {'id': 0},
+        'location': [lon, lat],
+        'country': a.get('country') or 'Россия',
+        'city': a.get('city') or 'Омск',
+        'street': a.get('street') or '',
+        'house': a.get('house') or '',
+        'full_text': a.get('full_text') or '',
+        'short_text': a.get('short_text') or '',
+        'uri': a.get('uri') or '',
+        'comment': a.get('comment') or '',
+    }
+    if a.get('areas'):
+        base['areas'] = a['areas']
+    if a.get('districts'):
+        base['districts'] = a['districts']
+    details = [
+        {'type': 'office', 'text': (a.get('office') or a.get('flat') or '')},
+        {'type': 'entrance', 'text': (a.get('entrance') or '')},
+        {'type': 'doorcode', 'text': (a.get('doorcode') or a.get('intercom') or '')},
+        {'type': 'floor', 'text': (a.get('floor') or '')},
+    ]
+    return {'base_info': base, 'details': details}
+
+
+def go_checkout(account, slug, address, lat=None, lon=None,
+                payment_id='sbp_qr', payment_type='sbp'):
+    """Оформление супераппом: POST /api/v2/cart/go-checkout.
+
+    Адрес конвертируется в base_info/details (как WebView Го). Ответ —
+    offers + paymentTypeConfig (тот же формат, что парсит web_offer).
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    lat, lon = _coords(acc, lat, lon)
+    if isinstance(payment_id, dict):
+        payment_id = payment_id.get('id') or 'sbp_qr'
+        payment_type = payment_type or payment_id.get('type') or 'sbp'
+    if isinstance(payment_type, dict):
+        payment_type = payment_type.get('type') or 'sbp'
+    body = {
+        'address': _addr_superapp(address),
+        'place_slug': slug,
+        'payment': {'recently_link_cards': (payment_id == 'add_new_card')},
+    }
+    return _go_call(acc, 'POST', '/api/v2/cart/go-checkout', body,
+                    params={'longitude': lon, 'latitude': lat})
+
+
+def go_apply_promocode(account, slug, code, offer_identity='', lat=None, lon=None,
+                       receiving_type='delivery'):
+    """Применить промокод супераппом: POST /api/v2/cart/promocode.
+
+    Параметры и тело — как в захвате (params: placeSlug/soft_multi/
+    shippingType/offer_identity, body {code}).
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    lat, lon = _coords(acc, lat, lon)
+    params = {
+        'placeSlug': slug,
+        'soft_multi': 'true',
+        'shippingType': 'delivery',
+        'receiving_type': receiving_type,
+        'is_delivery_without_address': 'false',
+    }
+    if offer_identity:
+        params['offer_identity'] = offer_identity
+    return _go_call(acc, 'POST', '/api/v2/cart/promocode',
+                    {'code': code}, params=params)
+
+
+def go_create_order(account, slug, address, offer_identity, payment_info, phone='',
+                    code=None, request_id=None, cart_id=None,
+                    extended_options=None, recently_link_cards=False,
+                    plus_subscription_toggle_state=False):
+    """Создать заказ супераппом: POST /api/v1/orders.
+
+    Тело — копия из flows_eda_mumu.mitm (260815-5424038 / 260815-6472614):
+    address base_info/details, extended_options с tips_chosen_offer,
+    payment_information {type, costForCustomer, id, currency},
+    request_id = cart_id.offer_identity.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if not request_id and cart_id:
+        request_id = f'{cart_id}.{offer_identity}'
+    cfc = payment_info.get('costForCustomer') or {}
+    if isinstance(cfc, dict):
+        currency = cfc.get('currency') or ''
+        cfc = cfc.get('value') or cfc.get('amount') or ''
+    else:
+        currency = payment_info.get('currency') or ''
+    try:
+        cfc_str = f'{float(cfc):.2f}'
+    except (TypeError, ValueError):
+        cfc_str = str(cfc)
+    if extended_options is None:
+        extended_options = [
+            {'type': 'delivery_options', 'leave_at_the_door': False},
+            {'type': 'tips_chosen_offer', 'tips_type': 'zero', 'save_selected_tip': False},
+        ]
+    body = {
+        'payment_method_id': WEB_PAYMENT_METHOD_EATS,
+        'phone': phone,
+        'change_on': 0,
+        'persons_quantity': 0,
+        'payment_information': {
+            'type': payment_info.get('type') or 'sbp',
+            'costForCustomer': cfc_str,
+            'id': payment_info.get('id') or 'sbp_qr',
+            'currency': currency or 'RUB',
+        },
+        'extended_options': extended_options,
+        'payment': {'recently_link_cards': recently_link_cards},
+        'place_slug': slug,
+        'address': _addr_superapp(address),
+        'plus_subscription_toggle_state': plus_subscription_toggle_state,
+        'request_id': request_id or '',
+    }
+    if code:
+        body['code'] = code
+    return _go_call(acc, 'POST', '/api/v1/orders', body)
+
+
+def go_order_tracking(account, order_id):
+    """Статус оплаты/QR супераппом: POST eats-payments order/tracking."""
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    return _go_call(acc, 'POST', '/eats/v1/eats-payments/v1/order/tracking',
+                    {'order_id': order_id})
+
+
+def go_sbp_qr(account, order_id, attempts=15, delay=1.5):
+    """QR для СБП супераппом: поллит order/tracking до purchase_token.
+
+    Возвращает {order_id, payment, qr_url, purchase_token, service_token}
+    (Trust get_payment для контента QR — как web_sbp_qr).
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    ck = _web_cookies(acc)
+    purchase_token = service_token = ''
+    tracking = None
+    for _ in range(attempts):
+        tracking = go_order_tracking(acc, order_id)
+        pay = (tracking or {}).get('payment')
+        if pay is None:
+            pay = ((tracking or {}).get('order') or {}).get('payment') or {}
+        payload = pay.get('payload') or {}
+        purchase_token = payload.get('purchase_token') or ''
+        service_token = payload.get('service_token') or ''
+        if purchase_token:
+            break
+        time.sleep(delay)
+    order = (tracking or {}).get('order') or {}
+    out = {
+        'order_id': (order.get('order') or {}).get('order_id') or order_id,
+        'title': order.get('title'),
+        'description': order.get('description'),
+        'payment': pay if tracking else {},
+        'purchase_token': purchase_token,
+        'service_token': service_token,
+    }
+    if purchase_token:
+        try:
+            r = requests.get(
+                'https://trust.yandex.ru/web/get_payment',
+                headers={
+                    'user-agent': GO_EATS_UA,
+                    'accept': '*/*',
+                    'referer': 'https://trust.yandex.ru/web/payment?template_tag=desktop%2Fform',
+                },
+                cookies=ck,
+                params={'purchase_token': purchase_token},
+                timeout=20,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                out['qr_url'] = data.get('processing_payment_form_url') or ''
+                out['amount'] = data.get('amount')
+                out['currency'] = data.get('currency')
+                out['trust_status'] = data.get('status')
+        except (requests.RequestException, ValueError) as e:
+            out['trust_error'] = str(e)
+    return out
+
+
+def go_promo_apply_checkout(account, slug, code, address, lat=None, lon=None,
+                            payment_id='sbp_qr', payment_type='sbp',
+                            offer_identity=''):
+    """Применить промокод (go_apply_promocode) и пересчитать корзину go_checkout.
+
+    Аналог promo_apply_checkout, но целиком на суперапп-канале: промокод
+    оседает в корзине и виден при создании заказа (акции «Бесплатная
+    доставка» и т.п. не «протухают» к моменту /api/v1/orders).
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    res = go_apply_promocode(acc, slug, code, offer_identity=offer_identity,
+                             lat=lat, lon=lon)
+    out = {'result': res}
+    if not (isinstance(res, dict) and res.get('status') == 'error'):
+        try:
+            d = go_checkout(acc, slug, address, lat=lat, lon=lon,
+                            payment_id=payment_id, payment_type=payment_type)
+            offer, pp = web_offer(d, payment_id, payment_type)
+            if not offer or not pp:
+                avail = [a for a in web_available_payments(d)
+                         if a.get('type') != 'add_new_card']
+                if avail:
+                    first = avail[0]
+                    offer, pp = web_offer(d, first.get('id') or first.get('type'),
+                                          first.get('type'))
+            payment = None
+            if offer and pp:
+                cfc = pp.get('costForCustomer') or {}
+                if isinstance(cfc, dict):
+                    cfc = cfc.get('value') or ''
+                request_id = offer.get('requestId') or ''
+                payment = {
+                    'id': pp.get('id'), 'type': pp.get('type'),
+                    'title': pp.get('title'),
+                    'costForCustomer': cfc,
+                    'serviceFee': pp.get('serviceFee'),
+                    'offer_identity': offer.get('offer_identity'),
+                    'requestId': request_id,
+                    'cart_id': request_id.split('.')[0] if '.' in request_id else '',
+                }
+            out.update({'checkout': d, 'payment': payment,
+                        'available': web_available_payments(d)})
+        except Exception:
+            pass
+    return out
+
+
 def order_status(account, order_id):
     """Статус заказа / трекинг."""
     acc = get_eda_account(account) if isinstance(account, str) else account
