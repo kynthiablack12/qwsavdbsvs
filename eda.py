@@ -2923,8 +2923,19 @@ def plus_subscribe(account, card, sms_code='', purchase_token='',
             co = {'error': str(e)}
         # 2) purchase_token: переданный → из чекаута → автопоиск
         if not purchase_token:
-            purchase_token = co.get('purchase_token') or '' if isinstance(co, dict) else ''
+            purchase_token = (co.get('purchase_token') or '') if isinstance(co, dict) else ''
         if not purchase_token:
+            if not of:
+                return {'ok': False,
+                        'error': 'Плюс: не получен offerToken с лендинга и нет '
+                                 'purchase_token. Проверь plus_offers (аккаунту '
+                                 'может быть недоступен вимбек-оффер).',
+                        '_offers': of, '_checkout': co}
+            if isinstance(co, dict) and co.get('error'):
+                return {'ok': False,
+                        'error': 'Плюс: чекаут не выдал purchase_token: '
+                                 + str(co['error']),
+                        '_offers': of, '_checkout': co}
             purchase_token = plus_purchase_init(acc, csrf=csrf)
         parsed = plus_parse_card(card) if not isinstance(card, dict) else card
         # 3) bin_info (тип/банк карты, как в перехвате при вводе номера)
