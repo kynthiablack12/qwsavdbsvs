@@ -1948,11 +1948,13 @@ def api_eda_order_create(token):
         d = eda.mob_checkout(s['account'], slug, address,
                              lat=data.get('lat'), lon=data.get('lon'),
                              payment_id=payment_id, payment_type=payment_type)
-        offer, pp = eda.web_offer(d, payment_id, payment_type)
+        offer, pp, meta = eda.order_payment_pick(d, payment_id, payment_type)
         if not offer or not pp:
             return jsonify({
                 'error': f'Способ оплаты {payment_id} недоступен для этого заказа',
-                'available': eda.web_available_payments(d)}), 400
+                'available': eda.web_available_payments(d),
+                'offers_pays': meta.get('offers_pays', []),
+                'sbp_in_config': meta.get('sbp_in_config')}), 400
         res = eda.mob_create_order(
             s['account'], slug, address, offer.get('offer_identity'), pp,
             phone=data.get('phone') or '',
@@ -2359,11 +2361,13 @@ def api_eda_az_order_create(name):
         d = eda.mob_checkout(name, slug, address,
                              lat=data.get('lat'), lon=data.get('lon'),
                              payment_id=payment_id, payment_type=payment_type)
-        offer, pp = eda.web_offer(d, payment_id, payment_type)
+        offer, pp, meta = eda.order_payment_pick(d, payment_id, payment_type)
         if not offer or not pp:
             return jsonify({
                 'error': f'Способ оплаты {payment_id} недоступен для этого заказа',
-                'available': eda.web_available_payments(d)}), 400
+                'available': eda.web_available_payments(d),
+                'offers_pays': meta.get('offers_pays', []),
+                'sbp_in_config': meta.get('sbp_in_config')}), 400
         res = eda.mob_create_order(
             name, slug, address, offer.get('offer_identity'), pp,
             phone=data.get('phone') or '',

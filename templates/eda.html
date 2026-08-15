@@ -1771,7 +1771,7 @@ function renderChkPayOpts() {
     const key = o.id || o.type || '';
     const extra = o.type === 'add_new_card'
       ? 'onclick="chkOpenBind()"'
-      : `onclick="chkSelectPay(${esc(JSON.stringify(o.id || o.type))},${esc(JSON.stringify(o.type))},${esc(JSON.stringify(o.title || ''))})"`;
+      : `onclick="chkSelectPay(${esc(JSON.stringify(o.id || o.type))},${esc(JSON.stringify(o.type))},${esc(JSON.stringify(o.title || ''))},${esc(JSON.stringify(o.costForCustomer == null ? '' : o.costForCustomer))})"`;
     return `
     <div class="pay-opt ${curId === key ? 'sel' : ''}" ${extra}>
       <span>${chkPayIcon(o.type)} ${esc(o.title || o.type)}</span>
@@ -1779,7 +1779,12 @@ function renderChkPayOpts() {
       ${curId === key ? '<span class="st">✓</span>' : ''}
     </div>`;
   };
+  const curCost = cur.costForCustomer;
   return `<div>${others.map(row).join('')}${cards.map(row).join('')}</div>`
+    + `<div class="chk-row" style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(33,32,31,.06)">
+         <span class="k">Итого к оплате</span>
+         <span class="v"><b>${curCost != null && curCost !== '' ? fmtRub(curCost) : '—'}</b></span>
+       </div>`
     + `<div class="db-toolbar" style="margin-top:8px;gap:8px">
          <button class="btn-main order-gated" id="chkBindAdd" style="flex:1">➕ Добавить карту</button>
          <button class="btn-main order-gated" id="chkBindRf" disabled style="flex:1">⟳ Обновить карты</button>
@@ -1787,8 +1792,12 @@ function renderChkPayOpts() {
        <div class="db-mut" id="chkBindMsg">Текущий: ${esc(cur.title || curId || 'не выбран')}</div>`;
 }
 
-function chkSelectPay(id, type, title) {
-  chk.payment = { id: id || null, type: type || null, title: title || type || id || '' };
+function chkSelectPay(id, type, title, costForCustomer) {
+  chk.payment = {
+    id: id || null, type: type || null, title: title || type || id || '',
+    costForCustomer: costForCustomer != null ? costForCustomer : '',
+  };
+  chk.payPinned = true;
   chkRenderPayBox();
 }
 
@@ -1884,6 +1893,11 @@ async function applyPromo() {
   const btn = $('chkPromoGo');
   msg.textContent = 'Применяю…';
   btn.disabled = true;
+  const pinId = (chk.payment || {}).id || null;
+  const pinType = (chk.payment || {}).type || null;
+  const pinTitle = (chk.payment || {}).title || '';
+  const pinCost = (chk.payment || {}).costForCustomer != null
+    ? (chk.payment || {}).costForCustomer : '';
   const loc = chk.addrData.location || {};
   try {
     const r = await api(`/api/eda/${TOKEN}/promocode`, {
@@ -1892,8 +1906,8 @@ async function applyPromo() {
         place_slug: state.rest, code,
         address: chk.addrData,
         offer_identity: (chk.payment || {}).offer_identity,
-        payment_id: (chk.payment || {}).id || 'sbp_qr',
-        payment_type: (chk.payment || {}).type || 'sbp',
+        payment_id: pinId || 'sbp_qr',
+        payment_type: pinType || 'sbp',
         lat: loc.latitude, lon: loc.longitude,
       }),
     });
@@ -1907,9 +1921,22 @@ async function applyPromo() {
       return;
     }
     if (r.checkout) chk.checkout = r.checkout;
-    if (r.payment) chk.payment = r.payment;
     if (r.available) chk.available = r.available;
+    if (r.payment && !(pinId || pinType)) chk.payment = r.payment;
     renderChkCheckout();
+    if (pinId || pinType) {
+      const still = (chk.available || []).some(a => (a.id || a.type) === (pinId || pinType))
+        || (chk.cards || []).some(c => c.id === pinId)
+        || pinId === 'sbp_qr' || pinType === 'sbp';
+      if (still) {
+        const entry = (chk.available || []).find(a => (a.id || a.type) === (pinId || pinType));
+        if (entry) {
+          chkSelectPay(pinId, pinType, entry.title || pinTitle, entry.costForCustomer);
+        } else {
+          chkSelectPay(pinId, pinType, pinTitle, pinCost);
+        }
+      }
+    }
     $('chkPromoMsg').textContent = 'Промокод ' + code + ' применён ✓';
   } catch (e) {
     msg.textContent = 'Ошибка: ' + e.message;

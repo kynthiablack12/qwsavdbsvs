@@ -1453,15 +1453,16 @@ def web_offer_sbp(d, payment_id='sbp_qr'):
 
 
 def web_available_payments(d):
-    """Способы оплаты из go-checkout (id, type, title). Уникальные.
+    """Способы оплаты из go-checkout (id, type, title, costForCustomer). Уникальные.
 
     Объединяет offers[].possiblePayment и верхнеуровневый paymentTypeConfig
     (список, которым пользуется сайт — там СБП есть даже когда в офферах нет).
+    costForCustomer — сумма к оплате данным способом (с учётом скидки).
     """
     out = []
     seen = set()
 
-    def add(pid, ptype, title):
+    def add(pid, ptype, title, cfc=None):
         if title and not (pid or ptype) and 'карту' in title.lower():
             ptype = 'add_new_card'
         if pid and not ptype and pid == 'sbp_qr':
@@ -1470,15 +1471,67 @@ def web_available_payments(d):
         if not k or k in seen:
             return
         seen.add(k)
-        out.append({'id': pid, 'type': ptype, 'title': title})
+        e = {'id': pid, 'type': ptype, 'title': title}
+        if cfc is not None:
+            if isinstance(cfc, dict):
+                cfc = cfc.get('value') or cfc.get('amount') or ''
+            e['costForCustomer'] = cfc
+        out.append(e)
 
     for o in (d.get('offers') or []):
         pp = o.get('possiblePayment') or {}
         if pp:
-            add(pp.get('id'), pp.get('type'), pp.get('title'))
+            add(pp.get('id'), pp.get('type'), pp.get('title'),
+                pp.get('costForCustomer'))
     for cfg in (d.get('paymentTypeConfig') or []):
         add(cfg.get('id'), cfg.get('type'), cfg.get('title'))
     return out
+
+
+def order_payment_pick(d, payment_id='sbp_qr', payment_type=None):
+    """Выбрать (offer, possiblePayment) для создания заказа.
+
+    Сначала ищем оффер под запрошенный способ (web_offer). Для СБП, если
+    отдельного оффера в go-checkout нет (бывает: СБП есть только в
+    paymentTypeConfig, сайт платит единым способом EATS_PAYMENTS), берём
+    первый доступный оффер корзины и подставляем способ sbp/sbp_qr.
+    costForCustomer у оффера зависит только от варианта доставки, а не от
+    способа оплаты (см. probe_checkout_resp.json: у всех payment одной
+    группы сумма одинаковая), поэтому его можно переносить как есть.
+    Возвращает (offer, pp, meta) — meta с диагностикой.
+    """
+    offer, pp = web_offer(d, payment_id, payment_type)
+    pays = []
+    for o in (d.get('offers') or []):
+        m = o.get('possiblePayment') or {}
+        pays.append((m.get('id'), m.get('type')))
+    meta = {'offers_pays': pays, 'fallback': False}
+    if offer and pp:
+        return offer, pp, meta
+    want_sbp = (payment_id in ('sbp_qr', 'sbp', 'sbp_token')
+                or payment_type in ('sbp', 'sbp_token'))
+    meta['sbp_in_config'] = any(
+        c.get('id') == 'sbp_qr' or c.get('type') in ('sbp', 'sbp_token')
+        for c in (d.get('paymentTypeConfig') or []))
+    if want_sbp:
+        for o in (d.get('offers') or []):
+            avail = (o.get('availability') or {}).get('available')
+            if avail is False:
+                continue
+            if not (o.get('requestId') and o.get('offer_identity')):
+                continue
+            o_pp = o.get('possiblePayment') or {}
+            if o_pp.get('type') == 'add_new_card':
+                continue
+            sbp_pp = {'id': 'sbp_qr', 'type': 'sbp', 'title': 'СБП',
+                      'serviceFee': o_pp.get('serviceFee')}
+            cfc = o_pp.get('costForCustomer')
+            if cfc is not None:
+                sbp_pp['costForCustomer'] = cfc
+            meta['fallback'] = True
+            meta['fallback_offer'] = (o_pp.get('id'), o_pp.get('type'))
+            return o, sbp_pp, meta
+    return None, None, meta
 
 
 def web_apply_promocode(account, slug, code, offer_identity='', lat=None, lon=None,
