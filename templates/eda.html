@@ -1689,11 +1689,18 @@ function chkPayIcon(t) {
 
 function renderChkPayOpts() {
   const cur = chk.payment || {};
-  let avail = (chk.available && chk.available.length) ? chk.available
-    : (cur.id || cur.type ? [{ id: cur.id, type: cur.type, title: cur.title }] : []);
-  avail = avail.filter((o) => o && o.type !== 'add_new_card');
-  const cards = avail.filter((o) => o.type === 'card');
-  const others = avail.filter((o) => o.type !== 'card');
+  const map = new Map();
+  ((chk.available && chk.available.length) ? chk.available
+    : (cur.id || cur.type ? [{ id: cur.id, type: cur.type, title: cur.title }] : []))
+    .forEach((o) => { if (o && (o.id || o.type)) map.set(o.id || o.type, o); });
+  if (!map.has('sbp_qr')) map.set('sbp_qr', { id: 'sbp_qr', type: 'sbp', title: 'СБП • по QR' });
+  (chk.cards || []).forEach((c) => {
+    if (c && c.id && (c.type === 'card' || /^card-/.test(c.id || '')) && !map.has(c.id))
+      map.set(c.id, { id: c.id, type: 'card', title: c.title || 'Сохранённая карта' });
+  });
+  const list = Array.from(map.values());
+  const cards = list.filter((o) => o.type === 'card');
+  const others = list.filter((o) => o.type !== 'card');
   const curId = cur.id || cur.type || '';
   const row = (o) => `
     <div class="pay-opt" onclick="webCheckout(${esc(JSON.stringify(o.id || o.type))}, ${esc(JSON.stringify(o.type))})">
@@ -1702,7 +1709,57 @@ function renderChkPayOpts() {
       ${curId === (o.id || o.type) ? '<span class="st">✓</span>' : ''}
     </div>`;
   return `<div>${others.map(row).join('')}${cards.map(row).join('')}</div>`
-    + `<div class="db-mut" style="margin-top:8px">Текущий: ${esc(cur.title || curId || 'не выбран')}</div>`;
+    + `<div class="db-toolbar" style="margin-top:8px;gap:8px">
+         <button class="btn-main order-gated" id="chkBindAdd" style="flex:1">➕ Добавить карту</button>
+         <button class="btn-main order-gated" id="chkBindRf" disabled style="flex:1">⟳ Обновить карты</button>
+       </div>
+       <div class="db-mut" id="chkBindMsg">Текущий: ${esc(cur.title || curId || 'не выбран')}</div>`;
+}
+
+function chkRenderPayBox() {
+  const box = $('chkPayBox');
+  if (!box) return;
+  box.innerHTML = renderChkPayOpts();
+  $('chkBindAdd').addEventListener('click', chkOpenBind);
+  $('chkBindRf').addEventListener('click', chkRefreshCards);
+  $('chkBindRf').disabled = !((chk.cards || []).length) && !chk.bindOpened;
+}
+
+async function chkLoadCards() {
+  try {
+    const r = await api(`/api/eda/${TOKEN}/cards`);
+    chk.cards = (r.cards || []).filter((c) => c && c.id);
+  } catch (e) { chk.cards = chk.cards || []; }
+  chkRenderPayBox();
+}
+
+async function chkOpenBind() {
+  const msg = $('chkBindMsg');
+  msg.textContent = 'Создаю форму привязки…';
+  try {
+    const r = await api(`/api/eda/${TOKEN}/cards/bind`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    if (!r.form_url) { msg.textContent = 'Ошибка: ' + (r.error || 'Траст не вернул форму'); return; }
+    chk.bindOpened = true;
+    msg.innerHTML = 'Форма открыта в новой вкладке — введите карту и код из SMS, затем нажмите <b>⟳ Обновить карты</b>.';
+    $('chkBindRf').disabled = false;
+    window.open(r.form_url, '_blank', 'noopener');
+  } catch (e) { msg.textContent = 'Ошибка: ' + e.message; }
+}
+
+async function chkRefreshCards() {
+  const msg = $('chkBindMsg');
+  msg.textContent = 'Обновляю карты из Траста…';
+  try {
+    await api(`/api/eda/${TOKEN}/cards/refresh`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    msg.textContent = 'Карты обновлены. Пересчитываю оформление…';
+    await chkLoadCards();
+    chk.payment = null;
+    await webCheckout();
+  } catch (e) { msg.textContent = 'Ошибка обновления: ' + e.message; }
 }
 
 function renderChkCheckout() {
@@ -1715,7 +1772,7 @@ function renderChkCheckout() {
     <div class="promo-timer hidden" id="chkTimer"></div>
     <div class="chk-block">
       <h3>Способ оплаты</h3>
-      ${renderChkPayOpts()}
+      <div id="chkPayBox">${renderChkPayOpts()}</div>
     </div>
     <div class="chk-block">
       <h3>Промокод</h3>
@@ -1734,6 +1791,8 @@ function renderChkCheckout() {
   $('chkPromo').addEventListener('keydown', (e) => { if (e.key === 'Enter') applyPromo(); });
   $('chkOrderBtn').addEventListener('click', placeOrder);
   renderPromoTimer();
+  chkRenderPayBox();
+  chkLoadCards();
 }
 
 async function applyPromo() {
