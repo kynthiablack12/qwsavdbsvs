@@ -1100,10 +1100,13 @@ def all_carts(account, lat=None, lon=None, shipping='delivery', screen='catalog'
     """Все корзины (для каталога/списка)."""
     acc = get_eda_account(account) if isinstance(account, str) else account
     lat, lon = _coords(acc, lat, lon)
+    params = {'latitude': lat, 'longitude': lon,
+              'screen': screen, 'shippingType': shipping}
+    if _use_web(acc):
+        return _web_call(acc, 'POST', '/eats/v1/cart/v2/multi-carts',
+                         {'need_items_icons': False}, params=params)
     return _eda_call(acc, 'POST', '/eats/v1/cart/v2/multi-carts',
-                     lat, lon,
-                     params={'latitude': lat, 'longitude': lon,
-                             'screen': screen, 'shippingType': shipping},
+                     lat, lon, params=params,
                      json_body={'need_items_icons': False})
 
 

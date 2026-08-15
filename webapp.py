@@ -1744,6 +1744,40 @@ def api_eda_cart_add(token):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/eda/<token>/carts')
+def api_eda_carts(token):
+    """Все активные корзины аккаунта (для списка в сессии)."""
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        lat = request.args.get('lat', type=float)
+        lon = request.args.get('lon', type=float)
+        raw = eda.all_carts(s['account'], lat=lat, lon=lon)
+        carts = []
+        for c in raw.get('carts') or []:
+            place = c.get('place') or {}
+            inner = c.get('cart')
+            if not isinstance(inner, dict):
+                inner = c
+            items = inner.get('items') or []
+            total = inner.get('total')
+            if total is None and inner.get('subtotal') is not None:
+                total = inner.get('subtotal')
+            carts.append({
+                'slug': place.get('slug') or c.get('place_slug') or '',
+                'place_name': place.get('name') or c.get('place_name') or '',
+                'items': items,
+                'total': total,
+            })
+        return jsonify({'ok': True, 'carts': carts})
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/eda/<token>/addresses')
 def api_eda_addresses(token):
     try:

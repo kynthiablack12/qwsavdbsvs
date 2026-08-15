@@ -256,6 +256,7 @@ h1,h2,h3{font-family:'YSCompressed','YSText',sans-serif;font-weight:800}
 .chk-block h3{font-size:15px;font-weight:700;margin-bottom:10px}
 .chk-search{position:relative}
 .chk-search .search{margin:0}
+.chk-search .addr-suggest{top:calc(100% + 8px);border-radius:14px}
 .chk-addr-res{margin-top:10px;font-size:14px;color:var(--ink);background:var(--search);border-radius:14px;padding:10px 14px;display:flex;align-items:center;gap:8px}
 .chk-row{display:flex;justify-content:space-between;font-size:14px;padding:5px 0}
 .chk-row .k{color:var(--ink45)}
@@ -926,6 +927,10 @@ function openRestaurant(slug, el) {
   state.restInfo = { title: title };
   state.restPic = (el && el.dataset && el.dataset.pic) || '';
   state.catKey = 'all';
+  try {
+    sessionStorage.setItem('edaRest', slug);
+    sessionStorage.setItem('edaBiz', biz);
+  } catch (e) {}
   showView(biz === 'shop' ? 'shop' : 'restic');
 }
 
@@ -1369,10 +1374,60 @@ async function loadCart() {
     const r = await api(`/api/eda/${TOKEN}/cart?${qs({place_slug: state.rest})}`);
     state.cart = r.cart;
     updateCartDot();
+    if (!cartItems().length) return showActiveCarts();
     renderCart();
   } catch (e) {
     box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
   }
+}
+
+async function loadCartSilent() {
+  try {
+    const r = await api(`/api/eda/${TOKEN}/cart?${qs({place_slug: state.rest || ''})}`);
+    state.cart = r.cart;
+    updateCartDot();
+    updateRb();
+    updateShopRb();
+  } catch (e) {}
+}
+
+function cartCardHtml(c, extraBtn) {
+  const items = (c.items || []).slice(0, 8).map(it => esc(it.name || '')).join(', ');
+  const more = (c.items || []).length > 8 ? '…' : '';
+  return `
+    <div class="cart-card">
+      <div class="ci-name"><b>${esc(c.place_name || c.slug || 'Ресторан')}</b></div>
+      <div class="db-mut" style="margin:4px 0">${items}${more}</div>
+      <div class="cart-sum"><span>Итого</span><span class="sum-val">${fmtRub(c.total)}</span></div>
+      ${extraBtn || `<button class="btn-main" data-open="${esc(c.slug || '')}">Открыть и оформить</button>`}
+    </div>`;
+}
+
+async function showActiveCarts() {
+  const box = $('cartBox');
+  box.innerHTML = '<div class="hint">Проверяю активные корзины…</div>';
+  try {
+    const r = await api(`/api/eda/${TOKEN}/carts`);
+    const carts = (r.carts || []).filter(c => (c.items || []).length);
+    if (!carts.length) { renderCart(); return; }
+    box.innerHTML = `
+      <div class="vhead"><h2>Активные корзины</h2><p>${carts.length} шт. найдено</p></div>
+      ${carts.map(c => cartCardHtml(c)).join('')}`;
+    box.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => openActiveCart(b.dataset.open)));
+  } catch (e) {
+    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function openActiveCart(slug) {
+  if (!slug) return;
+  state.rest = slug;
+  state.biz = 'restaurant';
+  try {
+    sessionStorage.setItem('edaRest', slug);
+    sessionStorage.setItem('edaBiz', 'restaurant');
+  } catch (e) {}
+  showView('cart');
 }
 
 function renderCart() {
@@ -1550,6 +1605,9 @@ function renderAddressStep() {
     $('chkAddrRes').classList.add('hidden');
     chk.manualAddr = null;
   });
+  $('chkSearch').addEventListener('blur', () => {
+    setTimeout(() => $('chkSuggest').classList.add('hidden'), 180);
+  });
 }
 
 function buildChkAddr(a, f) {
@@ -1590,7 +1648,12 @@ function chkDoSearch(q) {
         pos: s.items && s.items[0] && s.items[0].position,
       }));
       if (!items.length) {
-        box.innerHTML = '<div class="hint" style="padding:20px">Ничего не найдено</div>';
+        box.innerHTML = `
+          <div class="hint" style="padding:20px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+            <span>Ничего не найдено</span>
+            <button type="button" onclick="document.getElementById('chkSuggest').classList.add('hidden')"
+              style="border:none;background:none;font-family:inherit;font-size:18px;cursor:pointer;color:var(--ink45)" aria-label="Закрыть">✕</button>
+          </div>`;
         return;
       }
       box.innerHTML = addrSuggestItems(items);
@@ -1937,20 +2000,38 @@ async function trackChkOrder() {
 async function loadOrders() {
   const box = $('ordersBox');
   box.innerHTML = '<div class="hint">Загрузка…</div>';
+  const out = [];
   try {
     const r = await api(`/api/eda/${TOKEN}/orders/active`);
     const tracked = (r.orders && r.orders.payload && r.orders.payload.trackedOrders) || [];
-    state.orders = tracked;
-    if (!tracked.length) { box.innerHTML = '<div class="hint">Активных заказов нет</div>'; return; }
-    box.innerHTML = tracked.map(o => `<div class="cart-card">${esc(o.title || 'Заказ')}</div>`).join('');
+    out.push(tracked.map(o => `<div class="cart-card">🚚 ${esc(o.title || 'Заказ')}</div>`).join(''));
   } catch (e) {
-    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    out.push(`<div class="err">${esc(e.message)}</div>`);
   }
+  try {
+    const r = await api(`/api/eda/${TOKEN}/carts`);
+    const carts = (r.carts || []).filter(c => (c.items || []).length);
+    if (carts.length) {
+      out.push('<div class="vhead" style="padding-top:8px"><h2>Активные корзины</h2></div>');
+      out.push(carts.map(c => cartCardHtml(c)).join(''));
+    }
+  } catch (e) {}
+  if (!out.length) out.push('<div class="hint">Активных заказов и корзин нет</div>');
+  box.innerHTML = out.join('');
+  box.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => openActiveCart(b.dataset.open)));
 }
 
 /* ---------- init ---------- */
 if (!INVALID) {
+  try {
+    const saved = sessionStorage.getItem('edaRest');
+    if (saved) {
+      state.rest = saved;
+      state.biz = sessionStorage.getItem('edaBiz') || 'restaurant';
+    }
+  } catch (e) {}
   loadHome();
+  loadCartSilent();
 }
 
 /* ---------- выбор адреса ---------- */
