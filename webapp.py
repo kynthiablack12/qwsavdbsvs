@@ -1954,6 +1954,15 @@ def api_eda_order_create(token):
             or payment_id == 'add_new_card',
         )
         if not res:
+            if meta.get('code59'):
+                return jsonify({
+                    'error': 'Стоимость доставки изменилась — сумма обновлена, '
+                             'нажмите «Оформить заказ» ещё раз',
+                    'code': 59, 'retry': True,
+                    'checkout': meta.get('_d'),
+                    'payment': meta.get('payment'),
+                    'available': eda.web_available_payments(meta.get('_d') or {}),
+                    'attempts': meta.get('attempts')}), 409
             return jsonify({
                 'error': f'Способ оплаты {payment_id} недоступен для этого заказа',
                 'available': eda.web_available_payments(meta.get('_d') or {}),
@@ -2364,6 +2373,15 @@ def api_eda_az_order_create(name):
             or payment_id == 'add_new_card',
         )
         if not res:
+            if meta.get('code59'):
+                return jsonify({
+                    'error': 'Стоимость доставки изменилась — сумма обновлена, '
+                             'нажмите «Оформить заказ» ещё раз',
+                    'code': 59, 'retry': True,
+                    'checkout': meta.get('_d'),
+                    'payment': meta.get('payment'),
+                    'available': eda.web_available_payments(meta.get('_d') or {}),
+                    'attempts': meta.get('attempts')}), 409
             return jsonify({
                 'error': f'Способ оплаты {payment_id} недоступен для этого заказа',
                 'available': eda.web_available_payments(meta.get('_d') or {}),

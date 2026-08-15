@@ -1805,38 +1805,62 @@ def mob_create_order(account, slug, address, offer_identity, payment_info, phone
 def mob_order_with_retry(account, slug, address, phone='',
                          payment_id='sbp_qr', payment_type='sbp',
                          lat=None, lon=None, recently_link_cards=False,
-                         attempts=3, delay=0.8):
+                         attempts=3, delay=0.6):
     """Создать заказ мобильным каналом с повторами при изменении цены.
 
     go-checkout → выбор оффера → /api/v1/orders. Если сервер отвечает
-    code 59 («стоимость доставки временно увеличилась» / «спрос вырос»)
-    на POST /api/v1/orders, оффер устарел — перезапрашиваем go-checkout
-    (цена и request_id актуализируются) и пробуем ещё раз.
-    Возвращает (res, meta); если способ оплаты не найден — (None, meta)
-    (маршрут сам отдаёт 400 с диагносткой из meta).
+    code 59 («стоимость доставки временно увеличилась» / «спрос вырос»),
+    оффер устарел — перезапрашиваем go-checkout (новая цена и request_id)
+    и пробуем ещё раз. Возвращает (res, meta):
+      res — ответ /api/v1/orders, либо None;
+      meta — диагностика; при финальном code 59 содержит 'code59',
+        '_d' (свежий go-checkout), 'payment' (подобранный способ/оффер) —
+        маршрут отдаёт их фронту, чтобы он показал новую сумму и дал
+        подтвердить заказ ещё раз (без спама быстрых повторов).
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
+    meta = {}
     last = None
-    for _ in range(max(1, attempts)):
-        d = mob_checkout(acc, slug, address, lat=lat, lon=lon,
-                         payment_id=payment_id, payment_type=payment_type)
-        offer, pp, meta = order_payment_pick(d, payment_id, payment_type)
-        if not offer or not pp:
-            meta['_d'] = d
-            return None, meta
+    for i in range(max(1, attempts)):
+        meta['attempts'] = i + 1
         try:
+            d = mob_checkout(acc, slug, address, lat=lat, lon=lon,
+                             payment_id=payment_id, payment_type=payment_type)
+            offer, pp, m = order_payment_pick(d, payment_id, payment_type)
+            meta.update({k: v for k, v in m.items() if k != '_d'})
+            if not offer or not pp:
+                meta['_d'] = d
+                return None, meta
+            meta['_d'] = d
+            meta['payment'] = {
+                'id': pp.get('id'), 'type': pp.get('type'),
+                'title': pp.get('title'),
+                'costForCustomer': pp.get('costForCustomer'),
+                'serviceFee': pp.get('serviceFee'),
+                'offer_identity': offer.get('offer_identity'),
+                'requestId': offer.get('requestId'),
+            }
             res = mob_create_order(
                 acc, slug, address, offer.get('offer_identity'), pp,
                 phone=phone, lat=lat, lon=lon,
                 request_id=offer.get('requestId') or None,
                 recently_link_cards=recently_link_cards)
+            meta['created'] = True
             return res, meta
         except RuntimeError as e:
             last = e
-            if not re.search(r'"code"\s*:\s*59', str(e)) or _ == attempts - 1:
+            meta['last_error'] = str(e)[:300]
+            is59 = bool(re.search(r'"code"\s*:\s*59', str(e)))
+            if not is59:
                 raise
-            time.sleep(delay)
-    raise last
+            meta['code59'] = True
+            if i < attempts - 1:
+                time.sleep(delay)
+                continue
+            return None, meta
+    if last:
+        raise last
+    return None, meta
 
 
 def mob_order_tracking(account, order_id):

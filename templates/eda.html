@@ -1971,11 +1971,28 @@ async function placeOrder() {
     chk.orderNr = (r.order || {}).orderNr || '';
     renderChkOrder(r.order);
   } catch (e) {
-    if (e.data && e.data.promo_ready_in != null) {
+    if (e.data && e.data.code === 59 && e.data.retry) {
+      if (Array.isArray(e.data.available)) chk.available = e.data.available;
+      const pinId = (chk.payment || {}).id || null;
+      const pinType = (chk.payment || {}).type || null;
+      const pinTitle = (chk.payment || {}).title || '';
+      const pinCost = (chk.payment || {}).costForCustomer != null
+        ? (chk.payment || {}).costForCustomer : '';
+      if (pinId || pinType) {
+        const entry = (chk.available || []).find(a => (a.id || a.type) === (pinId || pinType));
+        if (entry) {
+          chkSelectPay(pinId, pinType, entry.title || pinTitle, entry.costForCustomer);
+        } else {
+          chkSelectPay(pinId, pinType, pinTitle, pinCost);
+        }
+      }
+      toast('💡 Стоимость доставки изменилась — сумма обновлена. Нажмите «Оформить заказ» ещё раз.');
+    } else if (e.data && e.data.promo_ready_in != null) {
       chk.readyIn = Math.max(0, Math.ceil(Number(e.data.promo_ready_in) || 0));
       renderPromoTimer();
+    } else {
+      toast('Ошибка: ' + e.message);
     }
-    toast('Ошибка: ' + e.message);
     btn.disabled = false;
     btn.textContent = '💳 Оформить заказ';
   }
