@@ -1758,6 +1758,7 @@ function renderChkPayOpts() {
   ((chk.available && chk.available.length) ? chk.available
     : (cur.id || cur.type ? [{ id: cur.id, type: cur.type, title: cur.title }] : []))
     .forEach((o) => { if (o && (o.id || o.type)) map.set(o.id || o.type, o); });
+  if (!map.has('sbp_qr')) map.set('sbp_qr', { id: 'sbp_qr', type: 'sbp', title: 'СБП • по QR' });
   (chk.cards || []).forEach((c) => {
     if (c && c.id && (c.type === 'card' || /^card-/.test(c.id || '')) && !map.has(c.id))
       map.set(c.id, { id: c.id, type: 'card', title: c.title || 'Сохранённая карта' });
@@ -1925,7 +1926,8 @@ async function applyPromo() {
     renderChkCheckout();
     if (pinId || pinType) {
       const still = (chk.available || []).some(a => (a.id || a.type) === (pinId || pinType))
-        || (chk.cards || []).some(c => c.id === pinId);
+        || (chk.cards || []).some(c => c.id === pinId)
+        || pinId === 'sbp_qr' || pinType === 'sbp';
       if (still) {
         const entry = (chk.available || []).find(a => (a.id || a.type) === (pinId || pinType));
         if (entry) {
