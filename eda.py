@@ -1805,7 +1805,7 @@ def mob_create_order(account, slug, address, offer_identity, payment_info, phone
 def mob_order_with_retry(account, slug, address, phone='',
                          payment_id='sbp_qr', payment_type='sbp',
                          lat=None, lon=None, recently_link_cards=False,
-                         attempts=3, delay=0.6):
+                         attempts=3, delays=(0.6, 2.5)):
     """Создать заказ мобильным каналом с повторами при изменении цены.
 
     go-checkout → выбор оффера → /api/v1/orders. Если сервер отвечает
@@ -1855,7 +1855,8 @@ def mob_order_with_retry(account, slug, address, phone='',
                 raise
             meta['code59'] = True
             if i < attempts - 1:
-                time.sleep(delay)
+                dl = delays[i] if isinstance(delays, (list, tuple)) and i < len(delays) else delays
+                time.sleep(dl)
                 continue
             return None, meta
     if last:

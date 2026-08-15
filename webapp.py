@@ -1955,6 +1955,12 @@ def api_eda_order_create(token):
         )
         if not res:
             if meta.get('code59'):
+                print('EDA ORDER code59', payment_id, 'attempts=', meta.get('attempts'),
+                      'fallback=', meta.get('fallback'),
+                      'fb_offer=', meta.get('fallback_offer'),
+                      'pays=', meta.get('offers_pays'),
+                      'sbp_cfg=', meta.get('sbp_in_config'),
+                      'err=', (meta.get('last_error') or '')[:140])
                 return jsonify({
                     'error': 'Стоимость доставки изменилась — сумма обновлена, '
                              'нажмите «Оформить заказ» ещё раз',
@@ -1962,7 +1968,11 @@ def api_eda_order_create(token):
                     'checkout': meta.get('_d'),
                     'payment': meta.get('payment'),
                     'available': eda.web_available_payments(meta.get('_d') or {}),
+                    'meta': {k: v for k, v in meta.items() if k not in ('_d', 'payment')},
                     'attempts': meta.get('attempts')}), 409
+            print('EDA ORDER unavailable', payment_id,
+                  'pays=', meta.get('offers_pays'),
+                  'sbp_cfg=', meta.get('sbp_in_config'))
             return jsonify({
                 'error': f'Способ оплаты {payment_id} недоступен для этого заказа',
                 'available': eda.web_available_payments(meta.get('_d') or {}),
@@ -2374,6 +2384,12 @@ def api_eda_az_order_create(name):
         )
         if not res:
             if meta.get('code59'):
+                print('AZ ORDER code59', payment_id, 'attempts=', meta.get('attempts'),
+                      'fallback=', meta.get('fallback'),
+                      'fb_offer=', meta.get('fallback_offer'),
+                      'pays=', meta.get('offers_pays'),
+                      'sbp_cfg=', meta.get('sbp_in_config'),
+                      'err=', (meta.get('last_error') or '')[:140])
                 return jsonify({
                     'error': 'Стоимость доставки изменилась — сумма обновлена, '
                              'нажмите «Оформить заказ» ещё раз',
@@ -2381,7 +2397,11 @@ def api_eda_az_order_create(name):
                     'checkout': meta.get('_d'),
                     'payment': meta.get('payment'),
                     'available': eda.web_available_payments(meta.get('_d') or {}),
+                    'meta': {k: v for k, v in meta.items() if k not in ('_d', 'payment')},
                     'attempts': meta.get('attempts')}), 409
+            print('AZ ORDER unavailable', payment_id,
+                  'pays=', meta.get('offers_pays'),
+                  'sbp_cfg=', meta.get('sbp_in_config'))
             return jsonify({
                 'error': f'Способ оплаты {payment_id} недоступен для этого заказа',
                 'available': eda.web_available_payments(meta.get('_d') or {}),
