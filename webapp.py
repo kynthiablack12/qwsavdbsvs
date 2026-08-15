@@ -1980,7 +1980,8 @@ def api_eda_order_create(token):
                 'error': f'Способ оплаты {payment_id} недоступен для этого заказа',
                 'available': eda.web_available_payments(meta.get('_d') or {}),
                 'offers_pays': meta.get('offers_pays', []),
-                'sbp_in_config': meta.get('sbp_in_config')}), 400
+                'sbp_in_config': meta.get('sbp_in_config'),
+                'payconfig': eda.payment_config_brief(meta.get('_d') or {})}), 400
         return jsonify({'ok': True, 'order': res, 'channel': meta.get('channel')})
     except NotImplementedError as e:
         return jsonify({'error': str(e)}), 501

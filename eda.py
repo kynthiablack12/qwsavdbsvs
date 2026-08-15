@@ -1851,6 +1851,26 @@ def mob_order_with_retry(account, slug, address, phone='',
     return None, meta
 
 
+def payment_config_brief(d):
+    """Краткая сводка способов оплаты из go-checkout для диагностики.
+
+    Возвращает paymentTypeConfig (id/type/title каждой записи) и
+    offers[].possiblePayment — чтобы понять, что сервер реально отдал.
+    """
+    out = {'config': [], 'offers': []}
+    for c in (d.get('paymentTypeConfig') or []):
+        if isinstance(c, dict):
+            out['config'].append((c.get('id'), c.get('type'),
+                                  (c.get('title') or '')[:40]))
+        else:
+            out['config'].append(('?', '?', str(c)[:40]))
+    for o in (d.get('offers') or []):
+        pp = (o or {}).get('possiblePayment') or {}
+        out['offers'].append((pp.get('id'), pp.get('type'),
+                              (pp.get('title') or '')[:40]))
+    return out
+
+
 def is_sbp_payment(payment_id, payment_type=None):
     """True, если запрошенный способ оплаты — СБП (по QR / токен)."""
     return (payment_id in ('sbp_qr', 'sbp', 'sbp_token')
@@ -1875,7 +1895,7 @@ def web_order_with_retry(account, slug, address, phone='',
         meta['attempts'] = i + 1
         try:
             d = web_checkout(acc, slug, address, lat=lat, lon=lon,
-                             payment_id=None, payment_type=None)
+                             payment_id=payment_id, payment_type=payment_type)
             offer, pp, m = order_payment_pick(d, payment_id, payment_type)
             meta.update({k: v for k, v in m.items() if k not in ('_d',)})
             if not offer or not pp:
