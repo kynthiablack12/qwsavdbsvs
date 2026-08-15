@@ -2884,11 +2884,13 @@ def plus_subscribe(account, card, sms_code='', purchase_token='',
     """Подключить «Яндекс Плюс» на аккаунте картой.
 
     Флоу (по веб-перехвату):
-      триггер Едадила → generate-csrf-token → purchase_token →
-      bin_info (diehard) → update_payment (trust, bind_card=true,
-      form-urlencoded) → start_payment_json (diehard, card_number/cvn/
-      expiration/payment_method=new_card) → при SMS: повторный
-      start_payment_json c sms_code → check_payment + invoiceStatus.
+      generate-csrf-token → purchase_token → bin_info (diehard) →
+      update_payment (trust, bind_card=true, form-urlencoded) →
+      start_payment_json (diehard, card_number/cvn/expiration/
+      payment_method=new_card) → при SMS: повторный start_payment_json
+      c sms_code → check_payment + invoiceStatus.
+      (Триггер акции Едадила edadeal_trigger отключён — падал и блокировал
+      весь флоу; вызывается при необходимости отдельно.)
 
     Возвращает dict:
       {'ok': True, 'stage': 'sms', ...} — нужен SMS-код (повторный вызов
@@ -2898,8 +2900,6 @@ def plus_subscribe(account, card, sms_code='', purchase_token='',
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     try:
-        # 0) триггер акции ДО подключения (на каждом аккаунте)
-        tg = edadeal_trigger(acc, promo_id=promo_id, kroken_uuid=kroken_uuid)
         # 1) csrf
         csrf = plus_csrf(acc)
         # 1а) добровольное согласие (changeStatus ALLOW; идемпотентно)
@@ -2938,7 +2938,7 @@ def plus_subscribe(account, card, sms_code='', purchase_token='',
                     'message': 'Требуется SMS-код от банка',
                     'purchase_token': purchase_token,
                     'card': parsed, 'status': status,
-                    'bin': bin_, '_up': up, '_start': st, '_trigger': tg,
+                    'bin': bin_, '_up': up, '_start': st,
                     '_agreement': ag, '_offers': of, '_checkout': co}
         # 6) проверка результата
         check = plus_check_payment(acc, purchase_token)
@@ -2962,7 +2962,7 @@ def plus_subscribe(account, card, sms_code='', purchase_token='',
                 'status': st_status or inv_status,
                 'purchase_token': purchase_token,
                 'bin': bin_, 'check': check, 'invoice': inv,
-                '_up': up, '_start': st, '_trigger': tg, '_agreement': ag,
+                '_up': up, '_start': st, '_agreement': ag,
                 '_offers': of, '_checkout': co}
     except RuntimeError as e:
         return {'ok': False, 'error': str(e)}
