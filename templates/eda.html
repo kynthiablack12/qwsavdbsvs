@@ -1992,7 +1992,16 @@ async function placeOrder() {
       chk.readyIn = Math.max(0, Math.ceil(Number(e.data.promo_ready_in) || 0));
       renderPromoTimer();
     } else {
-      toast('Ошибка: ' + e.message);
+      let msg = 'Ошибка: ' + e.message;
+      const pc = e.data && e.data.payconfig;
+      if (pc) {
+        const cfg = (pc.config || []).map(x => (x && (x[0] || x[1])) || '?').join(', ');
+        const off = (pc.offers || []).slice(0, 8).map(x => (x && (x[0] || x[1])) || '?').join(', ');
+        msg += '\n[payconfig] config: ' + cfg + '\noffers: ' + off
+          + '\nsbp_qr в сыром ответе: ' + (pc.raw_has_sbp ? 'ДА' : 'НЕТ');
+      }
+      if (e.data) console.log('order-err-data', JSON.stringify(e.data));
+      toast(msg);
     }
     btn.disabled = false;
     btn.textContent = '💳 Оформить заказ';

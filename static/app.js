@@ -650,6 +650,7 @@ async function loadEdaAccounts() {
         <td class="num">${a.orders != null ? esc(String(a.orders)) : '<span class="db-mut">—</span>'}</td>
         <td class="num">${esc(a.added || '—')}</td>
         <td class="col-actions">
+          <button class="btn btn-ghost btn-sm" data-plus="${esc(a.name)}">Плюс</button>
           <button class="btn btn-ghost btn-sm" data-rotate="${esc(a.name)}">Устройство</button>
           <button class="btn btn-danger btn-sm" data-del="${esc(a.name)}">Удалить</button>
         </td>
@@ -671,9 +672,48 @@ async function loadEdaAccounts() {
         btn.disabled = false;
       }
     }));
+    tb.querySelectorAll('[data-plus]').forEach(b => b.addEventListener('click', () => plusSubscribe(b.dataset.plus)));
   } catch (e) {
     $('edaAccTable').querySelector('tbody').innerHTML = `<tr><td colspan="10" class="db-empty">${esc(e.message)}</td></tr>`;
   }
+}
+
+async function plusSubscribe(name) {
+  const card = prompt(`Карта для аккаунта ${name}\nФормат: 4276 4013 9880 1234 12/27 321`);
+  if (!card) return;
+  let payload = { card: card.trim() };
+  for (let step = 0; step < 4; step++) {
+    let r;
+    try {
+      r = await api(`/api/eda/accounts/${encodeURIComponent(name)}/plus-subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      alert(e.message);
+      return;
+    }
+    if (r.ok && r.stage === 'sms') {
+      payload.purchase_token = r.purchase_token || '';
+      const sms = prompt(r.message || 'Введи SMS-код от банка:');
+      if (!sms) return;
+      payload.sms_code = sms.trim();
+      continue;
+    }
+    if (r.ok && r.stage === 'done') {
+      alert(`Плюс подключён (${r.status || ''})`);
+      loadEda();
+      return;
+    }
+    if (r.ok === false) {
+      alert(`Ошибка: ${r.error || 'неизвестно'}`);
+      return;
+    }
+    alert(`Неизвестный ответ: ${JSON.stringify(r || {}).slice(0, 300)}`);
+    return;
+  }
+  alert('Не удалось финализировать подключение за 4 шага');
 }
 
 async function runEdaCheck() {

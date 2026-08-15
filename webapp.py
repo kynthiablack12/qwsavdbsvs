@@ -490,6 +490,31 @@ def api_eda_accounts_rotate_device(name):
     return jsonify({'ok': True, 'device': dev})
 
 
+@app.route('/api/eda/accounts/<name>/plus-subscribe', methods=['POST'])
+def api_eda_plus_subscribe(name):
+    """Подключение подписки «Яндекс Плюс» на аккаунте (карта + SMS).
+
+    Тело: {card: "4276 4013 9880 1234 12/27 321", sms_code?, purchase_token?,
+    kroken_uuid?}. Первый вызов: рисует стадию 'sms', повторный с кодом —
+    стадию 'done'. Ошибки возвращаются {ok: False, error} со статусом 200.
+    """
+    d = request.get_json(silent=True) or {}
+    try:
+        res = eda.plus_subscribe(
+            name,
+            card=d.get('card', ''),
+            sms_code=str(d.get('sms_code', '') or ''),
+            purchase_token=str(d.get('purchase_token', '') or ''),
+            kroken_uuid=str(d.get('kroken_uuid', '') or ''),
+            save=True,
+        )
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 200
+    if isinstance(res, dict) and res.get('ok') is False and res.get('error'):
+        return jsonify(res), 200
+    return jsonify(res)
+
+
 # Проверка живости токенов/сессий всех аккаунтов.
 EDA_CHECK_TASKS = {}
 

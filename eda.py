@@ -1856,8 +1856,12 @@ def payment_config_brief(d):
 
     Возвращает paymentTypeConfig (id/type/title каждой записи) и
     offers[].possiblePayment — чтобы понять, что сервер реально отдал.
+    raw_has_sbp: True, если подстрока 'sbp_qr' встречается в сыром JSON
+    вообще (в т.ч. во вложенных структурах, которые мы не парсим).
     """
-    out = {'config': [], 'offers': []}
+    raw = json.dumps(d, ensure_ascii=False)
+    out = {'config': [], 'offers': [], 'raw_has_sbp': 'sbp_qr' in raw,
+           'keys': list((d or {}).keys())}
     for c in (d.get('paymentTypeConfig') or []):
         if isinstance(c, dict):
             out['config'].append((c.get('id'), c.get('type'),
@@ -2256,6 +2260,712 @@ def eda_save_cards(account, cards):
                 _eda_write(store)
                 return cards
     return acc.get('cards') or []
+
+
+# ============================================================
+#  Подключение подписки «Яндекс Плюс» (акция в Едадиле).
+#
+#  Эндпоинты из перехвата флоу в com.edadeal.android:
+#    0) trigger-proxy.edadeal.ru/triggers/<promo_id>?krokenUuid=<uuid>
+#       — колбек акции; ВЫЗЫВАТЬ ПЕРЕД подключением подписки
+#       на КАЖДОМ аккаунте (требование флоу);
+#    1) api.plus.yandex.ru/generate-csrf-token   — csrf для plus-API;
+#    2) diehard.yandex.ru/web/bin_info           — инфо по BIN карты;
+#    3) trust.yandex.ru/web/update_payment?purchase_token=payment_…
+#       — привязать карту к покупке подписки;
+#    4) trust.yandex.ru/web/start_payment_json?purchase_token=…
+#       — запустить платёж (здесь SMS/3DS-подтверждение);
+#    5) api.plus.yandex.ru/graphql (query_name=invoiceStatus) — статус;
+#    6) trust.yandex.ru/web/check_payment?purchase_token=…      — статус.
+#
+#  Авторизация везде — passport-куки аккаунта (Session_id/yandexuid).
+#  purchase_token создаётся стороной Плюса ДО update_payment (см.
+#  plus_purchase_init: если источника в ответах нет — заявлен, где брать).
+# ============================================================
+
+PLUS_API = 'https://api.plus.yandex.ru'
+PLUS_DIEHARD = 'https://diehard.yandex.ru'
+EDADEAL_TRIGGER = 'https://trigger-proxy.edadeal.ru'
+# UA и Origin из реального перехвата веб-флоу виджета оплаты Плюса.
+PLUS_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+           '(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36')
+CARD_WIDGET_ORIGIN = 'https://payment-widget.plus.yandex.ru'
+CARD_FORM_ORIGIN = 'https://card-form.diehard.yandex.net'
+# promo_id и krokenUuid из перехвата (акция «подписка Плюс» в Едадиле).
+# krokenUuid уникален для аккаунта; promo_id — константа акции.
+PLUS_TRIGGER_ID = '7964dad0-5589-4c5f-8594-aa227deba4b8'
+PLUS_TRIGGER_REFERER = 'https://eda.yandex.ru/'
+
+
+def _plus_hdrs(acc, csrf='', referer='', extra=None):
+    hdrs = {
+        'accept': 'application/json, text/plain, */*',
+        'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+        'content-type': 'application/json;charset=UTF-8',
+        'user-agent': PLUS_UA,
+    }
+    if referer:
+        hdrs['referer'] = referer
+    if csrf:
+        hdrs['X-CSRF-Token'] = csrf
+    if extra:
+        hdrs.update(extra)
+    return hdrs
+
+
+def _plus_call(acc, host, method, path, json_body=None, data=None,
+               params=None, csrf='', referer='', extra_headers=None,
+               timeout=30):
+    """Запрос к plus/diehard/trust с passport-куками аккаунта.
+
+    json_body — тело JSON (Content-Type application/json),
+    data — form-urlencoded тело (Content-Type переопределяется в headers).
+    """
+    hdrs = _plus_hdrs(acc, csrf, referer, extra_headers)
+    url = host + path
+    if params:
+        sep = '&' if '?' in url else '?'
+        url += sep + urllib.parse.urlencode({k: v for k, v in params.items()
+                                             if v is not None and v != ''})
+    try:
+        r = requests.request(method, url, headers=hdrs, cookies=_web_cookies(acc),
+                             json=json_body, data=data, timeout=timeout)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Плюс: сеть ({method} {path}): {e}')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Плюс: HTTP {r.status_code} на {method} {path}: {r.text[:400]}')
+    try:
+        return r.json()
+    except Exception:
+        return {'_status': r.status_code, '_text': r.text[:1000]}
+
+
+def _dig(d, *keys):
+    for k in keys:
+        if isinstance(d, dict):
+            d = d.get(k)
+        else:
+            return None
+    return d
+
+
+def _plus_token(data):
+    """Вытащить искомый токен/переменную из JSON-ответа (в т.ч. вложенного)."""
+    import json as _json
+    stack, found = [data], []
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            for k, v in cur.items():
+                kl = (k or '').lower()
+                if any(s in kl for s in ('csrf', 'token')):
+                    if isinstance(v, str) and v:
+                        found.append(v)
+                elif isinstance(v, (dict, list)):
+                    stack.append(v)
+        elif isinstance(cur, list):
+            stack.extend(cur)
+    seen, out = set(), []
+    for v in found:
+        if v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
+def edadeal_trigger(account, promo_id='', kroken_uuid=''):
+    """Колбек акции Едадила на аккаунте: вызов перед подключением Плюса.
+
+    trigger_proxy.edadeal.ru/triggers/<promo_id>?krokenUuid=<uuid4>.
+    Должен выполняться на каждом аккаунте перед подпиской.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    pid = promo_id or PLUS_TRIGGER_ID
+    ku = kroken_uuid or uuid.uuid4().hex
+    params = {'krokenUuid': ku}
+    try:
+        d = _plus_call(acc, EDADEAL_TRIGGER, 'GET', f'/triggers/{pid}',
+                       params=params,
+                       referer=PLUS_TRIGGER_REFERER)
+    except RuntimeError as e:
+        raise RuntimeError(f'Плюс: триггер Едадила: {e}')
+    return {'ok': True, 'promo_id': pid, 'kroken_uuid': ku,
+            'response': d if isinstance(d, (dict, list)) else {'_text': str(d)[:200]}}
+
+
+def _plus_widget_hdrs():
+    """Заголовки payment-widget (api.plus + trust update/check_payment)."""
+    return {
+        'accept': '*/*',
+        'content-type': 'application/json; utf-8',
+        'origin': CARD_WIDGET_ORIGIN,
+        'x-yandex-plus-brand': 'yandex',
+        'x-yandex-plus-checkout-platform': 'WEB',
+        'x-yandex-plus-widgetservice': 'landing_plus',
+    }
+
+
+def plus_csrf(account, method='POST'):
+    """CSRF-токен для api.plus.yandex.ru (generate-csrf-token).
+
+    Как в перехвате: POST без тела, Origin/Referer payment-widget.plus.yandex.ru,
+    заголовки x-yandex-plus-*. Возвращает строку токена; ищем по именам csrf/token.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    d = _plus_call(acc, PLUS_API, method, '/generate-csrf-token',
+                   referer=CARD_WIDGET_ORIGIN + '/',
+                   extra_headers=_plus_widget_hdrs())
+    toks = _plus_token(d)
+    csrf = next((t for t in toks if 'csrf' in t.lower()), toks[0] if toks else '')
+    if not csrf:
+        raise RuntimeError(f'Плюс: generate-csrf-token не вернул токен: {str(d)[:300]}')
+    return csrf
+
+
+def plus_card_bin(account, number, bin_last='', csc_hint=(0, 0), avail_pub_key=''):
+    """Инфо по карте через diehard: POST diehard.yandex.ru/web/bin_info.
+
+    Как в реальном перехвате: тело JSON {"params":{"prefix":"<первые 8 цифр>"}},
+    Origin/Referer card-form.diehard.yandex.net, заголовок X-Request-Id.
+    (bin_last/csc_hint/avail_pub_key оставлены для совместимости — в перехвате
+    не используются.)
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    number = re.sub(r'\D', '', (number or ''))
+    prefix8 = number[:8]
+    req_id = uuid.uuid4().hex[:16]
+    body = {'params': {'prefix': prefix8}}
+    try:
+        d = _plus_call(acc, PLUS_DIEHARD, 'POST', '/web/bin_info',
+                       json_body=body,
+                       referer=CARD_FORM_ORIGIN + '/',
+                       extra_headers={
+                           'accept': '*/*',
+                           'origin': CARD_FORM_ORIGIN,
+                           'x-request-id': req_id,
+                       })
+    except RuntimeError as e:
+        raise RuntimeError(f'Плюс: bin_info: {e}')
+    if isinstance(d, dict):
+        card = d.get('card')
+        if isinstance(card, dict):
+            return {
+                'payment_system': card.get('payment_system')
+                                 or _dig(d, 'payment_system') or '',
+                'bank': card.get('bank') or card.get('card_bank') or '',
+                'title': card.get('title') or '',
+                'country': card.get('country') or card.get('holder_country') or '',
+                'allows_3ds': (bool(card.get('allows_3ds'))
+                               if card.get('allows_3ds') is not None else None),
+                'bin': prefix8,
+                'last_digits': bin_last or number[-4:],
+                '_raw': d,
+            }
+    return {'payment_system': _dig(d, 'payment_system') or '',
+            'bin': prefix8,
+            'last_digits': bin_last or number[-4:],
+            '_raw': d}
+
+
+def plus_parse_card(raw):
+    """Разобрать ввод карты в {'number','exp_month','exp_year','csc','holder'}.
+
+    Принимает строку вида "4276 4013 9880 1234 12/27 123" (номер может
+    быть слитно/группами, срок MM/YY со слешем, cvc 3-4 цифры) или dict
+    с полями number/expiry/csc.
+    """
+    holder = ''
+    if isinstance(raw, dict):
+        num = re.sub(r'\D', '', str(raw.get('number', '')))
+        exp = str(raw.get('expiry', raw.get('exp', ''))).strip().replace(' ', '')
+        csc = re.sub(r'\D', '', str(raw.get('csc', raw.get('cvc', ''))))
+        holder = str(raw.get('holder', ''))
+    else:
+        s = str(raw or '').strip()
+        num, exp, csc = '', '', ''
+        after = False
+        for p in re.split(r'\s+', s):
+            p = p.strip()
+            if not p:
+                continue
+            if '/' in p and re.search(r'\d{1,2}/\d{2}$', p):
+                exp = p
+                after = True
+                continue
+            if after:
+                if not csc and re.fullmatch(r'\d{3,4}', p):
+                    csc = p
+            else:
+                num += re.sub(r'\D', '', p)
+        # слитный ввод без пробелов: срок «догоняется» за номером
+        if not exp and num:
+            if not csc:
+                for n in (16, 19, 15, 18, 14, 13):
+                    if len(num) == n + 7:
+                        num, ex, cv = num[:n], num[n:n + 4], num[n + 4:]
+                        exp = f'{ex[0:2]}/{ex[2:4]}'
+                        csc = cv
+                        break
+                    if len(num) == n + 4:
+                        num, ex = num[:n], num[n:n + 4]
+                        exp = f'{ex[0:2]}/{ex[2:4]}'
+                        break
+    if not num or len(num) < 13:
+        raise RuntimeError('Плюс: не распознан номер карты')
+    if not exp:
+        raise RuntimeError('Плюс: не распознан срок действия (MM/YY)')
+    try:
+        mm, yy = [int(x) for x in exp.split('/')]
+    except Exception:
+        raise RuntimeError('Плюс: некорректный срок действия')
+    if mm < 1 or mm > 12:
+        raise RuntimeError('Плюс: некорректный месяц карты')
+    return {'number': num, 'exp_month': f'{mm:02d}',
+            'exp_year': str(2000 + yy) if yy < 100 else str(yy),
+            'csc': csc, 'holder': holder}
+
+
+def plus_update_payment(account, purchase_token, card, last_digits='',
+                        avail_pub_key='', save=False, extra=None):
+    """Шаг «подготовить привязку карты к покупке»:
+    POST trust.yandex.ru/web/update_payment.
+
+    Как в реальном перехвате: form-urlencoded тело
+    purchase_token=<pt>&bind_card=true&email=&promocode=,
+    purchase_token также в query, Origin/Referer payment-widget.plus.yandex.ru.
+    Сами данные карты тут НЕ передаются — их отправляет отдельно виджет
+    карты (card-form.diehard.yandex.net) после bin_info.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    send = {'purchase_token': purchase_token or '',
+            'bind_card': 'true', 'email': '', 'promocode': ''}
+    if extra:
+        send.update(extra or {})
+    params = {'purchase_token': purchase_token}
+    try:
+        d = _plus_call(acc, TRUST_HOST, 'POST', '/web/update_payment',
+                       data=send, params=params,
+                       referer=CARD_WIDGET_ORIGIN + '/',
+                       extra_headers={
+                           'accept': 'application/json',
+                           'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                           'origin': CARD_WIDGET_ORIGIN,
+                       })
+    except RuntimeError as e:
+        raise RuntimeError(f'Плюс: update_payment: {e}')
+    return {'_raw': d,
+            'status': _dig(d, 'status') or '',
+            'three_ds': _dig(d, 'threeDs') or _dig(d, '3ds') or _dig(d, 'auth3ds'),
+            'purchase_token': _dig(d, 'purchase_token') or purchase_token}
+
+
+def plus_start_payment(account, purchase_token, card='', sms_code='', extra=None):
+    """Запустить платёж с картой: POST diehard.yandex.ru/web/start_payment_json.
+
+    Как в реальном перехвате: purchase_token в query, тело JSON
+    {"card_number":…,"cvn":…,"expiration_month":…,"expiration_year":…,
+     "payment_method":"new_card"}, Origin/Referer card-form.diehard.yandex.net,
+    X-Request-Id. При повторном проходе (ввод SMS/OTP) отправляется ещё раз
+    с полем sms_code.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if isinstance(card, str):
+        card = plus_parse_card(card)
+    body = {}
+    if isinstance(card, dict) and card.get('number'):
+        body = {
+            'card_number': card['number'],
+            'cvn': card.get('csc', ''),
+            'expiration_month': card.get('exp_month', ''),
+            'expiration_year': str(int(card.get('exp_year', '0')) % 100),
+            'payment_method': 'new_card',
+        }
+    if sms_code:
+        body['sms_code'] = sms_code
+    if extra:
+        body.update(extra or {})
+    params = {'purchase_token': purchase_token}
+    try:
+        d = _plus_call(acc, PLUS_DIEHARD, 'POST', '/web/start_payment_json',
+                       json_body=body, params=params,
+                       referer=CARD_FORM_ORIGIN + '/',
+                       extra_headers={
+                           'accept': '*/*',
+                           'origin': CARD_FORM_ORIGIN,
+                           'x-request-id': uuid.uuid4().hex[:16],
+                       })
+    except RuntimeError as e:
+        raise RuntimeError(f'Плюс: start_payment: {e}')
+    return {'_raw': d, 'status': _dig(d, 'status') or '',
+            'purchase_token': _dig(d, 'purchase_token') or purchase_token}
+
+
+def plus_check_payment(account, purchase_token):
+    """Статус платежа: GET trust.yandex.ru/web/check_payment.
+
+    Как в реальном перехвате: purchase_token в query, Origin/Referer
+    payment-widget.plus.yandex.ru, accept: application/json.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    params = {'purchase_token': purchase_token}
+    try:
+        d = _plus_call(acc, TRUST_HOST, 'GET', '/web/check_payment', params=params,
+                       referer=CARD_WIDGET_ORIGIN + '/',
+                       extra_headers={
+                           'accept': 'application/json',
+                           'origin': CARD_WIDGET_ORIGIN,
+                       })
+    except RuntimeError as e:
+        raise RuntimeError(f'Плюс: check_payment: {e}')
+    return {'_raw': d, 'status': _dig(d, 'status') or '',
+            'tr_status': d.get('tr_status') or _dig(d, 'purchase', 'tr_status') or ''}
+
+
+def plus_invoice_status(account, purchase_token='', csrf=''):
+    """Статус инвойса: api.plus.yandex.ru/graphql?query_name=invoiceStatus."""
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if not csrf:
+        csrf = plus_csrf(acc)
+    q = ('query invoiceStatus { purchase(token: "' + purchase_token +
+         '") { status } }') if purchase_token else 'query invoiceStatus { status }'
+    body = {'query': q}
+    params = {'query_name': 'invoiceStatus'}
+    d = _plus_call(acc, PLUS_API, 'POST', '/graphql', json_body=body, params=params,
+                   csrf=csrf, referer=CARD_WIDGET_ORIGIN + '/',
+                   extra_headers=_plus_widget_hdrs())
+    return {'_raw': d, 'status': _dig(d, 'data', 'purchase', 'status') or _dig(d, 'status') or ''}
+
+
+def plus_agreement(account, status='ALLOW', csrf=''):
+    """Принять добровольное согласие (автопродление подписки).
+
+    api.plus.yandex.ru/graphql?query_name=changeStatus, мутация
+    changeVoluntaryAgreementStatus(input: {status: ALLOW}) — как в перехвате
+    payment-widget (заголовки x-yandex-plus-*, Origin payment-widget).
+    Возвращает обновлённый статус.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if not csrf:
+        csrf = plus_csrf(acc)
+    q = ('mutation changeStatus($input: ChangeVoluntaryAgreementInput!) {\n'
+         '  changeVoluntaryAgreementStatus(input: $input) {\n'
+         '    status\n'
+         '  }\n'
+         '}\n')
+    body = {'query': q,
+            'variables': {'input': {'status': status}},
+            'operationName': 'changeStatus'}
+    params = {'query_name': 'changeStatus'}
+    d = _plus_call(acc, PLUS_API, 'POST', '/graphql', json_body=body, params=params,
+                   csrf=csrf, referer=CARD_WIDGET_ORIGIN + '/',
+                   extra_headers=_plus_widget_hdrs())
+    return {'_raw': d,
+            'status': _dig(d, 'data', 'changeVoluntaryAgreementStatus', 'status')
+            or _dig(d, 'changeVoluntaryAgreementStatus', 'status') or ''}
+
+
+_COMPSITE_CHECKOUT_DOC = (
+    'query compositeOfferCheckout($input: CompositeOfferPurchaseInput!,'
+    ' $includeAdditionalOffers: Boolean!, $includeNewSbp: Boolean!,'
+    ' $includeBindedSbp: Boolean!, $includeNewYaBank: Boolean!,'
+    ' $includeNewAppleToken: Boolean!, $includeNewGoogleToken: Boolean!,'
+    ' $includeNewClickWallet: Boolean!, $includeBindedClickWallet: Boolean!,'
+    ' $usePaymentGroups: Boolean!) {\n'
+    '  compositeOfferCheckoutInfo(input: $input) {\n'
+    '    invoices { timestamp totalPrice { amount currency } maxPoints { amount currency } }\n'
+    '    tariffOffer { offerName text title }\n'
+    '    paymentMethods { mainPaymentMethodId trustServiceToken }\n'
+    '  }\n'
+    '}\n')
+
+
+def plus_offers(account, target='plus-web', utm='afisha'):
+    """Получить конфиг виджета оплаты с лендинга плюса для аккаунта.
+
+    Загружает https://plus.yandex.ru/?utm_source=afisha&target=plus-web с
+    passport-куками аккаунта и вытаскивает из HTML (SSR-конфиг) URL виджета
+    payment-widget.plus.yandex.ru и его query-поля: offerToken, eventSessionId,
+    crossSessionId, hashOrderId, offersBatchId, offersPositionIds,
+    tariffOfferName, target, testIds и пр.
+
+    Возвращает dict с полями виджета, либо raise, если offerToken не найден
+    (аккаунту этот оффер недоступен).
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    url = f'https://plus.yandex.ru/?utm_source={utm}&target={target}'
+    try:
+        r = requests.get(url, headers={
+            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+            'user-agent': PLUS_UA,
+            'referer': 'https://plus.yandex.ru/',
+        }, cookies=_web_cookies(acc), timeout=40)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Плюс: страница офферов: {e}')
+    html = r.text
+    out = {}
+    m = re.search(r'https://payment-widget\.plus\.yandex\.ru/[^"\'\s\\]+', html, re.I)
+
+    def _q(name):
+        if not m:
+            return ''
+        mm = re.search(r'[?&]' + re.escape(name) + r'=([^&"\'\s\\]+)', m.group(0))
+        return urllib.parse.unquote(mm.group(1)) if mm else ''
+
+    if m:
+        for k in ('authMethod', 'crossSessionId', 'eventSessionId', 'hashOrderId',
+                  'lang', 'offerToken', 'offersBatchId', 'offersPositionIds',
+                  'silent', 'target', 'tariffOfferName', 'testIds', 'usePlusHost',
+                  'widgetServiceName', 'widgetSubServiceName', 'widgetType',
+                  'isTarifficator', 'utm_source'):
+            out[k] = _q(k)
+    if not out.get('offerToken'):
+        mm = re.search(r'["\']offerToken["\']\s*:\s*["\']([^"\']+)["\']', html)
+        if mm:
+            out['offerToken'] = mm.group(1)
+    if not out.get('eventSessionId'):
+        mm = re.search(r'["\']eventSessionId["\']\s*:\s*["\']([0-9a-f-]+)["\']', html)
+        if mm:
+            out['eventSessionId'] = mm.group(1)
+    if not out.get('crossSessionId'):
+        mm = re.search(r'["\']crossSessionId["\']\s*:\s*["\']([0-9a-f-]+)["\']', html)
+        if mm:
+            out['crossSessionId'] = mm.group(1)
+    if not out.get('tariffOfferName'):
+        mm = re.search(r'["\']tariffOfferName["\']\s*:\s*["\']([^"\']+)["\']', html)
+        if mm:
+            out['tariffOfferName'] = mm.group(1)
+    if not out.get('offerToken'):
+        raise RuntimeError(
+            'Плюс: offerToken не найден на plus.yandex.ru (аккаунту этот оффер '
+            'недоступен). Ищи в HTML страницы "offerToken"/"payment-widget.plus.yandex.ru".')
+    return out
+
+
+def plus_composite_checkout(account, offer_token='', csrf='', tarif='',
+                            target='crazywinback-plus-web', event_session_id=''):
+    """Инфо чекаута оффера Плюса: api.plus.yandex.ru/graphql?query_name=compositeOfferCheckout.
+
+    Из перехвата payment-widget: compact-документ запрашивает invoices /
+    tariffOffer.offerName / paymentMethods.trustServiceToken. В variables.input
+    обязателен подписанный offerToken (из URL виджета на лендинге plus.yandex.ru,
+    см. plus_offers) + target (crazywinback-plus-web для вимбека). eventSessionId
+    берётся из конфига виджета (или генерируется заново).
+    Возвращает {'ok':True, 'invoice':…, 'tariff_offer':…,
+    'trust_service_token':…, 'purchase_token':… (если выдал), '_raw':…}.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if not csrf:
+        csrf = plus_csrf(acc)
+    if not offer_token:
+        # без offerToken оффер не определить — такой чекаут невозможен
+        return {'ok': False, 'need_offer_token': True,
+                'raw': 'Нет offerToken: нужен запрос, который его выдаёт.'}
+    esid = event_session_id or uuid.uuid4().hex
+    exp = ['isUpsaleEnabled', 'isUserContactsEnabled', 'isSkipUserContactButton',
+           'isMailingOfferEnabled', 'isAddToFamilyEnabled', 'enableMetricaAnalytics',
+           'sbpNew', 'sbpWeb', 'sbpTrustSDK', 'applePayPayment', 'yabankNew',
+           'isCounterOfferEnabled', 'counterOfferNoPromocode', 'isTokenizationEnabled',
+           'disableSuccessScreenAppsBlock', 'enableSuccessFundamentBlocks',
+           'mergeAvailableAndUsefulAppsBlocks', 'bynToNewSymbol', 'closingOffer',
+           'tarifficatorDWHLogging', 'showCheckoutAdditionalOffers',
+           'plus_year_checkout_onsale', 'closeButtonToSuccessScreen', 'payAutoCompletion',
+           'payCashbackScreen', 'useBackCounterOffer', 'iboLinksFlowEnabled',
+           'iboS7LinksFlowEnabled', 'swapIboLinksFlow', 'webvisorEnabled',
+           'useTrustSDKChallenge', 'pay_topup_bonus', 'all_user',
+           'bdo_points_option_samokat_200', 'bdo_points_option_alice_pro_100',
+           'bdo_points_option_match_maximum_499', 'bdo_points_option_start_200',
+           'apc_kp_amedia_render']
+    variables = {
+        'input': {
+            'offerToken': offer_token,
+            'eventSessionId': esid,
+            'language': 'RU',
+            'target': target,
+            'compositeOffer': {
+                'offerFor': None,
+                'serviceOffers': [],
+                'tariffOffer': tarif,
+            },
+            'storeOffersData': None,
+            'storeOffersDataV2': None,
+            'checkSilentInvoiceAvailability': None,
+            'useTransitions': False,
+            'widgetServiceName': 'landing_plus',
+            'experimentFlags': exp,
+            'checkoutAdditionalOffers': {'passedUpsaleSteps': ['PRESALE']},
+            'availablePaymentButtons': None,
+            'onetime': None,
+        },
+        'includeAdditionalOffers': True,
+        'includeNewSbp': True,
+        'includeBindedSbp': True,
+        'includeNewAppleToken': True,
+        'includeNewGoogleToken': False,
+        'includeNewYaBank': True,
+        'includeNewClickWallet': False,
+        'includeBindedClickWallet': False,
+        'usePaymentGroups': True,
+    }
+    body = {'query': _COMPSITE_CHECKOUT_DOC,
+            'variables': variables,
+            'operationName': 'compositeOfferCheckout'}
+    params = {'query_name': 'compositeOfferCheckout'}
+    d = _plus_call(acc, PLUS_API, 'POST', '/graphql', json_body=body, params=params,
+                   csrf=csrf, referer=CARD_WIDGET_ORIGIN + '/',
+                   extra_headers=_plus_widget_hdrs())
+    data = d.get('data') if isinstance(d, dict) else {}
+    info = data.get('compositeOfferCheckoutInfo') if isinstance(data, dict) else {}
+    inv = None
+    if isinstance(info, dict):
+        tmp = info.get('invoices')
+        if isinstance(tmp, list) and tmp:
+            inv = tmp[0]
+            price = inv.get('totalPrice') or {}
+            inv = {'amount': _dig(price, 'amount') or '',
+                   'currency': _dig(price, 'currency') or '',
+                   'timestamp': inv.get('timestamp')}
+    pm = _dig(info, 'paymentMethods') or {}
+    raw_all = [*_plus_token(d)]
+    return {'ok': True,
+            'invoice': inv,
+            'tariff_offer': _dig(info, 'tariffOffer', 'offerName') or '',
+            'trust_service_token': _dig(pm, 'trustServiceToken') or '',
+            'main_payment_method_id': _dig(pm, 'mainPaymentMethodId') or '',
+            'purchase_token': next((t for t in raw_all if t.startswith('payment_')), ''),
+            '_raw': d}
+
+
+def plus_purchase_init(account, csrf=''):
+    """Получить purchase_token для подписки.
+
+    Источник purchase_token (payment_<hex>) в полном перехвате — до
+    update_payment. Если эндпоинт инициации не захвачен, ответ
+    generate-csrf-token или invoiceStatus не содержит токен — здесь
+    отсутствует заготовка; обернём ошибку с указанием источника.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if not csrf:
+        csrf = plus_csrf(acc)
+    # 1) CSRF обычно возвращает дополнительную инфу инициации.
+    d = _plus_call(acc, PLUS_API, 'POST', '/generate-csrf-token',
+                   referer=CARD_WIDGET_ORIGIN + '/',
+                   extra_headers=_plus_widget_hdrs())
+    toks = _plus_token(d)
+    for t in toks:
+        if t.startswith('payment_'):
+            return t
+    for k in ('purchase_token', 'invoiceId', 'invoice_id', 'offerId'):
+        v = _dig(d, k) or _dig(d, 'data', k)
+        if v:
+            return str(v)
+    # 2) попытка через invoiceStatus-инвойс (без токена) — может вернуть.
+    try:
+        d2 = plus_invoice_status(acc, csrf=csrf)
+        raw = d2.get('_raw') or {}
+        for t in _plus_token(raw):
+            if t.startswith('payment_'):
+                return t
+    except Exception:
+        pass
+    raise RuntimeError(
+        'Плюс: не удалось получить purchase_token (источник в перехвате '
+        'не указан). Проверь тело generate-csrf-token/invoiceStatus или '
+        'передай purchase_token вручную.')
+
+
+SMS_STATUSES = ('auth_required', 'three_ds_required', '3ds', 'awaiting_otp',
+                'otp_required', 'otp_pending', 'sms_required',
+                'sd_cvv_required', 'cvv_required')
+
+
+def plus_subscribe(account, card, sms_code='', purchase_token='',
+                   kroken_uuid='', promo_id='', save=False):
+    """Подключить «Яндекс Плюс» на аккаунте картой.
+
+    Флоу (по веб-перехвату):
+      триггер Едадила → generate-csrf-token → purchase_token →
+      bin_info (diehard) → update_payment (trust, bind_card=true,
+      form-urlencoded) → start_payment_json (diehard, card_number/cvn/
+      expiration/payment_method=new_card) → при SMS: повторный
+      start_payment_json c sms_code → check_payment + invoiceStatus.
+
+    Возвращает dict:
+      {'ok': True, 'stage': 'sms', ...} — нужен SMS-код (повторный вызов
+      с sms_code и тем же purchase_token/card);
+      {'ok': True, 'stage': 'done', ...} — подключение выполнено;
+      {'ok': False, 'error': ...} — ошибка.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    try:
+        # 0) триггер акции ДО подключения (на каждом аккаунте)
+        tg = edadeal_trigger(acc, promo_id=promo_id, kroken_uuid=kroken_uuid)
+        # 1) csrf
+        csrf = plus_csrf(acc)
+        # 1а) добровольное согласие (changeStatus ALLOW; идемпотентно)
+        ag = {}
+        try:
+            ag = plus_agreement(acc, csrf=csrf)
+        except RuntimeError as e:
+            ag = {'error': str(e)}
+        # 1б) оффер с лендинга плюса (offerToken) + инфо чекаута
+        of, co = {}, {}
+        try:
+            of = plus_offers(acc)
+            co = plus_composite_checkout(
+                acc, offer_token=of.get('offerToken') or '', csrf=csrf,
+                tarif=of.get('tariffOfferName') or '',
+                target=of.get('target') or 'crazywinback-plus-web',
+                event_session_id=of.get('eventSessionId') or '')
+        except RuntimeError as e:
+            co = {'error': str(e)}
+        # 2) purchase_token: переданный → из чекаута → автопоиск
+        if not purchase_token:
+            purchase_token = co.get('purchase_token') or '' if isinstance(co, dict) else ''
+        if not purchase_token:
+            purchase_token = plus_purchase_init(acc, csrf=csrf)
+        parsed = plus_parse_card(card) if not isinstance(card, dict) else card
+        # 3) bin_info (тип/банк карты, как в перехвате при вводе номера)
+        bin_ = plus_card_bin(acc, parsed.get('number', ''))
+        # 4) подготовка привязки карты (bind_card=true)
+        up = plus_update_payment(acc, purchase_token, parsed)
+        # 5) запуск платежа с картой (или повторный — с SMS)
+        st = plus_start_payment(acc, purchase_token, card=parsed,
+                                sms_code=sms_code)
+        status = st.get('status') or ''
+        if not sms_code and status in SMS_STATUSES:
+            return {'ok': True, 'stage': 'sms',
+                    'message': 'Требуется SMS-код от банка',
+                    'purchase_token': purchase_token,
+                    'card': parsed, 'status': status,
+                    'bin': bin_, '_up': up, '_start': st, '_trigger': tg,
+                    '_agreement': ag, '_offers': of, '_checkout': co}
+        # 6) проверка результата
+        check = plus_check_payment(acc, purchase_token)
+        inv = {}
+        try:
+            inv = plus_invoice_status(acc, purchase_token=purchase_token, csrf=csrf)
+        except Exception:
+            pass
+        st_status = check.get('status') or status or ''
+        inv_status = str(inv.get('status') or '')
+        ok = str(st_status) in ('success', 'paid', 'done', 'completed') \
+            or inv_status in ('success', 'done', 'completed', 'paid')
+        if sms_code and status in ('otp_incorrect', 'incorrect_otp', 'invalid_code',
+                                   'wrong_code', 'invalid_otp'):
+            return {'ok': False, 'stage': 'sms',
+                    'error': 'Неверный SMS-код, повтори',
+                    'purchase_token': purchase_token,
+                    'card': parsed, 'status': status,
+                    '_start': st}
+        return {'ok': ok, 'stage': 'done' if ok else 'unknown',
+                'status': st_status or inv_status,
+                'purchase_token': purchase_token,
+                'bin': bin_, 'check': check, 'invoice': inv,
+                '_up': up, '_start': st, '_trigger': tg, '_agreement': ag,
+                '_offers': of, '_checkout': co}
+    except RuntimeError as e:
+        return {'ok': False, 'error': str(e)}
 
 
 # ---------- Суперапп-флоу (мобильный WebView, tc.eats.yandex.ru) ----------
