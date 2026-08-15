@@ -1786,23 +1786,33 @@ def mob_sbp_qr(account, order_id, attempts=15, delay=1.5):
         'service_token': service_token,
     }
     if purchase_token:
-        try:
-            r = requests.get(
-                'https://trust.yandex.ru/web/get_payment',
-                headers={'user-agent': WEB_UA, 'accept': '*/*',
-                         'referer': 'https://trust.yandex.ru/web/payment?template_tag=desktop%2Fform'},
-                cookies=_web_cookies(acc),
-                params={'purchase_token': purchase_token},
-                timeout=20,
-            )
-            if r.status_code == 200:
-                data = r.json()
-                out['qr_url'] = data.get('processing_payment_form_url') or ''
-                out['amount'] = data.get('amount')
-                out['currency'] = data.get('currency')
-                out['trust_status'] = data.get('status')
-        except (requests.RequestException, ValueError) as e:
-            out['trust_error'] = str(e)
+        for hdrs, ck in (
+            ({'user-agent': WEB_UA, 'accept': '*/*',
+              'referer': 'https://trust.yandex.ru/web/payment?template_tag=desktop%2Fform'},
+             _web_cookies(acc)),
+            ({'user-agent': WEB_UA, 'accept': '*/*',
+              'referer': 'https://trust.yandex.ru/web/payment?template_tag=desktop%2Fform',
+              'authorization': 'OAuth ' + (_extract_bearer(acc) or '')},
+             {}),
+        ):
+            try:
+                r = requests.get(
+                    'https://trust.yandex.ru/web/get_payment',
+                    headers=hdrs, cookies=ck,
+                    params={'purchase_token': purchase_token},
+                    timeout=20,
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    out['qr_url'] = data.get('processing_payment_form_url') or ''
+                    out['amount'] = data.get('amount')
+                    out['currency'] = data.get('currency')
+                    out['trust_status'] = data.get('status')
+                    if out['qr_url']:
+                        break
+                    out['trust_body'] = str(data)[:300]
+            except (requests.RequestException, ValueError) as e:
+                out['trust_error'] = str(e)
     return out
 
 

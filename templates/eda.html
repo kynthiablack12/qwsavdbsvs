@@ -264,6 +264,8 @@ h1,h2,h3{font-family:'YSCompressed','YSText',sans-serif;font-weight:800}
 .pay-opt{display:flex;align-items:center;gap:10px;padding:13px;border:1px solid rgba(33,32,31,.08);border-radius:14px;margin-bottom:8px;font-size:14px;font-weight:400}
 .pay-opt .st{margin-left:auto;font-size:12px;font-weight:500;color:var(--green)}
 .pay-opt .st.no{color:var(--ink45)}
+.pay-opt.sel{border-color:var(--yellow);background:#FFF9D9;cursor:pointer}
+.pay-opt{cursor:pointer}
 .btn-main{width:calc(100% - 32px);margin:6px 16px;border:none;border-radius:16px;background:var(--yellow);color:var(--ink);font-family:inherit;font-size:15px;font-weight:500;padding:16px;cursor:pointer}
 .btn-main:disabled{opacity:.5}
 .promo-timer{margin:10px 16px 0;background:linear-gradient(135deg,#FCE000,#FFB100);color:var(--ink);border-radius:14px;padding:12px 14px;font-size:13px;font-weight:500;display:flex;align-items:center;gap:8px}
@@ -1765,18 +1767,29 @@ function renderChkPayOpts() {
   const cards = list.filter((o) => o.type === 'card');
   const others = list.filter((o) => o.type !== 'card');
   const curId = cur.id || cur.type || '';
-  const row = (o) => `
-    <div class="pay-opt" onclick="webCheckout(${esc(JSON.stringify(o.id || o.type))}, ${esc(JSON.stringify(o.type))})">
+  const row = (o) => {
+    const key = o.id || o.type || '';
+    const extra = o.type === 'add_new_card'
+      ? 'onclick="chkOpenBind()"'
+      : `onclick="chkSelectPay(${esc(JSON.stringify(o.id || o.type))},${esc(JSON.stringify(o.type))},${esc(JSON.stringify(o.title || ''))})"`;
+    return `
+    <div class="pay-opt ${curId === key ? 'sel' : ''}" ${extra}>
       <span>${chkPayIcon(o.type)} ${esc(o.title || o.type)}</span>
       <span class="st">${o.costForCustomer ? fmtRub(o.costForCustomer) : ''}</span>
-      ${curId === (o.id || o.type) ? '<span class="st">✓</span>' : ''}
+      ${curId === key ? '<span class="st">✓</span>' : ''}
     </div>`;
+  };
   return `<div>${others.map(row).join('')}${cards.map(row).join('')}</div>`
     + `<div class="db-toolbar" style="margin-top:8px;gap:8px">
          <button class="btn-main order-gated" id="chkBindAdd" style="flex:1">➕ Добавить карту</button>
          <button class="btn-main order-gated" id="chkBindRf" disabled style="flex:1">⟳ Обновить карты</button>
        </div>
        <div class="db-mut" id="chkBindMsg">Текущий: ${esc(cur.title || curId || 'не выбран')}</div>`;
+}
+
+function chkSelectPay(id, type, title) {
+  chk.payment = { id: id || null, type: type || null, title: title || type || id || '' };
+  chkRenderPayBox();
 }
 
 function chkRenderPayBox() {
@@ -1814,14 +1827,19 @@ async function chkOpenBind() {
 async function chkRefreshCards() {
   const msg = $('chkBindMsg');
   msg.textContent = 'Обновляю карты из Траста…';
+  const selId = (chk.payment || {}).id || null;
+  const selType = (chk.payment || {}).type || null;
   try {
     await api(`/api/eda/${TOKEN}/cards/refresh`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
     });
-    msg.textContent = 'Карты обновлены. Пересчитываю оформление…';
     await chkLoadCards();
-    chk.payment = null;
     await webCheckout();
+    if (selId || selType) {
+      const still = (chk.available || []).some(a => (a.id || a.type) === (selId || selType))
+        || (chk.cards || []).some(c => c.id === selId);
+      if (still) chkSelectPay(selId, selType, '');
+    }
   } catch (e) { msg.textContent = 'Ошибка обновления: ' + e.message; }
 }
 
@@ -1968,31 +1986,39 @@ async function trackChkOrder() {
   const oid = chk.orderNr;
   if (!oid) { toast('Нет номера заказа'); return; }
   const box = $('chkTrackBox');
-  box.innerHTML = '<div class="hint">Запрашиваю статус оплаты и QR…</div>';
-  try {
-    const r = await api(`/api/eda/${TOKEN}/order/${encodeURIComponent(oid)}/qr`, {
-      method: 'POST', body: '{}',
-    });
-    const q = r.qr || {};
-    const pay = q.payment || {};
-    const status = pay.status || '';
-    const out = [];
-    out.push(`<div><h3>Статус оплаты: ${esc(status) || '—'}</h3>`);
-    if (q.qr_url) {
-      out.push(`<div style="margin:8px 0;text-align:center">${chkQrSvg(q.qr_url)}</div>`);
-      out.push(`<div class="db-mut" style="word-break:break-all">Содержимое QR: ${esc(q.qr_url)}</div>`);
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  for (let attempt = 0; attempt < 6; attempt++) {
+    box.innerHTML = `<div class="hint">Запрашиваю статус оплаты и QR… (${attempt + 1})</div>`;
+    try {
+      const r = await api(`/api/eda/${TOKEN}/order/${encodeURIComponent(oid)}/qr`, {
+        method: 'POST', body: '{}',
+      });
+      const q = r.qr || {};
+      const pay = q.payment || {};
+      const status = pay.status || '';
+      const out = [];
+      out.push(`<div><h3>Статус оплаты: ${esc(status) || '—'}</h3>`);
+      if (q.qr_url) {
+        out.push(`<div style="margin:8px 0;text-align:center">${chkQrSvg(q.qr_url)}</div>`);
+        out.push(`<div class="db-mut" style="word-break:break-all">Содержимое QR: ${esc(q.qr_url)}</div>`);
+      } else if (q.purchase_token) {
+        out.push(`<div class="hint" style="padding:12px 0">QR ещё не готов — платёж создаётся. Обновлю чуть позже…</div>`);
+      }
+      if (pay.error_message) out.push(`<div class="err">${esc(pay.error_message)}</div>`);
+      out.push('</div>');
+      if (q.purchase_token) {
+        let u = `https://trust.yandex.ru/web/payment?purchase_token=${encodeURIComponent(q.purchase_token)}&template_tag=desktop%2Fform`;
+        if (q.service_token) u += `&service_token=${encodeURIComponent(q.service_token)}`;
+        out.push(`<div class="db-mut" style="margin-top:8px"><a href="${esc(u)}" target="_blank" rel="noopener">Открыть страницу оплаты Траста</a></div>`);
+      }
+      out.push(`<div class="db-mut" style="margin-top:8px">order_id: ${esc(q.order_id || '')}</div>`);
+      box.innerHTML = out.join('');
+      if (q.qr_url || pay.error_message) return;
+      await sleep(3000);
+    } catch (e) {
+      box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+      return;
     }
-    if (pay.error_message) out.push(`<div class="err">${esc(pay.error_message)}</div>`);
-    out.push('</div>');
-    if (q.purchase_token) {
-      let u = `https://trust.yandex.ru/web/payment?purchase_token=${encodeURIComponent(q.purchase_token)}&template_tag=desktop%2Fform`;
-      if (q.service_token) u += `&service_token=${encodeURIComponent(q.service_token)}`;
-      out.push(`<div class="db-mut" style="margin-top:8px"><a href="${esc(u)}" target="_blank" rel="noopener">Открыть страницу оплаты Траста</a></div>`);
-    }
-    out.push(`<div class="db-mut" style="margin-top:8px">order_id: ${esc(q.order_id || '')}</div>`);
-    box.innerHTML = out.join('');
-  } catch (e) {
-    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
   }
 }
 
