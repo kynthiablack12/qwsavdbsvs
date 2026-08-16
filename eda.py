@@ -2284,6 +2284,8 @@ def eda_save_cards(account, cards):
 # ============================================================
 
 PLUS_API = 'https://api.plus.yandex.ru'
+PLUS_ACQ_API = 'https://api.acquisition-gwe.plus.yandex.ru'
+MEDIA_BILLING_API = 'https://external-api.mediabilling.yandex.ru'
 PLUS_DIEHARD = 'https://diehard.yandex.ru'
 EDADEAL_TRIGGER = 'https://trigger-proxy.edadeal.ru'
 # UA и Origin из реального перехвата веб-флоу виджета оплаты Плюса.
@@ -2291,6 +2293,58 @@ PLUS_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
            '(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36')
 CARD_WIDGET_ORIGIN = 'https://payment-widget.plus.yandex.ru'
 CARD_FORM_ORIGIN = 'https://card-form.diehard.yandex.net'
+# Реальный target виджета из захвата (лэндинг plus.yandex.ru с
+# target=plus-web → виджет идёт на plus-web-random-trial с тариффикатором).
+PLUS_WIDGET_TARGET = 'plus-web-random-trial'
+# experimentFlags из createInvoice (захват seq 49).
+PLUS_EXP_FLAGS = [
+    'isUpsaleEnabled', 'isUserContactsEnabled', 'isSkipUserContactButton',
+    'isMailingOfferEnabled', 'isAddToFamilyEnabled', 'enableMetricaAnalytics',
+    'sbpNew', 'sbpWeb', 'sbpTrustSDK', 'applePayPayment', 'yabankNew',
+    'isCounterOfferEnabled', 'counterOfferNoPromocode', 'isTokenizationEnabled',
+    'disableSuccessScreenAppsBlock', 'mergeAvailableAndUsefulAppsBlocks',
+    'showPayPromoBannerOnSuccessScreen', 'bynToNewSymbol', 'closingOffer',
+    'tarifficatorDWHLogging', 'showCheckoutAdditionalOffers',
+    'plus_year_checkout_onsale', 'closeButtonToSuccessScreen', 'payAutoCompletion',
+    'payCashbackScreen', 'useBackCounterOffer', 'iboLinksFlowEnabled',
+    'iboS7LinksFlowEnabled', 'swapIboLinksFlow', 'webvisorEnabled',
+    'useTrustSDKChallenge', 'pay_topup_bonus', 'all_user',
+    'bdo_points_option_samokat_200', 'bdo_points_option_s7boost_200',
+    'bdo_points_option_start_250', 'bdo_points_option_kion_299',
+]
+# testIds виджета (expTestIds контекста /api/v2/offers и testIds URL виджета).
+PLUS_TEST_IDS = [
+    1578231, 1580963, 1626195, 1554861, 569477, 569856, 672411, 715832,
+    779148, 810164, 810169, 836427, 836669, 838877, 851965, 852000, 880638,
+    880686, 895424, 895743, 901564, 901570, 906324, 907765, 936992, 957923,
+    964666, 980751, 980753, 980760, 980761, 926142, 997729, 1011102, 1035877,
+    1035967, 1051228, 1058076, 1069038, 1083166, 1083948, 1084809, 1086269,
+    1108667, 1108698, 1116768, 1119104, 1121702, 1139468, 1140734, 1145181,
+    1148680, 1154610, 1156185, 1165865, 1166347, 1169606, 1172554, 1173405,
+    1190297, 1194584, 1197107, 1202942, 1211602, 1215427, 1215871, 1202437,
+    1220101, 1237332, 1244840, 1250082, 1251904, 1267588, 1285288, 1296335,
+    1296337, 1298931, 1305631, 1306698, 1309750, 1314801, 1320626, 1326631,
+    1328540, 1330700, 1346232, 1353400, 1354129, 1355983, 1356368, 1365803,
+    1370472, 1371180, 1383152, 1384874, 1389210, 1389433, 1392712, 1402212,
+    1407183, 1407674, 1409768, 1421934, 1451655, 1458975, 1437356, 1469561,
+    1469562, 1470184, 1477988, 1481993, 1495568, 1514931, 1521814, 1524588,
+    1524590, 1531492, 1546847, 1547927, 1556590, 1550674, 1563194, 1563199,
+    1569325, 1569399, 1580377, 1594336, 1594361, 1594345, 1594356, 1594346,
+    1594348, 1600045, 1600047, 1600048, 1603403, 1603414, 1604548, 1607083,
+    1615430, 1644634, 1644647, 1653662, 1653610, 1658261, 1658264, 1658267,
+    1658278, 1658297, 1658298, 1658300, 1642650, 1643165, 1643172, 1660860,
+    1512508, 1493967, 1657285, 1581847, 1640046, 1650325, 1596305, 1644919,
+    1622326, 1616775, 1639742, 1643648, 1657260, 1647289, 1655582, 1578349,
+    1643410, 1520984, 1522650, 1533851, 1643342, 1631482, 1639440, 1639886,
+    1520213, 1640605, 1627997, 1619947, 1641187, 1645657, 1645923, 1645946,
+    1646373, 1646385, 1647102, 1647110, 1655158, 1493578, 1639752, 1539361,
+    1614668, 1639571, 1541054, 1571287, 1396102, 1367248, 1501812, 1472059,
+    1639284, 1518957, 1633468, 1643282, 1638489, 1640510, 1523992, 1396143,
+    1614361, 1658058, 1656450, 1527189, 1656456, 1656458, 1492688, 1540879,
+    1561995, 1607091, 1657550, 1649396, 1632816, 1652378, 1643215, 1644297,
+    1632365, 1482939, 1391742, 1398168, 1448219, 1406911, 1422897, 1433625,
+    1495612,
+]
 # promo_id и krokenUuid из перехвата (акция «подписка Плюс» в Едадиле).
 # krokenUuid уникален для аккаунта; promo_id — константа акции.
 PLUS_TRIGGER_ID = '7964dad0-5589-4c5f-8594-aa227deba4b8'
@@ -2307,7 +2361,9 @@ def _plus_hdrs(acc, csrf='', referer='', extra=None):
     if referer:
         hdrs['referer'] = referer
     if csrf:
-        hdrs['X-CSRF-Token'] = csrf
+        # Реальный заголовок api.plus.yandex.ru из перехвата виджета
+        # (createInvoice/startInvoice) — x-ya-csrf-token.
+        hdrs['x-ya-csrf-token'] = csrf
     if extra:
         hdrs.update(extra)
     return hdrs
@@ -2623,21 +2679,6 @@ def plus_check_payment(account, purchase_token):
             'tr_status': d.get('tr_status') or _dig(d, 'purchase', 'tr_status') or ''}
 
 
-def plus_invoice_status(account, purchase_token='', csrf=''):
-    """Статус инвойса: api.plus.yandex.ru/graphql?query_name=invoiceStatus."""
-    acc = get_eda_account(account) if isinstance(account, str) else account
-    if not csrf:
-        csrf = plus_csrf(acc)
-    q = ('query invoiceStatus { purchase(token: "' + purchase_token +
-         '") { status } }') if purchase_token else 'query invoiceStatus { status }'
-    body = {'query': q}
-    params = {'query_name': 'invoiceStatus'}
-    d = _plus_call(acc, PLUS_API, 'POST', '/graphql', json_body=body, params=params,
-                   csrf=csrf, referer=CARD_WIDGET_ORIGIN + '/',
-                   extra_headers=_plus_widget_hdrs())
-    return {'_raw': d, 'status': _dig(d, 'data', 'purchase', 'status') or _dig(d, 'status') or ''}
-
-
 def plus_agreement(account, status='ALLOW', csrf=''):
     """Принять добровольное согласие (автопродление подписки).
 
@@ -2744,40 +2785,127 @@ def plus_offers(account, target='plus-web', utm='afisha'):
     return out
 
 
-def plus_composite_checkout(account, offer_token='', csrf='', tarif='',
-                            target='crazywinback-plus-web', event_session_id=''):
-    """Инфо чекаута оффера Плюса: api.plus.yandex.ru/graphql?query_name=compositeOfferCheckout.
+def plus_offers_v2(account, event_session_id=''):
+    """Оффер Плюса через современный backend: api.acquisition-gwe.plus.yandex.ru.
 
-    Из перехвата payment-widget: compact-документ запрашивает invoices /
-    tariffOffer.offerName / paymentMethods.trustServiceToken. В variables.input
-    обязателен подписанный offerToken (из URL виджета на лендинге plus.yandex.ru,
-    см. plus_offers) + target (crazywinback-plus-web для вимбека). eventSessionId
-    берётся из конфига виджета (или генерируется заново).
-    Возвращает {'ok':True, 'invoice':…, 'tariff_offer':…,
-    'trust_service_token':…, 'purchase_token':… (если выдал), '_raw':…}.
+    POST /api/v2/offers?eventSessionId=<uuid> — как лэндинг plus.yandex.ru
+    (захват seq 14/24). Возвращает offerToken (подписанный JWT с uid и
+    offerNames), target (plus-web-random-trial), analyticData{batchId,
+    positionId, placeId} и имя тарифного оффера. Это источник конфигурации
+    виджета оплаты (вместо устаревшего парсинга HTML plus.yandex.ru).
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
-    if not csrf:
-        csrf = plus_csrf(acc)
+    esid = event_session_id or uuid.uuid4().hex
+    body = {
+        'context': {
+            'widgetServiceName': 'landing_plus',
+            'page': 'plus_home',
+            'places': [],
+            'expTestIds': PLUS_TEST_IDS,
+            'expFlags': ['new_pay_widget_plain', 'tarifficator_web_success_screen_sdk',
+                         'dwh_logger', 'dwh_metrics', 'tarrificator_sdk',
+                         'new_payments_history', 'lk_checkout_widget_on'],
+        },
+    }
+    hdrs = {
+        'accept': 'application/json, text/plain, */*',
+        'content-type': 'application/json',
+        'origin': 'https://plus.yandex.ru',
+        'referer': 'https://plus.yandex.ru/',
+        'x-request-id': str(int(time.time() * 1000)) + '-' + uuid.uuid4().hex[:18],
+        'x-forwarded-for': '92.124.161.30',
+        'x-preferred-language': 'ru',
+        'x-requested-with': 'XMLHttpRequest',
+        'x-yandex-plus-brand': 'YANDEX',
+        'x-yandex-plus-device': 'os=Windows;os_version=10;dpi=96',
+        'x-yandex-plus-platform': 'web',
+        'x-yandex-plus-sdkversion': '0.10.14',
+        'x-yandex-plus-service': 'plus',
+    }
+    d = _plus_call(acc, PLUS_ACQ_API, 'POST', '/api/v2/offers',
+                   json_body=body, params={'eventSessionId': esid},
+                   extra_headers=hdrs)
+    offers = d.get('offers') if isinstance(d, dict) else None
+    if not isinstance(offers, list) or not offers:
+        raise RuntimeError(f'Плюс: /api/v2/offers не вернул офферы: {str(d)[:300]}')
+    o = offers[0]
+    ad = o.get('analyticData') or {}
+    co = o.get('catalogCompositeOffer') or {}
+    return {
+        'offer_token': o.get('offerToken') or '',
+        'target': o.get('target') or PLUS_WIDGET_TARGET,
+        'batch_id': ad.get('batchId') or '',
+        'position_id': ad.get('positionId') or '',
+        'place_id': ad.get('placeId') or '',
+        'tariff_offer': _dig(co, 'tariffOffer', 'name') or '',
+        'event_session_id': esid,
+        'position': o.get('position'),
+        'offer_texts': o.get('offerTexts') or {},
+        '_raw': d,
+    }
+
+
+def _plus_widget_origin(offer_token, tariff_offer, target=PLUS_WIDGET_TARGET,
+                        event_session_id='', cross_session_id='', hash_order_id='',
+                        batch_id='', position_id=''):
+    """Собрать query-строку виджета (input.origin для createInvoice).
+
+    Из URL payment-widget (захват seq 27): те же параметры + поля
+    confirmLicenseAgreement/confirmLicenseRegion и offersBatchIdCheck/
+    offersPositionIdsCheck, которые видит createInvoice.
+    """
+    esid = event_session_id or uuid.uuid4().hex
+    csid = cross_session_id or uuid.uuid4().hex
+    hid = hash_order_id or uuid.uuid4().hex
+    tid = urllib.parse.quote(json.dumps([str(t) for t in PLUS_TEST_IDS]))
+    q = urllib.parse.urlencode({
+        'authMethod': 'default',
+        'confirmLicenseAgreement': 'false',
+        'confirmLicenseRegion': '225',
+        'crossSessionId': csid,
+        'eventSessionId': esid,
+        'hashOrderId': hid,
+        'isTarifficator': 'true',
+        'lang': 'ru',
+        'offerToken': offer_token,
+        'offersBatchId': batch_id,
+        'offersBatchIdCheck': batch_id,
+        'offersPositionIds': position_id,
+        'offersPositionIdsCheck': position_id,
+        'ottApiDomain': 'ott.yandex',
+        'postMessageVersion': '2',
+        'referer': 'widget-plus',
+        'silent': 'false',
+        'target': target,
+        'tariffOfferName': tariff_offer,
+        'testIds': tid,
+        'theme': 'light',
+        'usePlusHost': 'true',
+        'utm_source': 'afisha',
+        'widgetServiceName': 'landing_plus',
+        'widgetSubServiceName': 'web',
+        'widgetType': 'plus-my',
+    })
+    return q, esid, csid, hid
+
+
+def plus_composite_checkout(account, offer_token='', csrf='', tarif='',
+                            target=PLUS_WIDGET_TARGET, event_session_id=''):
+    """Инфо чекаута оффера Плюса: api.plus.yandex.ru/graphql?query_name=compositeOfferCheckout.
+
+    Из перехвата payment-widget (seq 33/39): запрос идёт БЕЗ csrf-заголовка;
+    variables.input — offerToken + eventSessionId + compositeOffer.tariffOffer
+    (имя тарифа) + target (plus-web-random-trial). Возвращает {'ok':True,
+    'invoice':…, 'tariff_offer':…, 'trust_service_token':…, 'purchase_token':…,
+    '_raw':…}. CSRF для этого вызова не нужен (но безвреден).
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
     if not offer_token:
         # без offerToken оффер не определить — такой чекаут невозможен
         return {'ok': False, 'need_offer_token': True,
                 'raw': 'Нет offerToken: нужен запрос, который его выдаёт.'}
     esid = event_session_id or uuid.uuid4().hex
-    exp = ['isUpsaleEnabled', 'isUserContactsEnabled', 'isSkipUserContactButton',
-           'isMailingOfferEnabled', 'isAddToFamilyEnabled', 'enableMetricaAnalytics',
-           'sbpNew', 'sbpWeb', 'sbpTrustSDK', 'applePayPayment', 'yabankNew',
-           'isCounterOfferEnabled', 'counterOfferNoPromocode', 'isTokenizationEnabled',
-           'disableSuccessScreenAppsBlock', 'enableSuccessFundamentBlocks',
-           'mergeAvailableAndUsefulAppsBlocks', 'bynToNewSymbol', 'closingOffer',
-           'tarifficatorDWHLogging', 'showCheckoutAdditionalOffers',
-           'plus_year_checkout_onsale', 'closeButtonToSuccessScreen', 'payAutoCompletion',
-           'payCashbackScreen', 'useBackCounterOffer', 'iboLinksFlowEnabled',
-           'iboS7LinksFlowEnabled', 'swapIboLinksFlow', 'webvisorEnabled',
-           'useTrustSDKChallenge', 'pay_topup_bonus', 'all_user',
-           'bdo_points_option_samokat_200', 'bdo_points_option_alice_pro_100',
-           'bdo_points_option_match_maximum_499', 'bdo_points_option_start_200',
-           'apc_kp_amedia_render']
+    exp = list(PLUS_EXP_FLAGS)
     variables = {
         'input': {
             'offerToken': offer_token,
@@ -2838,42 +2966,230 @@ def plus_composite_checkout(account, offer_token='', csrf='', tarif='',
             '_raw': d}
 
 
-def plus_purchase_init(account, csrf=''):
-    """Получить purchase_token для подписки.
+_INVOICE_FRAGMENT = (
+    'fragment InvoiceFragment on Invoice {\n'
+    '  id\n'
+    '  form\n'
+    '  invoiceStatus\n'
+    '  errorCode\n'
+    '  paymentMethodId\n'
+    '  payment {\n'
+    '    id\n'
+    '    respCode\n'
+    '    respDesc\n'
+    '    status\n'
+    '    challengeUrl\n'
+    '    operationId\n'
+    '  }\n'
+    '}\n')
 
-    Источник purchase_token (payment_<hex>) в полном перехвате — до
-    update_payment. Если эндпоинт инициации не захвачен, ответ
-    generate-csrf-token или invoiceStatus не содержит токен — здесь
-    отсутствует заготовка; обернём ошибку с указанием источника.
+
+def plus_create_invoice(account, offer_token='', tariff_offer='', csrf='',
+                        target=PLUS_WIDGET_TARGET, event_session_id='',
+                        cross_session_id='', hash_order_id='', batch_id='',
+                        position_id=''):
+    """Создать инвойс подписки: api.plus.yandex.ru/graphql?query_name=createInvoice.
+
+    Мутация createInvoice(input: CreateInvoiceInput!, eventSessionId) — тело
+    целиком из захвата seq 49. input.origin — query-строка виджета оплаты
+    (plus.web._plus_widget_origin); CSRF-заголовок x-ya-csrf-token обязателен.
+    Возвращает {'ok':True, 'invoice_id':…, 'status':…, '_raw':…}.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if not offer_token:
+        raise RuntimeError('Плюс: createInvoice требует offerToken')
+    if not csrf:
+        csrf = plus_csrf(acc)
+    origin, esid, csid, hid = _plus_widget_origin(
+        offer_token, tariff_offer or '', target=target,
+        event_session_id=event_session_id, cross_session_id=cross_session_id,
+        hash_order_id=hash_order_id, batch_id=batch_id, position_id=position_id)
+    dev_payload = json.dumps({
+        'payment_completion_action': 'spin',
+        'lang': 'ru',
+        'submit_button_data': {'text': 'Подключить'},
+        'blocks_visibility': {'cardSelector': False},
+        'selected_card_id': 'new_card',
+        'css-theme': 'light',
+    })
+    inp = {
+        'source': 'landing_plus',
+        'target': target,
+        'origin': origin,
+        'silent': False,
+        'returnPath': 'spin',
+        'templateTag': 'DESKTOP',
+        'paymentMethodId': None,
+        'developerPayload': dev_payload,
+        'language': 'RU',
+        'oneClickRequested': False,
+        'points': None,
+        'compositeOffer': {'tariffOffer': tariff_offer or '', 'serviceOffers': []},
+        'offersBatchId': batch_id,
+        'offersPositionId': position_id,
+        'useTransitions': False,
+        'externalCallerPayload': None,
+        'accountCompensationEnable': False,
+        'additionalOffers': {'offers': []},
+        'offerToken': offer_token,
+        'experimentFlags': list(PLUS_EXP_FLAGS),
+        'onetime': None,
+    }
+    q = ('mutation createInvoice($input: CreateInvoiceInput!, $eventSessionId: String) {\n'
+         '  invoice {\n'
+         '    externalCreate(req: $input, eventSessionId: $eventSessionId) {\n'
+         '      ...InvoiceFragment\n'
+         '      duplicateInvoice {\n'
+         '        ...InvoiceFragment\n'
+         '      }\n'
+         '    }\n'
+         '  }\n'
+         '}\n\n' + _INVOICE_FRAGMENT)
+    body = {'query': q,
+            'variables': {'input': inp, 'eventSessionId': esid},
+            'operationName': 'createInvoice'}
+    d = _plus_call(acc, PLUS_API, 'POST', '/graphql', json_body=body,
+                   params={'query_name': 'createInvoice'}, csrf=csrf,
+                   referer=CARD_WIDGET_ORIGIN + '/',
+                   extra_headers=_plus_widget_hdrs())
+    inv = _dig(d, 'data', 'invoice', 'externalCreate') or {}
+    return {'ok': True,
+            'invoice_id': inv.get('id') or '',
+            'status': inv.get('invoiceStatus') or '',
+            'error_code': inv.get('errorCode'),
+            'duplicate': _dig(d, 'data', 'invoice', 'externalCreate', 'duplicateInvoice'),
+            'esid': esid,
+            '_raw': d}
+
+
+def plus_start_invoice(account, invoice_id, csrf=''):
+    """Запустить инвойс: api.plus.yandex.ru/graphql?query_name=startInvoice.
+
+    Мутация startInvoice(id) из захвата seq 53 (CSRF-заголовок нужен).
+    Возвращает {'ok':True, 'invoice_id':…, 'status':…, '_raw':…}.
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     if not csrf:
         csrf = plus_csrf(acc)
-    # 1) CSRF обычно возвращает дополнительную инфу инициации.
-    d = _plus_call(acc, PLUS_API, 'GET', '/generate-csrf-token',
+    q = ('mutation startInvoice($id: ID!) {\n'
+         '  invoice {\n'
+         '    externalStart(id: $id) {\n'
+         '      ...InvoiceFragment\n'
+         '      duplicateInvoice {\n'
+         '        ...InvoiceFragment\n'
+         '      }\n'
+         '    }\n'
+         '  }\n'
+         '}\n\n' + _INVOICE_FRAGMENT)
+    body = {'query': q,
+            'variables': {'id': invoice_id},
+            'operationName': 'startInvoice'}
+    d = _plus_call(acc, PLUS_API, 'POST', '/graphql', json_body=body,
+                   params={'query_name': 'startInvoice'}, csrf=csrf,
                    referer=CARD_WIDGET_ORIGIN + '/',
                    extra_headers=_plus_widget_hdrs())
-    toks = _plus_token(d)
-    for t in toks:
-        if t.startswith('payment_'):
-            return t
-    for k in ('purchase_token', 'invoiceId', 'invoice_id', 'offerId'):
-        v = _dig(d, k) or _dig(d, 'data', k)
-        if v:
-            return str(v)
-    # 2) попытка через invoiceStatus-инвойс (без токена) — может вернуть.
-    try:
-        d2 = plus_invoice_status(acc, csrf=csrf)
-        raw = d2.get('_raw') or {}
-        for t in _plus_token(raw):
-            if t.startswith('payment_'):
-                return t
-    except Exception:
-        pass
-    raise RuntimeError(
-        'Плюс: не удалось получить purchase_token (источник в перехвате '
-        'не указан). Проверь тело generate-csrf-token/invoiceStatus или '
-        'передай purchase_token вручную.')
+    inv = _dig(d, 'data', 'invoice', 'externalStart') or {}
+    return {'ok': True,
+            'invoice_id': inv.get('id') or invoice_id,
+            'status': inv.get('invoiceStatus') or '',
+            'error_code': inv.get('errorCode'),
+            '_raw': d}
+
+
+def plus_invoice_status(account, invoice_id='', csrf=''):
+    """Статус инвойса: api.plus.yandex.ru/graphql?query_name=invoiceStatus.
+
+    Запрос externalInvoice(id) c InvoiceFragment (захват seq 57-67):
+    invoiceStatus + payment{status, operationId, challengeUrl}. CSRF-заголовок
+    НЕ нужен. Возвращает {'ok':True, 'status':…, 'payment':…,
+    'operation_id':…, 'challenge_url':…, '_raw':…}.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if not invoice_id:
+        raise RuntimeError('Плюс: invoiceStatus требует id инвойса')
+    q = ('query invoiceStatus($id: ID!) {\n'
+         '  externalInvoice(id: $id) {\n'
+         '    ...InvoiceFragment\n'
+         '  }\n'
+         '}\n\n' + _INVOICE_FRAGMENT)
+    body = {'query': q,
+            'variables': {'id': invoice_id},
+            'operationName': 'invoiceStatus'}
+    d = _plus_call(acc, PLUS_API, 'POST', '/graphql', json_body=body,
+                   params={'query_name': 'invoiceStatus'},
+                   referer=CARD_WIDGET_ORIGIN + '/',
+                   extra_headers=_plus_widget_hdrs())
+    inv = _dig(d, 'data', 'externalInvoice') or {}
+    pay = inv.get('payment') or {}
+    challenge = pay.get('challengeUrl') or ''
+    pt = ''
+    if challenge:
+        mm = re.search(r'purchase_token=([^&]+)', challenge)
+        if mm:
+            pt = urllib.parse.unquote(mm.group(1))
+    return {'ok': True,
+            'status': inv.get('invoiceStatus') or '',
+            'error_code': inv.get('errorCode'),
+            'payment': pay,
+            'payment_status': pay.get('status') or '',
+            'operation_id': pay.get('operationId') or '',
+            'challenge_url': challenge,
+            'purchase_token': pt or (pay.get('purchase_token') or ''),
+            '_raw': d}
+
+
+def plus_wait_operation(account, invoice_id, csrf='', attempts=20, delay=2.0):
+    """Дождаться payment.operationId (verification_intent_…) инвойса.
+
+    После startInvoice инвойс уходит в WAIT_FOR_NOTIFICATION /
+    wait_payment_method, и только затем Траст знает operation_id — его нужен
+    для create_form_url. Возвращает dict из plus_invoice_status.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if not csrf:
+        csrf = plus_csrf(acc)
+    last = None
+    for _ in range(attempts):
+        last = plus_invoice_status(acc, invoice_id=invoice_id, csrf=csrf)
+        if last.get('operation_id'):
+            return last
+        st = last.get('status') or ''
+        if st in ('SUCCESS', 'DONE', 'PAID', 'ERROR', 'CANCELED', 'CLOSED'):
+            return last
+        time.sleep(delay)
+    return last
+
+
+def plus_payment_form_url(account, service_token='', operation_id='', theme='light'):
+    """Форма оплаты Траста для инвойса: POST trust.yandex.ru/web/create_form_url.
+
+    Тело из захвата seq 63 (layout=dh-only — только карта diehard):
+    {anonymously:true, integration_profile_id:'yandex_default', flow:'card',
+    operation_id:<operationId>, theme:'light', lang:'ru', layout:'dh-only',
+    method:'tokenize'}, service_token — в query. Возвращает {form_url,…}.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if not service_token:
+        raise RuntimeError('Плюс: create_form_url требует trustServiceToken из чекаута')
+    if not operation_id:
+        raise RuntimeError('Плюс: create_form_url требует operation_id (ждём invoiceStatus)')
+    body = {
+        'anonymously': True,
+        'integration_profile_id': TRUST_INTEGRATION_PROFILE_RU,
+        'flow': TRUST_BIND_FLOW,
+        'operation_id': operation_id,
+        'theme': theme or 'light',
+        'lang': 'ru',
+        'layout': 'dh-only',
+        'method': 'tokenize',
+    }
+    d = _plus_call(acc, TRUST_HOST, 'POST', '/web/create_form_url',
+                   json_body=body, params={'service_token': service_token},
+                   referer=CARD_WIDGET_ORIGIN + '/',
+                   extra_headers=_plus_widget_hdrs())
+    form_url = d.get('form_url') or ''
+    return {'form_url': form_url, 'service_token': service_token,
+            'operation_id': operation_id, '_raw': d}
 
 
 SMS_STATUSES = ('auth_required', 'three_ds_required', '3ds', 'awaiting_otp',
@@ -2882,101 +3198,132 @@ SMS_STATUSES = ('auth_required', 'three_ds_required', '3ds', 'awaiting_otp',
 
 
 def plus_subscribe(account, card, sms_code='', purchase_token='',
-                   kroken_uuid='', promo_id='', save=False):
-    """Подключить «Яндекс Плюс» на аккаунте картой.
+                   kroken_uuid='', promo_id='', save=False,
+                   offer_token='', event_session_id='', tariff_offer='',
+                   invoice_id='', cross_session_id='', hash_order_id='',
+                   batch_id='', position_id='', target='',
+                   wait_status=False):
+    """Подключить «Яндекс Плюс» на аккаунте картой (GQL-флоу из захвата виджета).
 
-    Флоу (по веб-перехвату):
-      generate-csrf-token → purchase_token → bin_info (diehard) →
-      update_payment (trust, bind_card=true, form-urlencoded) →
-      start_payment_json (diehard, card_number/cvn/expiration/
-      payment_method=new_card) → при SMS: повторный start_payment_json
-      c sms_code → check_payment + invoiceStatus.
-      (Триггер акции Едадила edadeal_trigger отключён — падал и блокировал
-      весь флоу; вызывается при необходимости отдельно.)
+    Цепочка (api.plus.yandex.ru graphql + trust.yandex.ru):
+      offers → csrf → compositeOfferCheckout (trustServiceToken) →
+      createInvoice → startInvoice → поллинг invoiceStatus до
+      payment.operationId → trust create_form_url (layout=dh-only) →
+      tokenize-форма, где пользователь вводит карту; виджет шлёт
+      descriptors на external-api.mediabilling…/update-payment →
+      invoiceStatus: WAIT_FOR_3DS (challengeUrl с purchase_token) → SUCCESS.
+
+    offer_token/event_session_id/tariff_offer/cross_session_id/hash_order_id/
+    batch_id/position_id/target можно передать вручную (из перехвата виджета);
+    иначе берутся через plus_offers_v2.
 
     Возвращает dict:
-      {'ok': True, 'stage': 'sms', ...} — нужен SMS-код (повторный вызов
-      с sms_code и тем же purchase_token/card);
-      {'ok': True, 'stage': 'done', ...} — подключение выполнено;
-      {'ok': False, 'error': ...} — ошибка.
+      {'ok': True, 'stage': 'form', 'form_url':…, 'invoice_id':…,
+       'operation_id':…, …} — создан инвойс и форма Траста; карта вводится
+      в форме (нужна авторизованная сессия аккаунта на trust.yandex.ru);
+      {'ok': True, 'stage': 'done'|'pending', 'status':…, 'invoice_id':…} —
+      повторный вызов с invoice_id (+wait_status=True) проверяет результат;
+      {'ok': False, 'error': …} — ошибка.
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     try:
-        # 1) csrf
         csrf = plus_csrf(acc)
-        # 1а) добровольное согласие (changeStatus ALLOW; идемпотентно)
+        # добровольное согласие (changeStatus ALLOW; идемпотентно)
         ag = {}
         try:
             ag = plus_agreement(acc, csrf=csrf)
         except RuntimeError as e:
             ag = {'error': str(e)}
-        # 1б) оффер с лендинга плюса (offerToken) + инфо чекаута
-        of, co = {}, {}
+        # Если инвойс уже создан — только проверяем статус.
+        if invoice_id:
+            inv = plus_invoice_status(acc, invoice_id=invoice_id, csrf=csrf)
+            st = inv.get('status') or ''
+            if st in ('SUCCESS', 'DONE', 'PAID'):
+                return {'ok': True, 'stage': 'done', 'status': st,
+                        'invoice_id': invoice_id, 'invoice': inv,
+                        '_agreement': ag}
+            if st in ('ERROR', 'CANCELED', 'CLOSED', 'FAILED'):
+                return {'ok': False, 'error': f'Плюс: инвойс {st}',
+                        'invoice_id': invoice_id, 'invoice': inv}
+            pt = inv.get('purchase_token') or ''
+            return {'ok': True, 'stage': 'pending', 'status': st,
+                    'invoice_id': invoice_id, 'purchase_token': pt,
+                    'invoice': inv, '_agreement': ag}
+        # 1) оффер: переданный вручную или /api/v2/offers
+        of = {}
+        if offer_token:
+            of = {'offerToken': offer_token,
+                  'target': target or PLUS_WIDGET_TARGET,
+                  'tariffOfferName': tariff_offer,
+                  'batchId': batch_id, 'positionId': position_id,
+                  'eventSessionId': event_session_id}
         try:
-            of = plus_offers(acc)
+            if not of.get('offerToken'):
+                ofv = plus_offers_v2(acc, event_session_id=event_session_id)
+                of = {'offerToken': ofv['offer_token'],
+                      'target': ofv['target'] or PLUS_WIDGET_TARGET,
+                      'tariffOfferName': ofv['tariff_offer'],
+                      'batchId': ofv['batch_id'],
+                      'positionId': ofv['position_id'],
+                      'eventSessionId': ofv['event_session_id']}
             co = plus_composite_checkout(
-                acc, offer_token=of.get('offerToken') or '', csrf=csrf,
+                acc, offer_token=of.get('offerToken') or '',
                 tarif=of.get('tariffOfferName') or '',
-                target=of.get('target') or 'crazywinback-plus-web',
+                target=of.get('target') or PLUS_WIDGET_TARGET,
                 event_session_id=of.get('eventSessionId') or '')
         except RuntimeError as e:
-            co = {'error': str(e)}
-        # 2) purchase_token: переданный → из чекаута → автопоиск
-        if not purchase_token:
-            purchase_token = (co.get('purchase_token') or '') if isinstance(co, dict) else ''
-        if not purchase_token:
-            if not of:
-                return {'ok': False,
-                        'error': 'Плюс: не получен offerToken с лендинга и нет '
-                                 'purchase_token. Проверь plus_offers (аккаунту '
-                                 'может быть недоступен вимбек-оффер).',
-                        '_offers': of, '_checkout': co}
-            if isinstance(co, dict) and co.get('error'):
-                return {'ok': False,
-                        'error': 'Плюс: чекаут не выдал purchase_token: '
-                                 + str(co['error']),
-                        '_offers': of, '_checkout': co}
-            purchase_token = plus_purchase_init(acc, csrf=csrf)
-        parsed = plus_parse_card(card) if not isinstance(card, dict) else card
-        # 3) bin_info (тип/банк карты, как в перехвате при вводе номера)
-        bin_ = plus_card_bin(acc, parsed.get('number', ''))
-        # 4) подготовка привязки карты (bind_card=true)
-        up = plus_update_payment(acc, purchase_token, parsed)
-        # 5) запуск платежа с картой (или повторный — с SMS)
-        st = plus_start_payment(acc, purchase_token, card=parsed,
-                                sms_code=sms_code)
-        status = st.get('status') or ''
-        if not sms_code and status in SMS_STATUSES:
-            return {'ok': True, 'stage': 'sms',
-                    'message': 'Требуется SMS-код от банка',
-                    'purchase_token': purchase_token,
-                    'card': parsed, 'status': status,
-                    'bin': bin_, '_up': up, '_start': st,
-                    '_agreement': ag, '_offers': of, '_checkout': co}
-        # 6) проверка результата
-        check = plus_check_payment(acc, purchase_token)
-        inv = {}
-        try:
-            inv = plus_invoice_status(acc, purchase_token=purchase_token, csrf=csrf)
-        except Exception:
-            pass
-        st_status = check.get('status') or status or ''
-        inv_status = str(inv.get('status') or '')
-        ok = str(st_status) in ('success', 'paid', 'done', 'completed') \
-            or inv_status in ('success', 'done', 'completed', 'paid')
-        if sms_code and status in ('otp_incorrect', 'incorrect_otp', 'invalid_code',
-                                   'wrong_code', 'invalid_otp'):
-            return {'ok': False, 'stage': 'sms',
-                    'error': 'Неверный SMS-код, повтори',
-                    'purchase_token': purchase_token,
-                    'card': parsed, 'status': status,
-                    '_start': st}
-        return {'ok': ok, 'stage': 'done' if ok else 'unknown',
-                'status': st_status or inv_status,
-                'purchase_token': purchase_token,
-                'bin': bin_, 'check': check, 'invoice': inv,
-                '_up': up, '_start': st, '_agreement': ag,
-                '_offers': of, '_checkout': co}
+            return {'ok': False,
+                    'error': f'Плюс: не удалось получить оффер/чекаут: {e}',
+                    '_offers': of}
+        if not isinstance(co, dict) or co.get('ok') is not True:
+            return {'ok': False,
+                    'error': 'Плюс: чекаут не удался: '
+                             + str((co or {}).get('raw') or co or {}),
+                    '_offers': of, '_checkout': co}
+        trust_token = co.get('trust_service_token') or ''
+        tarif = of.get('tariffOfferName') or co.get('tariff_offer') or ''
+        esid = of.get('eventSessionId') or ''
+        # 2) инвойс
+        ci = plus_create_invoice(
+            acc, offer_token=of.get('offerToken') or '', tariff_offer=tarif,
+            csrf=csrf, target=of.get('target') or PLUS_WIDGET_TARGET,
+            event_session_id=esid, cross_session_id=cross_session_id,
+            hash_order_id=hash_order_id, batch_id=of.get('batchId') or batch_id,
+            position_id=of.get('positionId') or position_id)
+        inv_id = ci.get('invoice_id') or ''
+        if not inv_id:
+            return {'ok': False,
+                    'error': 'Плюс: createInvoice не вернул id: ' + str(ci)[:300],
+                    '_checkout': co, '_invoice': ci}
+        # 3) старт
+        si = plus_start_invoice(acc, inv_id, csrf=csrf)
+        # 4) дождаться operation_id (verification_intent_…)
+        op = plus_wait_operation(acc, inv_id, csrf=csrf, attempts=15, delay=2.0)
+        operation_id = op.get('operation_id') or ''
+        if not operation_id:
+            return {'ok': False,
+                    'error': 'Плюс: инвойс не дошёл до wait_payment_method '
+                             f'(status {op.get("status")}): {str(op)[:300]}',
+                    'invoice_id': inv_id, '_checkout': co, '_invoice': ci,
+                    '_start': si, '_status': op}
+        # 5) форма оплаты Траста
+        form = plus_payment_form_url(acc, service_token=trust_token,
+                                     operation_id=operation_id)
+        form_url = form.get('form_url') or ''
+        return {'ok': True, 'stage': 'form',
+                'form_url': form_url,
+                'invoice_id': inv_id,
+                'operation_id': operation_id,
+                'trust_service_token': trust_token,
+                'tariff_offer': tarif,
+                'status': op.get('status') or '',
+                'payment_status': op.get('payment_status') or '',
+                'message': 'Открой форму Траста (нужна авторизованная сессия '
+                           'аккаунта) и введи карту; затем повторный вызов с '
+                           'invoice_id проверит результат.',
+                '_offers': of, '_checkout': co, '_invoice': ci,
+                '_start': si, '_status': op, '_form': form,
+                '_agreement': ag}
     except RuntimeError as e:
         return {'ok': False, 'error': str(e)}
 

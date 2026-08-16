@@ -492,11 +492,13 @@ def api_eda_accounts_rotate_device(name):
 
 @app.route('/api/eda/accounts/<name>/plus-subscribe', methods=['POST'])
 def api_eda_plus_subscribe(name):
-    """Подключение подписки «Яндекс Плюс» на аккаунте (карта + SMS).
+    """Подключение подписки «Яндекс Плюс» на аккаунте (GQL-флоу виджета).
 
-    Тело: {card: "4276 4013 9880 1234 12/27 321", sms_code?, purchase_token?,
-    kroken_uuid?}. Первый вызов: рисует стадию 'sms', повторный с кодом —
-    стадию 'done'. Ошибки возвращаются {ok: False, error} со статусом 200.
+    Тело: {card?, sms_code?, purchase_token?, invoice_id?, offer_token?,
+    tariff_offer?, event_session_id?}. Первый вызов: создаёт инвойс и форму
+    Траста (stage 'form' с form_url); повторный с invoice_id проверяет
+    результат (stage 'done'/'pending'). Ошибки возвращаются {ok: False, error}
+    со статусом 200.
     """
     d = request.get_json(silent=True) or {}
     try:
@@ -506,6 +508,11 @@ def api_eda_plus_subscribe(name):
             sms_code=str(d.get('sms_code', '') or ''),
             purchase_token=str(d.get('purchase_token', '') or ''),
             kroken_uuid=str(d.get('kroken_uuid', '') or ''),
+            invoice_id=str(d.get('invoice_id', '') or ''),
+            offer_token=str(d.get('offer_token', '') or ''),
+            tariff_offer=str(d.get('tariff_offer', '') or ''),
+            event_session_id=str(d.get('event_session_id', '') or ''),
+            wait_status=bool(d.get('wait_status')),
             save=True,
         )
     except Exception as e:
