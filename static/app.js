@@ -679,10 +679,10 @@ async function loadEdaAccounts() {
 }
 
 async function plusSubscribe(name) {
-  const card = prompt(`Карта для аккаунта ${name}\nФормат: 4276 4013 9880 1234 12/27 321\n(пусто — создать инвойс без карты, оплата в форме Траста)`);
-  if (card === null) return;
-  let payload = { card: (card || '').trim() };
-  for (let step = 0; step < 4; step++) {
+  const card = prompt(`Карта для аккаунта ${name}\nФормат: 4276 4013 9880 1234 12/27 321`);
+  if (!card) return;
+  let payload = { card: card.trim() };
+  for (let step = 0; step < 5; step++) {
     let r;
     try {
       r = await api(`/api/eda/accounts/${encodeURIComponent(name)}/plus-subscribe`, {
@@ -694,14 +694,9 @@ async function plusSubscribe(name) {
       alert(e.message);
       return;
     }
-    if (r.ok && r.stage === 'form') {
-      const open = confirm(`${r.message || ''}\n\n${r.form_url}\n\nОткрыть форму в браузере?`);
-      if (open) window.open(r.form_url, '_blank');
-      payload.invoice_id = r.invoice_id || '';
-      continue;
-    }
     if (r.ok && r.stage === 'sms') {
       payload.purchase_token = r.purchase_token || '';
+      payload.invoice_id = r.invoice_id || '';
       const sms = prompt(r.message || 'Введи SMS-код от банка:');
       if (!sms) return;
       payload.sms_code = sms.trim();
@@ -712,13 +707,6 @@ async function plusSubscribe(name) {
       loadEda();
       return;
     }
-    if (r.ok && r.stage === 'pending') {
-      const again = confirm(`Ожидание оплаты (${r.status || ''}).\nПроверить ещё раз?`);
-      if (!again) return;
-      payload.invoice_id = r.invoice_id || '';
-      payload.wait_status = true;
-      continue;
-    }
     if (r.ok === false) {
       alert(`Ошибка: ${r.error || 'неизвестно'}`);
       return;
@@ -726,7 +714,7 @@ async function plusSubscribe(name) {
     alert(`Неизвестный ответ: ${JSON.stringify(r || {}).slice(0, 300)}`);
     return;
   }
-  alert('Не удалось финализировать подключение за 4 шага');
+  alert('Не удалось финализировать подключение за 5 шагов');
 }
 
 async function runEdaCheck() {

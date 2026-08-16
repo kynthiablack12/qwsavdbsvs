@@ -3122,14 +3122,22 @@ def plus_invoice_status(account, invoice_id='', csrf=''):
     inv = _dig(d, 'data', 'externalInvoice') or {}
     pay = inv.get('payment') or {}
     challenge = pay.get('challengeUrl') or ''
+    form = inv.get('form') or ''
     pt = ''
-    if challenge:
+    if not pt and challenge:
         mm = re.search(r'purchase_token=([^&]+)', challenge)
+        if mm:
+            pt = urllib.parse.unquote(mm.group(1))
+    if not pt and form:
+        # purchase_token приходит в externalInvoice.form (payment-страница
+        # Траста) после WAIT_FOR_NOTIFICATION — захват seq 988
+        mm = re.search(r'purchase_token=([^&]+)', form)
         if mm:
             pt = urllib.parse.unquote(mm.group(1))
     return {'ok': True,
             'status': inv.get('invoiceStatus') or '',
             'error_code': inv.get('errorCode'),
+            'form': form,
             'payment': pay,
             'payment_status': pay.get('status') or '',
             'operation_id': pay.get('operationId') or '',
@@ -3155,6 +3163,30 @@ def plus_wait_operation(account, invoice_id, csrf='', attempts=20, delay=2.0):
             return last
         st = last.get('status') or ''
         if st in ('SUCCESS', 'DONE', 'PAID', 'ERROR', 'CANCELED', 'CLOSED'):
+            return last
+        time.sleep(delay)
+    return last
+
+
+def plus_wait_purchase_token(account, invoice_id, csrf='', attempts=20, delay=2.0):
+    """Дождаться purchase_token=payment_<hex> в externalInvoice.form.
+
+    После startInvoice инвойс проходит SCHEDULED → WAIT_FOR_NOTIFICATION, и
+    только тогда в response invoiceStatus появляется form — payment-страница
+    Траста с purchase_token (захват: seq 928→988). Возвращает dict из
+    plus_invoice_status (с полем 'purchase_token').
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    if not csrf:
+        csrf = plus_csrf(acc)
+    last = None
+    for _ in range(attempts):
+        last = plus_invoice_status(acc, invoice_id=invoice_id, csrf=csrf)
+        pt = last.get('purchase_token') or ''
+        if pt.startswith('payment_'):
+            return last
+        st = last.get('status') or ''
+        if st in ('SUCCESS', 'DONE', 'PAID', 'ERROR', 'CANCELED', 'CLOSED', 'FAILED'):
             return last
         time.sleep(delay)
     return last
@@ -3197,59 +3229,177 @@ SMS_STATUSES = ('auth_required', 'three_ds_required', '3ds', 'awaiting_otp',
                 'sd_cvv_required', 'cvv_required')
 
 
+def _plus_finish_payment(acc, purchase_token, card, sms_code='', csrf='',
+                         invoice_id='', _checkout=None, _invoice=None,
+                         _start=None, _status=None):
+    """Оплатить инвойс по purchase_token: diehard-флоу без 3DS.
+
+    trust update_payment (bind_card=true) → diehard bin_info →
+    diehard start_payment_json (карта открытым текстом) → при SMS повторный
+    start_payment_json с sms_code → poll invoiceStatus до SUCCESS →
+    changeStatus ALLOW (активация). Возвращает dict-контракт plus_subscribe.
+    """
+    parsed = plus_parse_card(card) if not isinstance(card, dict) else card
+    # 1) подготовка привязки (trust update_payment)
+    try:
+        up = plus_update_payment(acc, purchase_token, parsed)
+    except RuntimeError as e:
+        return {'ok': False, 'error': str(e), 'purchase_token': purchase_token,
+                'invoice_id': invoice_id}
+    # 2) bin_info (diehard) — префикс карты
+    bin_ = {}
+    try:
+        num = str(parsed.get('number', ''))
+        d = _plus_call(acc, PLUS_DIEHARD, 'POST', '/web/bin_info',
+                       json_body={'params': {'prefix': num[:8]}},
+                       referer=CARD_FORM_ORIGIN + '/',
+                       extra_headers={'accept': 'application/json',
+                                      'origin': CARD_FORM_ORIGIN,
+                                      'x-request-id': uuid.uuid4().hex[:16]})
+        bin_ = d if isinstance(d, dict) else {'_raw': d}
+    except Exception as e:
+        bin_ = {'error': str(e)}
+    # 3) запуск платежа картой
+    try:
+        st = plus_start_payment(acc, purchase_token, card=parsed,
+                                sms_code=sms_code)
+    except RuntimeError as e:
+        return {'ok': False, 'error': str(e), 'purchase_token': purchase_token,
+                'invoice_id': invoice_id, '_up': up, '_bin': bin_}
+    raw = st.get('_raw') or {}
+    status = st.get('status') or _dig(raw, 'result') or _dig(raw, 'status') or ''
+    if sms_code and status in ('otp_incorrect', 'incorrect_otp', 'invalid_code',
+                               'wrong_code', 'invalid_otp'):
+        return {'ok': False, 'stage': 'sms',
+                'error': 'Неверный SMS-код, повтори',
+                'purchase_token': purchase_token,
+                'invoice_id': invoice_id,
+                'card': parsed, 'status': status,
+                '_start': st, '_up': up, '_bin': bin_}
+    if not sms_code and (status in SMS_STATUSES
+                         or _dig(raw, 'threeDs') or _dig(raw, '3ds')
+                         or _dig(raw, 'auth3ds') or _dig(raw, 'auth_3ds')):
+        three_ds = bool(_dig(raw, 'threeDs') or _dig(raw, '3ds')
+                        or _dig(raw, 'auth3ds') or _dig(raw, 'auth_3ds'))
+        if three_ds:
+            return {'ok': False,
+                    'error': 'Плюс: требуется 3DS-челлендж (банк). Автопроход '
+                             'недоступен — нужен ввод карты в форме Траста.',
+                    'purchase_token': purchase_token,
+                    'invoice_id': invoice_id,
+                    'card': parsed, 'status': status,
+                    '_start': st, '_up': up, '_bin': bin_}
+        return {'ok': True, 'stage': 'sms',
+                'message': 'Требуется SMS-код от банка',
+                'purchase_token': purchase_token,
+                'invoice_id': invoice_id,
+                'card': parsed, 'status': status,
+                '_start': st, '_up': up, '_bin': bin_}
+    # 4) ожидание результата (check_payment + invoiceStatus)
+    check = None
+    inv = None
+    try:
+        for _ in range(3):
+            check = plus_check_payment(acc, purchase_token)
+            stc = (check.get('status') or check.get('tr_status') or '')
+            if stc and stc.lower() not in ('pending', 'in_progress', 'processing'):
+                break
+            time.sleep(2.0)
+    except RuntimeError as e:
+        check = {'error': str(e)}
+    ok_st = ('success', 'paid', 'done', 'completed', 'finished')
+    if invoice_id:
+        for _ in range(20):
+            try:
+                inv = plus_invoice_status(acc, invoice_id=invoice_id, csrf=csrf)
+            except RuntimeError:
+                inv = {}
+            ist = str(inv.get('status') or '')
+            if ist in ('SUCCESS', 'DONE', 'PAID'):
+                break
+            if ist in ('ERROR', 'CANCELED', 'CLOSED', 'FAILED'):
+                break
+            time.sleep(3.0)
+        if inv and inv.get('status') in ('ERROR', 'CANCELED', 'CLOSED', 'FAILED'):
+            return {'ok': False,
+                    'error': f"Плюс: платёж не прошёл (invoiceStatus "
+                             f"{inv.get('status')}: {inv.get('error_code')})",
+                    'purchase_token': purchase_token, 'invoice_id': invoice_id,
+                    'card': parsed, '_up': up, '_bin': bin_, '_start': st,
+                    '_check': check, '_invoice_status': inv}
+    istatus = str((inv or {}).get('status') or '')
+    cstatus = str((check or {}).get('status') or '') \
+        + str((check or {}).get('tr_status') or '')
+    ok = istatus in ('SUCCESS', 'DONE', 'PAID') \
+        or (istatus == '' and any(s in cstatus.lower() for s in ok_st))
+    if not ok:
+        return {'ok': False, 'stage': 'unknown',
+                'error': 'Плюс: не удалось подтвердить оплату',
+                'purchase_token': purchase_token, 'invoice_id': invoice_id,
+                'card': parsed, '_up': up, '_bin': bin_, '_start': st,
+                '_check': check, '_invoice_status': inv}
+    # 5) активация: changeVoluntaryAgreementStatus ALLOW (захват seq 1040)
+    ag = {}
+    try:
+        ag = plus_agreement(acc, status='ALLOW', csrf=csrf)
+    except RuntimeError as e:
+        ag = {'error': str(e)}
+    return {'ok': True, 'stage': 'done', 'status': istatus or 'SUCCESS',
+            'purchase_token': purchase_token, 'invoice_id': invoice_id,
+            'card': parsed, '_up': up, '_bin': bin_, '_start': st,
+            '_check': check, '_invoice_status': inv, '_agreement': ag,
+            '_checkout': _checkout, '_invoice': _invoice, '_start_inv': _start,
+            '_status_poll': _status}
+
+
 def plus_subscribe(account, card, sms_code='', purchase_token='',
                    kroken_uuid='', promo_id='', save=False,
                    offer_token='', event_session_id='', tariff_offer='',
                    invoice_id='', cross_session_id='', hash_order_id='',
                    batch_id='', position_id='', target='',
                    wait_status=False):
-    """Подключить «Яндекс Плюс» на аккаунте картой (GQL-флоу из захвата виджета).
+    """Подключить «Яндекс Плюс» на аккаунте картой.
 
-    Цепочка (api.plus.yandex.ru graphql + trust.yandex.ru):
-      offers → csrf → compositeOfferCheckout (trustServiceToken) →
-      createInvoice → startInvoice → поллинг invoiceStatus до
-      payment.operationId → trust create_form_url (layout=dh-only) →
-      tokenize-форма, где пользователь вводит карту; виджет шлёт
-      descriptors на external-api.mediabilling…/update-payment →
-      invoiceStatus: WAIT_FOR_3DS (challengeUrl с purchase_token) → SUCCESS.
+    Рабочий флоу из перехвата без 3DS (capture.jsonl, сессия от 16.08):
+      offers → csrf → compositeOfferCheckout → createInvoice → startInvoice →
+      invoiceStatus до externalInvoice.form (purchase_token=payment_<hex>) →
+      trust update_payment (bind_card=true) →
+      diehard bin_info (префикс) → diehard start_payment_json (карта открытым
+      текстом) → trust check_payment → invoiceStatus SUCCESS →
+      changeStatus (changeVoluntaryAgreementStatus ALLOW) — активация.
 
-    offer_token/event_session_id/tariff_offer/cross_session_id/hash_order_id/
-    batch_id/position_id/target можно передать вручную (из перехвата виджета);
-    иначе берутся через plus_offers_v2.
+    purchase_token и invoice_id можно передать вручную (повторный вызов после
+    'sms' — с sms_code).
 
     Возвращает dict:
-      {'ok': True, 'stage': 'form', 'form_url':…, 'invoice_id':…,
-       'operation_id':…, …} — создан инвойс и форма Траста; карта вводится
-      в форме (нужна авторизованная сессия аккаунта на trust.yandex.ru);
-      {'ok': True, 'stage': 'done'|'pending', 'status':…, 'invoice_id':…} —
-      повторный вызов с invoice_id (+wait_status=True) проверяет результат;
+      {'ok': True, 'stage': 'sms', 'purchase_token':…, 'invoice_id':…} — нужен
+      SMS-код (повторный вызов с sms_code);
+      {'ok': True, 'stage': 'done', …} — подключение выполнено;
       {'ok': False, 'error': …} — ошибка.
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     try:
         csrf = plus_csrf(acc)
-        # добровольное согласие (changeStatus ALLOW; идемпотентно)
-        ag = {}
-        try:
-            ag = plus_agreement(acc, csrf=csrf)
-        except RuntimeError as e:
-            ag = {'error': str(e)}
-        # Если инвойс уже создан — только проверяем статус.
-        if invoice_id:
+        # 1) если инвойс уже создан — идём сразу к оплате/проверке
+        if invoice_id or purchase_token:
+            if purchase_token and not invoice_id:
+                return _plus_finish_payment(acc, purchase_token, card,
+                                            sms_code=sms_code, csrf=csrf)
             inv = plus_invoice_status(acc, invoice_id=invoice_id, csrf=csrf)
+            pt = purchase_token or inv.get('purchase_token') or ''
             st = inv.get('status') or ''
             if st in ('SUCCESS', 'DONE', 'PAID'):
                 return {'ok': True, 'stage': 'done', 'status': st,
-                        'invoice_id': invoice_id, 'invoice': inv,
-                        '_agreement': ag}
+                        'invoice_id': invoice_id, 'invoice': inv}
             if st in ('ERROR', 'CANCELED', 'CLOSED', 'FAILED'):
                 return {'ok': False, 'error': f'Плюс: инвойс {st}',
                         'invoice_id': invoice_id, 'invoice': inv}
-            pt = inv.get('purchase_token') or ''
+            if pt:
+                return _plus_finish_payment(acc, pt, card, sms_code=sms_code,
+                                            csrf=csrf, invoice_id=invoice_id)
             return {'ok': True, 'stage': 'pending', 'status': st,
-                    'invoice_id': invoice_id, 'purchase_token': pt,
-                    'invoice': inv, '_agreement': ag}
-        # 1) оффер: переданный вручную или /api/v2/offers
+                    'invoice_id': invoice_id, 'invoice': inv}
+        # 2) оффер + чекаут + инвойс
         of = {}
         if offer_token:
             of = {'offerToken': offer_token,
@@ -3280,10 +3430,8 @@ def plus_subscribe(account, card, sms_code='', purchase_token='',
                     'error': 'Плюс: чекаут не удался: '
                              + str((co or {}).get('raw') or co or {}),
                     '_offers': of, '_checkout': co}
-        trust_token = co.get('trust_service_token') or ''
         tarif = of.get('tariffOfferName') or co.get('tariff_offer') or ''
         esid = of.get('eventSessionId') or ''
-        # 2) инвойс
         ci = plus_create_invoice(
             acc, offer_token=of.get('offerToken') or '', tariff_offer=tarif,
             csrf=csrf, target=of.get('target') or PLUS_WIDGET_TARGET,
@@ -3295,35 +3443,20 @@ def plus_subscribe(account, card, sms_code='', purchase_token='',
             return {'ok': False,
                     'error': 'Плюс: createInvoice не вернул id: ' + str(ci)[:300],
                     '_checkout': co, '_invoice': ci}
-        # 3) старт
+        # 3) старт и ожидание purchase_token в externalInvoice.form
         si = plus_start_invoice(acc, inv_id, csrf=csrf)
-        # 4) дождаться operation_id (verification_intent_…)
-        op = plus_wait_operation(acc, inv_id, csrf=csrf, attempts=15, delay=2.0)
-        operation_id = op.get('operation_id') or ''
-        if not operation_id:
+        st = plus_wait_purchase_token(acc, inv_id, csrf=csrf, attempts=15, delay=2.0)
+        pt = st.get('purchase_token') or ''
+        if not pt.startswith('payment_'):
             return {'ok': False,
-                    'error': 'Плюс: инвойс не дошёл до wait_payment_method '
-                             f'(status {op.get("status")}): {str(op)[:300]}',
+                    'error': 'Плюс: инвойс не дал purchase_token в form '
+                             f'(status {st.get("status")}): {str(st.get("_raw"))[:300]}',
                     'invoice_id': inv_id, '_checkout': co, '_invoice': ci,
-                    '_start': si, '_status': op}
-        # 5) форма оплаты Траста
-        form = plus_payment_form_url(acc, service_token=trust_token,
-                                     operation_id=operation_id)
-        form_url = form.get('form_url') or ''
-        return {'ok': True, 'stage': 'form',
-                'form_url': form_url,
-                'invoice_id': inv_id,
-                'operation_id': operation_id,
-                'trust_service_token': trust_token,
-                'tariff_offer': tarif,
-                'status': op.get('status') or '',
-                'payment_status': op.get('payment_status') or '',
-                'message': 'Открой форму Траста (нужна авторизованная сессия '
-                           'аккаунта) и введи карту; затем повторный вызов с '
-                           'invoice_id проверит результат.',
-                '_offers': of, '_checkout': co, '_invoice': ci,
-                '_start': si, '_status': op, '_form': form,
-                '_agreement': ag}
+                    '_start': si, '_status': st}
+        return _plus_finish_payment(acc, pt, card, sms_code=sms_code,
+                                    csrf=csrf, invoice_id=inv_id,
+                                    _checkout=co, _invoice=ci, _start=si,
+                                    _status=st)
     except RuntimeError as e:
         return {'ok': False, 'error': str(e)}
 
