@@ -203,9 +203,33 @@ async (a) => {
 """
 
 
-def _browser_fetch(page, url, method='GET', headers=None, body=None, form=None):
-    """fetch из контекста страницы: куки/антибот браузера, same-origin."""
+def _browser_fetch_page(page, url, method='GET', headers=None, body=None, form=None):
+    """fetch через реальный JS из уже загруженной страницы (same-origin requests:
+    /api/auth/* на samokat.ru). Выполняет антибот-скрипты страницы, которые ставят
+    куки — это нужно для анонимного входа по SMS, где context.request не годится.
+    Для cross-origin api-web.samokat.ru использовать НЕЛЬЗЯ (CORS) — там context.request.
+    """
     return page.evaluate(_BROWSER_FETCH_JS, [url, method, headers, body, form])
+
+
+def _browser_fetch(ctx, url, method='GET', headers=None, body=None, form=None):
+    """Настоящий браузерный HTTP из контекста (context.request).
+    Обходит CORS (fetch из JS-страницы к api-web.samokat.ru блокировался).
+    Куки антибота/сессии берутся из контекста автоматически.
+    """
+    opts = {'headers': headers or {}, 'timeout': 45000}
+    if form:
+        opts['data'] = {k: v for k, v in form.items()}
+    elif body is not None:
+        opts['data'] = json.dumps(body)
+        opts['headers'].setdefault('content-type', 'application/json')
+    req = ctx.request
+    try:
+        r = getattr(req, method.lower())(url, **opts)
+    except Exception as e:
+        return {'status': 0, 'ct': '', 'body': '', 'error': repr(e)}
+    return {'status': r.status, 'ct': r.headers.get('content-type', ''),
+            'body': r.text()}
 
 
 # ---------- браузерный API-мост (обходит антибот ServicePipe) ----------
@@ -258,7 +282,7 @@ def _browser_worker_main():
                         ctx.add_cookies(_playwright_cookies(cookies))
                     page = ctx.new_page()
                     contexts[ck_hash] = (ctx, page)
-                res = _browser_fetch_resilient(page, url, method, headers, body, form)
+                res = _browser_fetch_resilient(ctx, page, url, method, headers, body, form)
                 result_q.put((ck_hash, res))
             except Exception as e:
                 result_q.put((ck_hash, {'error': repr(e)}))
@@ -270,14 +294,10 @@ def _is_antibot_html(body):
     return ('<' in b) and ('json' not in (b[:60]).lower()) and ('servicepipe' in b.lower() or b.lstrip().startswith('<!DOCTYPE html>') or b.lstrip().startswith('<html'))
 
 
-def _browser_fetch_resilient(page, url, method, headers, body, form, attempts=5):
-    """fetch с проходом антибот-стены: грузим samokat.ru, при HTML-ответе
-    reload'им и повторяем, пока не вернётся не-HTML (JSON) или карточка без стены.
-
-    Если антибот поставил капчу (rndcaptcha) — reload обычный, капчу не решаем,
-    поэтому при стабильной блокировке IP вернём последний HTML-ответ как есть.
+def _browser_fetch_resilient(ctx, page, url, method, headers, body, form, attempts=5):
+    """Запрос с антибот-ритраями: грузим samokat.ru (ставит куки антибота),
+    затем context.request; при HTML-стене/403 reload'им и повторяем.
     """
-    import time as _t
     last = {'status': 0, 'ct': '', 'body': ''}
     for i in range(attempts):
         try:
@@ -285,13 +305,9 @@ def _browser_fetch_resilient(page, url, method, headers, body, form, attempts=5)
         except Exception:
             pass
         page.wait_for_timeout(3000)
-        try:
-            res = _browser_fetch(page, url, method, headers, body, form)
-        except Exception as e:
-            last = {'status': 0, 'ct': '', 'body': '', 'error': repr(e)}
-            continue
+        res = _browser_fetch(ctx, url, method, headers, body, form)
         last = res
-        if res.get('status') and res.get('status') != 403 and not _is_antibot_html(res.get('body')):
+        if res.get('error') or (res.get('status') and res.get('status') != 403 and not _is_antibot_html(res.get('body'))):
             return res
         # 403/стена — reload и ещё попытка
         page.wait_for_timeout(2000)
@@ -382,11 +398,13 @@ def _browser_login_session(phone, code):
                 locale='ru-RU',
             )
             page = ctx.new_page()
-            page.goto(SAMOKAT_WEB + '/', timeout=60000)
+            page.goto(SAMOKAT_WEB + '/', timeout=60000, wait_until='domcontentloaded')
             data = {}
-            for _ in range(4):
+            for _ in range(5):
                 page.wait_for_timeout(5000)
-                res = _browser_fetch(page, AUTH_SESSION_URL)
+                # same-origin /api/auth/session — идёт ЖС-фетчем со страницы, чтобы
+                # антибот-скрипты успели поставить куки (иначе context.request -> 403)
+                res = _browser_fetch_page(page, AUTH_SESSION_URL)
                 if res['status'] == 200 and 'json' in res['ct']:
                     try:
                         data = json.loads(res['body']) or {}
@@ -395,12 +413,13 @@ def _browser_login_session(phone, code):
                     if data.get('accessToken'):
                         break
                 page.reload()
+                page.wait_for_timeout(3000)
             token = data.get('accessToken', '')
             if not token:
                 raise RuntimeError('Самокат: не получен анонимный accessToken (антибот). Повторите через несколько минут.')
             csrf = ''
             for _ in range(3):
-                res = _browser_fetch(page, SAMOKAT_WEB + '/api/auth/csrf')
+                res = _browser_fetch_page(page, SAMOKAT_WEB + '/api/auth/csrf')
                 try:
                     csrf = (json.loads(res['body']) or {}).get('csrfToken', '')
                 except Exception:
@@ -411,12 +430,12 @@ def _browser_login_session(phone, code):
                 page.wait_for_timeout(3000)
             if not csrf:
                 raise RuntimeError('Самокат: не получен csrfToken (антибот)')
-            cb = _browser_fetch(page, SAMOKAT_WEB + '/api/auth/callback/smsCode', 'POST',
-                                form={'redirect': 'false', 'callbackUrl': '/',
-                                      'phone': phone, 'code': code,
-                                      'anonymousAccessToken': token,
-                                      'csrfToken': csrf, 'json': 'true'})
-            res = _browser_fetch(page, AUTH_SESSION_URL)
+            cb = _browser_fetch_page(page, SAMOKAT_WEB + '/api/auth/callback/smsCode', 'POST',
+                                     form={'redirect': 'false', 'callbackUrl': '/',
+                                           'phone': phone, 'code': code,
+                                           'anonymousAccessToken': token,
+                                           'csrfToken': csrf, 'json': 'true'})
+            res = _browser_fetch_page(page, AUTH_SESSION_URL)
             try:
                 data = json.loads(res['body']) or {}
             except Exception:
