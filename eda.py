@@ -2707,19 +2707,372 @@ def plus_agreement(account, status='ALLOW', csrf=''):
             or _dig(d, 'changeVoluntaryAgreementStatus', 'status') or ''}
 
 
-_COMPSITE_CHECKOUT_DOC = (
-    'query compositeOfferCheckout($input: CompositeOfferPurchaseInput!,'
-    ' $includeAdditionalOffers: Boolean!, $includeNewSbp: Boolean!,'
-    ' $includeBindedSbp: Boolean!, $includeNewYaBank: Boolean!,'
-    ' $includeNewAppleToken: Boolean!, $includeNewGoogleToken: Boolean!,'
-    ' $includeNewClickWallet: Boolean!, $includeBindedClickWallet: Boolean!,'
-    ' $usePaymentGroups: Boolean!) {\n'
-    '  compositeOfferCheckoutInfo(input: $input) {\n'
-    '    invoices { timestamp totalPrice { amount currency } maxPoints { amount currency } }\n'
-    '    tariffOffer { offerName text title }\n'
-    '    paymentMethods { mainPaymentMethodId trustServiceToken }\n'
-    '  }\n'
-    '}\n')
+_COMPSITE_CHECKOUT_DOC = """query compositeOfferCheckout($input: CompositeOfferPurchaseInput!, $includeAdditionalOffers: Boolean!, $includeNewSbp: Boolean!, $includeBindedSbp: Boolean!, $includeNewYaBank: Boolean!, $includeNewAppleToken: Boolean!, $includeNewGoogleToken: Boolean!, $includeNewClickWallet: Boolean!, $includeBindedClickWallet: Boolean!, $usePaymentGroups: Boolean!) {
+  compositeOfferCheckoutInfo(input: $input) {
+    ...compositeOfferPurchaseBase
+    ...compositePaymentMethodsFragment
+    checkoutAdditionalOffers @include(if: $includeAdditionalOffers) {
+      eventSessionId
+      offers {
+        additionalText
+        benefits {
+          text
+        }
+        disclaimer
+        iconImages
+        isAvailable
+        isSelected
+        offerName
+        positionId
+        text
+        title
+        upsaleStep
+        upsaleType
+        offersBatchId
+        offersToReplace
+        offerSwitchToggle {
+          badgeText
+          text
+        }
+      }
+      passedUpsaleSteps
+      offerSwitchToggle {
+        badgeText
+        text
+      }
+      title
+    }
+  }
+}
+
+fragment compositeOfferPurchaseBase on CompositeOfferPurchase {
+  silentInvoiceAvailable
+  accountCompensationEnable
+  hasUserMuid
+  invoices {
+    ...CompositeOfferInvoiceFragment
+  }
+  legalInfo {
+    ...LegalInfoFragment
+  }
+  tariffOffer {
+    additionText
+    description
+    image
+    offerName
+    payload
+    tariff {
+      name
+    }
+    text
+    title
+    unfreezeAvailable
+    accountCompensationInfo
+    accountCompensationComment
+  }
+  optionOffers {
+    additionText
+    description
+    image
+    offerName
+    option {
+      name
+    }
+    payload
+    text
+    title
+    unfreezeAvailable
+    accountCompensationInfo
+    accountCompensationComment
+  }
+  paymentText {
+    firstPaymentText
+    nextPaymentsText
+  }
+  successScreen {
+    title
+    message
+  }
+}
+
+fragment compositePaymentMethodsFragment on CompositeOfferPurchase {
+  paymentMethods {
+    groups @include(if: $usePaymentGroups) {
+      groupButtons
+      groupTitle
+    }
+    mainPaymentMethodId
+    trustServiceToken
+    promoBadges {
+      ... on PaymentPromoBadge {
+        additionalTitle {
+          ...CheckoutTitleFragment
+        }
+        backgroundColor {
+          dark {
+            ...CheckoutColorFragment
+          }
+          light {
+            ...CheckoutColorFragment
+          }
+        }
+        benefitTitle {
+          ...CheckoutTitleFragment
+        }
+        iconImage {
+          ...CheckoutThemedImageFragment
+        }
+        paymentMethodId
+      }
+    }
+    promoLegalInfo {
+      __typename
+      legalText {
+        ...CheckoutTitleFragment
+      }
+    }
+    paymentButtons {
+      ... on CardPaymentButton {
+        __typename
+        panMask {
+          last4
+        }
+        paymentSystem
+        yaBank
+        bankName
+        widgetUrls {
+          ... on WidgetUrls {
+            __typename
+            darkTheme
+            lightTheme
+          }
+        }
+        ...CompositeOfferCommonPaymentMethodInfoFragment
+      }
+      ... on SbpPaymentButton @include(if: $includeBindedSbp) {
+        __typename
+        bankName
+        darkIconUrl
+        lightIconUrl
+        dateAdded
+        ...CompositeOfferCommonPaymentMethodInfoFragment
+      }
+      ... on NewSbpPaymentButton @include(if: $includeNewSbp) {
+        __typename
+        ...CompositeOfferCommonPaymentMethodInfoFragment
+      }
+      ... on NewCardPaymentButton {
+        __typename
+        ...CompositeOfferCommonPaymentMethodInfoFragment
+      }
+      ... on NewYBPaymentButton @include(if: $includeNewYaBank) {
+        __typename
+        widgetOpenCardUrls {
+          ... on WidgetOpenCardUrls {
+            __typename
+            darkTheme
+            lightTheme
+          }
+        }
+        ...CompositeOfferCommonPaymentMethodInfoFragment
+      }
+      ... on NewAppleTokenPaymentButton @include(if: $includeNewAppleToken) {
+        __typename
+        ...CompositeOfferCommonPaymentMethodInfoFragment
+      }
+      ... on ClickWalletPaymentButton @include(if: $includeBindedClickWallet) {
+        __typename
+        lastPhoneNumberDigits
+        ...CompositeOfferCommonPaymentMethodInfoFragment
+      }
+      ... on NewClickWalletPaymentButton @include(if: $includeNewClickWallet) {
+        __typename
+        ...CompositeOfferCommonPaymentMethodInfoFragment
+      }
+      ... on NewClickWalletWithBoundWalletsPaymentButton @include(if: $includeNewClickWallet) {
+        __typename
+        ...CompositeOfferCommonPaymentMethodInfoFragment
+      }
+      ... on NewGoogleTokenPaymentButton @include(if: $includeNewGoogleToken) {
+        __typename
+        ...CompositeOfferCommonPaymentMethodInfoFragment
+      }
+    }
+  }
+}
+
+fragment CompositeOfferCommonPaymentMethodInfoFragment on PaymentButton {
+  asset {
+    badgeText {
+      ...CheckoutTitleFragment
+    }
+    subtitleText {
+      ...CheckoutTitleFragment
+    }
+  }
+  darkTheme {
+    backgroundColor
+    iconUrl
+    textColor
+  }
+  lightTheme {
+    backgroundColor
+    iconUrl
+    textColor
+  }
+  id
+  title
+}
+
+fragment CompositeOfferInvoiceFragment on CompositeOfferInvoice {
+  timestamp
+  totalPrice {
+    amount
+    currency
+  }
+  maxPoints {
+    amount
+    currency
+  }
+}
+
+fragment LegalInfoFragment on LegalInfo {
+  text
+  items {
+    key
+    type
+    data {
+      text
+      link
+    }
+  }
+}
+
+fragment richTextItem on CheckoutTitleItem {
+  ... on CheckoutTitleColorItem {
+    __typename
+    text
+    color {
+      light {
+        ...CheckoutColorFragment
+      }
+      dark {
+        ...CheckoutColorFragment
+      }
+    }
+    altText
+    key
+  }
+  ... on CheckoutTitleHighlightItem {
+    __typename
+    text
+    altText
+    key
+  }
+  ... on CheckoutTitleIconItem {
+    __typename
+    image {
+      light {
+        url
+      }
+      dark {
+        url
+      }
+    }
+    altText
+    key
+  }
+  ... on CheckoutTitleLinkItem {
+    __typename
+    text
+    url
+    altText
+    key
+  }
+  ... on CheckoutTitleStrikeItem {
+    text
+    __typename
+    altText
+    key
+  }
+}
+
+fragment CheckoutTitleFragment on CheckoutTitle {
+  __typename
+  text
+  items {
+    ...richTextItem
+  }
+}
+
+fragment CheckoutColorFragment on CheckoutColor {
+  ... on CheckoutDesignColor {
+    __typename
+    fallback {
+      ... on CheckoutRgbaColor {
+        __typename
+        rgba
+      }
+    }
+    name
+  }
+  ... on CheckoutLinearGradientColor {
+    __typename
+    angle
+    colors {
+      ... on ColorGradientStop {
+        color {
+          ... on CheckoutRgbaColor {
+            __typename
+            rgba
+          }
+        }
+        location
+      }
+    }
+  }
+  ... on CheckoutRadialGradientColor {
+    __typename
+    angle
+    colors {
+      ... on ColorGradientStop {
+        color {
+          ... on CheckoutRgbaColor {
+            __typename
+            rgba
+          }
+        }
+        location
+      }
+    }
+    relativeCenter {
+      x
+      y
+    }
+    relativeRadius {
+      x
+      y
+    }
+  }
+  ... on CheckoutRgbaColor {
+    __typename
+    rgba
+  }
+}
+
+fragment CheckoutThemedImageFragment on CheckoutThemedImage {
+  dark {
+    ... on CheckoutImage {
+      url
+    }
+  }
+  light {
+    ... on CheckoutImage {
+      url
+    }
+  }
+}
+"""
 
 
 def plus_offers(account, target='plus-web', utm='afisha'):
@@ -2785,6 +3138,42 @@ def plus_offers(account, target='plus-web', utm='afisha'):
     return out
 
 
+def _intro_period_days(o):
+    """Длина trial-периода (INTRO_PLAN) оффера, напр. 'P30D' → 30."""
+    to = _dig(o, 'catalogCompositeOffer', 'tariffOffer') or {}
+    plans = to.get('plans') or []
+    best = 0
+    for p in plans:
+        if isinstance(p, dict) and 'INTRO' in str(p.get('typename', '')).upper():
+            mm = re.search(r'P(\d+)D', str(p.get('period') or ''))
+            if mm:
+                best = max(best, int(mm.group(1)))
+    return best
+
+
+def _pick_trial_offer(offers):
+    """Выбрать trial-оффер с максимальным intro-периодом (30д за 1₽).
+
+    Для чистых аккаунтов /api/v2/offers отдаёт 2+ оффера (пример, uid
+    2421294728):
+      [0] crazywinback-plus-web — P360D, intro P30D «30 дней за 1₽»;
+      [1] crazyintro-plus-web-30 — P30D, intro P14D «14 дней за 1₽».
+    Нужен именно вариант с 30 днями за 1₽ (intro-период максимальный),
+    иначе — первый.
+    """
+    if not offers:
+        return None
+    trials = []
+    for o in offers:
+        to = _dig(o, 'catalogCompositeOffer', 'tariffOffer') or {}
+        plans = to.get('plans') or []
+        if any(isinstance(p, dict) and 'INTRO' in str(p.get('typename', '')).upper()
+               for p in plans):
+            trials.append(o)
+    pool = trials or offers
+    return max(pool, key=_intro_period_days)
+
+
 def plus_offers_v2(account, event_session_id=''):
     """Оффер Плюса через современный backend: api.acquisition-gwe.plus.yandex.ru.
 
@@ -2828,7 +3217,7 @@ def plus_offers_v2(account, event_session_id=''):
     offers = d.get('offers') if isinstance(d, dict) else None
     if not isinstance(offers, list) or not offers:
         raise RuntimeError(f'Плюс: /api/v2/offers не вернул офферы: {str(d)[:300]}')
-    o = offers[0]
+    o = _pick_trial_offer(offers) or offers[0]
     ad = o.get('analyticData') or {}
     co = o.get('catalogCompositeOffer') or {}
     return {
