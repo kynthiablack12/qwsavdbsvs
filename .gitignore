@@ -10,6 +10,7 @@ prizes.db
 *.db-wal
 *.db-shm
 eda_accounts.json
+eda_cards.json
 eda_sessions.json
 sp_gifts.json
 sp_wheel.json

@@ -678,9 +678,108 @@ async function loadEdaAccounts() {
   }
 }
 
+let pendingCardAccount = '';
+let pendingCardValue = '';
+
 async function plusSubscribe(name) {
-  const card = prompt(`Карта для аккаунта ${name}\nФормат: 4276 4013 9880 1234 12/27 321`);
-  if (!card) return;
+  pendingCardAccount = name;
+  pendingCardValue = '';
+  $('cardError').classList.add('hidden');
+  $('cardList').innerHTML = '<div class="card-empty">Загрузка…</div>';
+  $('modalCard').classList.remove('hidden');
+  await renderCardList();
+}
+
+async function renderCardList() {
+  const list = $('cardList');
+  let cards;
+  try {
+    const r = await api('/api/eda/cards');
+    cards = r.cards || [];
+  } catch (e) {
+    list.innerHTML = `<div class="card-empty">${esc(e.message)}</div>`;
+    return;
+  }
+  if (!cards.length) {
+    list.innerHTML = '<div class="card-empty">Сохранённых карт пока нет — добавь новую ниже</div>';
+    return;
+  }
+  list.innerHTML = cards.map((c, i) => `
+    <div class="card-item ${i === 0 ? 'sel' : ''}" data-id="${esc(c.id)}" data-card="${esc(c.card)}" data-label="${esc(c.label)}">
+      <div class="card-radio"></div>
+      <div class="card-ico">••${esc(c.mask || '')}</div>
+      <div class="card-info">
+        <b>${esc(c.label || c.mask || c.id)}</b>
+        <span>${esc(c.card.split(' ')[0] ? c.card.split(' ')[0] : '')} •••• ${esc(c.mask || '')} · ${esc(c.exp || '')}</span>
+      </div>
+      <button class="card-del" title="Удалить" data-del="${esc(c.id)}">🗑</button>
+    </div>`).join('');
+  list.querySelectorAll('.card-item').forEach(it => {
+    it.addEventListener('click', () => {
+      list.querySelectorAll('.card-item').forEach(x => x.classList.remove('sel'));
+      it.classList.add('sel');
+    });
+    it.querySelector('[data-del]').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await api(`/api/eda/cards/${encodeURIComponent(it.dataset.id)}`, { method: 'DELETE' });
+      renderCardList();
+    });
+  });
+}
+
+$('cardSave').addEventListener('click', async () => {
+  const input = $('cardInput');
+  $('cardError').classList.add('hidden');
+  let card = '';
+  const sel = document.querySelector('#cardList .card-item.sel');
+  if (sel) card = sel.dataset.card;
+  if (!card) {
+    card = input.value.trim();
+    if (!card) {
+      showCardError('Введи номер карты или выбери сохранённую');
+      return;
+    }
+  }
+  const label = $('cardLabel').value.trim();
+  let cardStr = card;
+  if (sel) {
+    cardStr = card;
+  } else {
+    $('cardSave').disabled = true;
+    $('cardSave').textContent = 'Сохраняю…';
+    try {
+      const r = await api('/api/eda/cards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, card }),
+      });
+      cardStr = r.card.card;
+      input.value = '';
+      $('cardLabel').value = '';
+    } catch (e) {
+      $('cardSave').disabled = false;
+      $('cardSave').textContent = 'Сохранить и подключить';
+      showCardError(e.message);
+      return;
+    }
+    $('cardSave').disabled = false;
+    $('cardSave').textContent = 'Сохранить и подключить';
+  }
+  pendingCardValue = cardStr;
+  $('modalCard').classList.add('hidden');
+  await plusSubscribeGo(pendingCardAccount, pendingCardValue);
+});
+
+$('cardClose').addEventListener('click', () => $('modalCard').classList.add('hidden'));
+$('modalCard').addEventListener('click', (e) => { if (e.target === $('modalCard')) $('modalCard').classList.add('hidden'); });
+
+function showCardError(msg) {
+  const el = $('cardError');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+async function plusSubscribeGo(name, card) {
   let payload = { card: card.trim() };
   for (let step = 0; step < 5; step++) {
     let r;
@@ -702,6 +801,11 @@ async function plusSubscribe(name) {
       payload.sms_code = sms.trim();
       continue;
     }
+    if (r.ok && r.stage === '3ds') {
+      payload.purchase_token = r.purchase_token || '';
+      payload.invoice_id = r.invoice_id || '';
+      return await run3ds(name, r);
+    }
     if (r.ok && r.stage === 'done') {
       alert(`Плюс подключён (${r.status || ''})`);
       loadEda();
@@ -715,6 +819,43 @@ async function plusSubscribe(name) {
     return;
   }
   alert('Не удалось финализировать подключение за 5 шагов');
+}
+
+async function run3ds(name, r) {
+  let status;
+  try {
+    status = await api(`/api/eda/accounts/${encodeURIComponent(name)}/plus-3ds-open`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ purchase_token: r.purchase_token || '', invoice_id: r.invoice_id || '', challenge_url: r.challenge_url || '' }),
+    });
+  } catch (e) {
+    alert(`3DS: ${e.message}`);
+    return;
+  }
+  if (!status.ok) {
+    alert(`3DS: ${status.error || 'не удалось открыть форму'}`);
+    return;
+  }
+  alert(`Банк требует подтверждение 3DS.\nОткрываю страницу банка в Chrome.\nВведи SMS-код, а я дождусь оплаты и активирую Плюс.`);
+  for (;;) {
+    await new Promise(r2 => setTimeout(r2, 3000));
+    let st;
+    try {
+      st = await api(`/api/eda/accounts/${encodeURIComponent(name)}/plus-3ds-status`);
+    } catch (e) {
+      continue;
+    }
+    if (st.stage === 'done') {
+      alert(`3DS пройден, Плюс подключён (${st.status || ''})`);
+      loadEda();
+      return;
+    }
+    if (st.stage === 'failed' || st.stage === 'timeout' || st.stage === 'error') {
+      alert(`3DS: ${st.error || st.stage}`);
+      return;
+    }
+  }
 }
 
 async function runEdaCheck() {

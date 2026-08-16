@@ -1,4 +1,4 @@
-import sys, os, json, threading, hashlib
+import sys, os, json, threading, hashlib, re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
 import pickup
@@ -448,6 +448,27 @@ def api_eda_accounts_add():
     return jsonify({'ok': True})
 
 
+@app.route('/api/eda/cards')
+def api_eda_cards():
+    return jsonify({'ok': True, 'cards': eda.load_eda_cards()})
+
+
+@app.route('/api/eda/cards', methods=['POST'])
+def api_eda_cards_add():
+    data = request.get_json(silent=True) or {}
+    try:
+        entry = eda.eda_card_add(data.get('label', ''), data.get('card', ''))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'card': entry})
+
+
+@app.route('/api/eda/cards/<cid>', methods=['DELETE'])
+def api_eda_cards_delete(cid):
+    ok = eda.eda_card_delete(cid)
+    return jsonify({'ok': ok})
+
+
 @app.route('/api/eda/qr/start', methods=['POST'])
 def api_eda_qr_start():
     try:
@@ -520,6 +541,138 @@ def api_eda_plus_subscribe(name):
     if isinstance(res, dict) and res.get('ok') is False and res.get('error'):
         return jsonify(res), 200
     return jsonify(res)
+
+
+# ---------- Полуавто 3DS (Playwright) ----------
+#
+# После plus-subscribe со stage '3ds' открываем challenge-страницу банка в
+# Chrome (куки аккаунта подставляются автоматически), пользователь вводит
+# SMS-код, фоновый воркер ловит success по check_payment/invoiceStatus и
+# сам активирует подписку (changeStatus ALLOW).
+PLUS_3DS_TASKS = {}
+PLUS_3DS_LOCK = threading.Lock()
+
+
+def _plus_3ds_cookies(acc):
+    ck = eda._web_cookies(acc) or {}
+    return [{'name': k, 'value': str(v), 'domain': '.yandex.ru', 'path': '/'}
+            for k, v in ck.items() if v not in (None, '', 'None')]
+
+
+def _plus_3ds_worker(name, purchase_token, invoice_id, challenge_url, csrf,
+                     timeout=600):
+    """Открыть challenge-страницу в Chrome и ждать завершения 3DS."""
+    from playwright.sync_api import sync_playwright
+    acc = eda.get_eda_account(name)
+    m = re.search(r'[?&]external_id=([^&\s]+)', challenge_url or '')
+    external_id = m.group(1) if m else ''
+    state = {'stage': '3ds', 'purchase_token': purchase_token,
+             'invoice_id': invoice_id, 'challenge_url': challenge_url,
+             'external_id': external_id, 'auth_status': '',
+             'opened_at': time.time()}
+    with PLUS_3DS_LOCK:
+        PLUS_3DS_TASKS[name] = state
+    res = {}
+    try:
+        # Проверка до открытия браузера: истёкший/готовый челлендж — не открывать
+        auth = ''
+        if external_id:
+            try:
+                auth = eda.plus_3ds_auth_status(acc, external_id, csrf=csrf)
+            except Exception as e:
+                auth = ''
+            state['auth_status'] = auth
+        if auth == 'failed':
+            res = {'ok': False, 'stage': 'failed',
+                   'error': 'Trust не принял 3DS (auth_status failed). '
+                            'Вероятно, платёж истёк — повторите подписку.'}
+        elif auth == 'success':
+            res = eda._plus_3ds_done(acc, purchase_token, invoice_id, csrf,
+                                     activate=True, check={})
+        else:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(channel='chrome', headless=False)
+                ctx = browser.new_context()
+                ctx.add_cookies(_plus_3ds_cookies(acc))
+                page = ctx.new_page()
+                page.goto(challenge_url, timeout=45000)
+                deadline = time.time() + timeout
+                while time.time() < deadline:
+                    if external_id:
+                        try:
+                            auth = eda.plus_3ds_auth_status(acc, external_id,
+                                                            csrf=csrf)
+                        except Exception:
+                            auth = ''
+                        state['auth_status'] = auth
+                        if auth == 'failed':
+                            res = {'ok': False, 'stage': 'failed',
+                                   'error': 'Trust не принял 3DS '
+                                            '(auth_status failed).'}
+                            break
+                    res = eda.plus_3ds_wait(acc, purchase_token,
+                                            invoice_id=invoice_id, csrf=csrf,
+                                            timeout=15, poll=2.0, activate=True)
+                    if res.get('stage') in ('done', 'failed', 'timeout'):
+                        break
+                    time.sleep(2.0)
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+    except Exception as e:
+        res = {'ok': False, 'stage': 'error', 'error': str(e)}
+    state.update(res or {'stage': 'error'})
+    state['finished_at'] = time.time()
+
+
+@app.route('/api/eda/accounts/<name>/plus-3ds-open', methods=['POST'])
+def api_eda_plus_3ds_open(name):
+    """Открыть challenge-страницу 3DS в Chrome и запустить фоновое ожидание."""
+    d = request.get_json(silent=True) or {}
+    purchase_token = str(d.get('purchase_token', '') or '')
+    invoice_id = str(d.get('invoice_id', '') or '')
+    if not purchase_token:
+        return jsonify({'ok': False, 'error': 'Нет purchase_token'})
+    with PLUS_3DS_LOCK:
+        cur = PLUS_3DS_TASKS.get(name) or {}
+        if (cur.get('stage') in ('3ds', 'opening')
+                and time.time() - (cur.get('opened_at') or 0) < 600):
+            return jsonify({'ok': True, 'stage': '3ds',
+                            'challenge_url': cur.get('challenge_url', ''),
+                            'already_running': True})
+    acc = eda.get_eda_account(name)
+    csrf = ''
+    try:
+        csrf = eda.plus_csrf(acc)
+    except Exception as e:
+        csrf = ''
+    ch = {}
+    try:
+        ch = eda.plus_3ds_challenge(acc, purchase_token, csrf=csrf)
+    except Exception as e:
+        ch = {'error': str(e)}
+    challenge_url = str(d.get('challenge_url', '') or ch.get('challenge_url', '') or '')
+    if not challenge_url:
+        return jsonify({'ok': False, 'error': 'Не удалось получить '
+                                              'challenge_url 3DS'})
+    state = {'stage': 'opening', 'purchase_token': purchase_token,
+             'invoice_id': invoice_id, 'challenge_url': challenge_url,
+             'opened_at': time.time()}
+    with PLUS_3DS_LOCK:
+        PLUS_3DS_TASKS[name] = state
+    threading.Thread(target=_plus_3ds_worker,
+                     args=(name, purchase_token, invoice_id,
+                           challenge_url, csrf), daemon=True).start()
+    return jsonify({'ok': True, 'stage': '3ds',
+                    'challenge_url': challenge_url})
+
+
+@app.route('/api/eda/accounts/<name>/plus-3ds-status')
+def api_eda_plus_3ds_status(name):
+    with PLUS_3DS_LOCK:
+        st = dict(PLUS_3DS_TASKS.get(name) or {})
+    return jsonify(st or {'stage': 'idle'})
 
 
 # Проверка живости токенов/сессий всех аккаунтов.

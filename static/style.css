@@ -532,3 +532,41 @@ table.data-table {
 .pay-opt { display: flex; align-items: center; gap: 10px; padding: 11px; border: 1px solid var(--line, #e4e7ee); border-radius: 10px; margin-bottom: 6px; font-size: 13px; }
 .pay-opt .st { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--green, #2ba84a); }
 .pay-opt .st.no { color: var(--danger, #e5484d); }
+
+/* ---------- выбор/ввод карты для Плюса ---------- */
+.modal-card { max-width: 460px; }
+.card-list { display: grid; gap: 8px; margin: 16px 0 4px; max-height: 220px; overflow-y: auto; padding-right: 4px; }
+.card-item {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: 12px; cursor: pointer;
+  background: var(--panel-2); transition: border-color .15s, background .15s, transform .15s;
+}
+.card-item:hover { border-color: var(--border-2); background: var(--panel-3); transform: translateY(-1px); }
+.card-item.sel { border-color: var(--primary); background: var(--primary-soft); box-shadow: 0 0 0 3px rgba(228, 0, 43, .18); }
+.card-radio {
+  width: 18px; height: 18px; flex: 0 0 18px; border-radius: 50%;
+  border: 2px solid var(--border-2); position: relative; transition: border-color .15s;
+}
+.card-item.sel .card-radio { border-color: var(--primary); }
+.card-item.sel .card-radio::after {
+  content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--primary);
+}
+.card-ico {
+  flex: 0 0 42px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .03em; color: var(--text);
+  background: linear-gradient(135deg, var(--panel-3), var(--border-2));
+  border: 1px solid var(--border-2);
+}
+.card-item.sel .card-ico { background: linear-gradient(135deg, var(--primary), #7a0017); border-color: var(--primary); }
+.card-info { flex: 1; min-width: 0; }
+.card-info b { display: block; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-info span { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.card-del {
+  flex: 0 0 auto; background: none; border: none; color: var(--muted); font-size: 17px; cursor: pointer;
+  width: 28px; height: 28px; border-radius: 8px; line-height: 1; transition: color .15s, background .15s;
+}
+.card-del:hover { color: var(--danger); background: rgba(255, 92, 115, .12); }
+.card-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 18px 0; border: 1px dashed var(--border); border-radius: 12px; }
+.card-add-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 4px; color: var(--muted); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.card-add-divider::before, .card-add-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.card-form { margin-top: 12px; }

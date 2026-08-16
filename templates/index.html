@@ -548,6 +548,31 @@
   </div>
 </div>
 
+<!-- Выбор/ввод карты для подключения Плюса -->
+<div class="modal-overlay hidden" id="modalCard">
+  <div class="modal modal-card">
+    <button class="modal-close" id="cardClose">×</button>
+    <h2>Карта для подписки</h2>
+    <p class="muted">Выбери сохранённую карту или добавь новую — она сохранится для следующего раза.</p>
+
+    <div class="card-list" id="cardList"></div>
+
+    <div class="card-add-divider">
+      <span>или новая карта</span>
+    </div>
+    <div class="card-form">
+      <label>Номер, срок и CVC
+        <input type="text" id="cardInput" placeholder="4276 4013 9880 1234 12/27 321" autocomplete="off" spellcheck="false">
+      </label>
+      <label>Метка (необязательно)
+        <input type="text" id="cardLabel" placeholder="например: моя Tinkoff" autocomplete="off">
+      </label>
+      <button class="btn btn-primary btn-block" id="cardSave">Сохранить и подключить</button>
+    </div>
+    <div class="modal-error hidden" id="cardError"></div>
+  </div>
+</div>
+
 <script src="/static/js/qrcode.min.js"></script>
 <script src="/static/app.js"></script>
 </body>

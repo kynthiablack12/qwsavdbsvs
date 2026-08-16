@@ -2262,6 +2262,71 @@ def eda_save_cards(account, cards):
     return acc.get('cards') or []
 
 
+# ---------- глобальные сохранённые карты (выбор в админке) ----------
+
+EDA_CARDS_FILE = os.path.join(core.DATA_DIR, 'eda_cards.json')
+
+
+def load_eda_cards():
+    """Глобальный список сохранённых карт: [{id, label, card, ...}].
+
+    Карта хранится сырой строкой вида "4276 4013 9880 1234 12/27 123" —
+    тот же формат, что принимает plus_parse_card/plus_subscribe.
+    """
+    try:
+        with open(EDA_CARDS_FILE, encoding='utf-8') as f:
+            cards = json.load(f)
+        return cards if isinstance(cards, list) else []
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def save_eda_cards(cards):
+    """Атомарно записать глобальный список карт (см. _eda_write)."""
+    if not isinstance(cards, list):
+        return
+    tmp = EDA_CARDS_FILE + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(cards, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, EDA_CARDS_FILE)
+
+
+def eda_card_add(label, card):
+    """Валидировать и сохранить новую карту. Возвращает запись карты.
+
+    Бросает RuntimeError с понятным сообщением, если карта не распознаётся
+    (plus_parse_card). В запись кладутся маска номера и срок для отображения.
+    """
+    parsed = plus_parse_card(card)
+    cards = load_eda_cards()
+    cid = 'card%d' % int(time.time() * 1000)
+    while any(c.get('id') == cid for c in cards):
+        cid = 'card%d' % (int(cid[4:]) + 1)
+    num = parsed.get('number', '')
+    entry = {
+        'id': cid,
+        'label': (label or '').strip() or ('**** ' + num[-4:]),
+        'card': str(card).strip(),
+        'mask': num[-4:] if len(num) >= 4 else num,
+        'exp': '%s/%s' % (parsed.get('exp_month', ''), parsed.get('exp_year', '')[2:]),
+    }
+    cards.append(entry)
+    save_eda_cards(cards)
+    return entry
+
+
+def eda_card_delete(cid):
+    """Удалить сохранённую карту по id. Возвращает True, если была удалена."""
+    cards = load_eda_cards()
+    out = [c for c in cards if c.get('id') != cid]
+    if len(out) == len(cards):
+        return False
+    save_eda_cards(out)
+    return True
+
+
 # ============================================================
 #  Подключение подписки «Яндекс Плюс» (акция в Едадиле).
 #
@@ -3618,6 +3683,118 @@ SMS_STATUSES = ('auth_required', 'three_ds_required', '3ds', 'awaiting_otp',
                 'sd_cvv_required', 'cvv_required')
 
 
+def plus_3ds_challenge(acc, purchase_token, csrf=''):
+    """Открыть trust open_3ds и получить challenge_url (web/challenge?external_id=…).
+
+    Возвращает {'challenge_url':…, 'external_id':…, 'open_url':…}. Если платёж
+    уже истёк/завершён — challenge_url может не содержать external_id.
+    """
+    acc = get_eda_account(acc) if isinstance(acc, str) else acc
+    if not purchase_token:
+        raise RuntimeError('Плюс: 3DS требует purchase_token')
+    url = TRUST_HOST + '/web/open_3ds?purchase_token=' + urllib.parse.quote(purchase_token)
+    hdrs = _plus_hdrs(acc, csrf, CARD_WIDGET_ORIGIN + '/')
+    try:
+        r = requests.get(url, headers=hdrs, cookies=_web_cookies(acc),
+                         allow_redirects=True, timeout=30)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Плюс: 3DS open (сеть): {e}')
+    final = r.url or ''
+    external_id = ''
+    mm = re.search(r'[?&]external_id=([^&\s]+)', final)
+    if mm:
+        external_id = mm.group(1)
+    return {'challenge_url': final, 'external_id': external_id,
+            'open_url': url, '_status': r.status_code,
+            '_page': (r.text or '')[:400]}
+
+
+def plus_3ds_info(acc, external_id, csrf=''):
+    """Статус 3DS-челленджа: get_info → auth_status + acs_redirect_url и т.п."""
+    acc = get_eda_account(acc) if isinstance(acc, str) else acc
+    if not external_id:
+        return {}
+    d = _plus_call(acc, TRUST_HOST, 'GET',
+                   '/threedsprovider/front/v1/get_info',
+                   params={'external_id': external_id},
+                   referer=(TRUST_HOST + '/web/challenge?external_id='
+                            + urllib.parse.quote(external_id)),
+                   extra_headers={'accept': 'application/json'})
+    return d if isinstance(d, dict) else {}
+
+
+def plus_3ds_auth_status(acc, external_id, csrf=''):
+    """auth_status челленджа: in_progress/success/failed ('' если нет external_id)."""
+    return str(plus_3ds_info(acc, external_id, csrf=csrf).get('auth_status') or '')
+
+
+def _plus_3ds_done(acc, purchase_token, invoice_id, csrf, activate, check):
+    """Финал после успешного 3DS: invoiceStatus + активация changeStatus ALLOW."""
+    ag = {}
+    if activate:
+        try:
+            ag = plus_agreement(acc, status='ALLOW', csrf=csrf)
+        except RuntimeError as e:
+            ag = {'error': str(e)}
+    inv = {}
+    if invoice_id:
+        try:
+            inv = plus_invoice_status(acc, invoice_id=invoice_id, csrf=csrf)
+        except RuntimeError:
+            inv = {}
+    return {'ok': True, 'stage': 'done', 'status': inv.get('status') or 'SUCCESS',
+            'purchase_token': purchase_token, 'invoice_id': invoice_id,
+            '_check': check, '_invoice_status': inv, '_agreement': ag}
+
+
+def plus_3ds_wait(acc, purchase_token, invoice_id='', csrf='', timeout=600,
+                  poll=2.0, activate=True):
+    """Ждать завершения 3DS (check_payment → success) и активировать подписку.
+
+    Поллит trust /web/check_payment (и invoiceStatus, если задан invoice_id)
+    каждые poll сек до timeout. При success — активация changeStatus ALLOW.
+    Возвращает dict-контракт: {'ok':True,'stage':'done',…} либо
+    {'ok':False,'stage':'timeout'|'failed',…}.
+    """
+    acc = get_eda_account(acc) if isinstance(acc, str) else acc
+    if not csrf:
+        csrf = plus_csrf(acc)
+    deadline = time.time() + timeout
+    last = {}
+    while time.time() < deadline:
+        check = {}
+        try:
+            check = plus_check_payment(acc, purchase_token)
+        except RuntimeError as e:
+            check = {'error': str(e)}
+        st = str(check.get('status') or check.get('tr_status') or '')
+        last['_check'] = check
+        if st.lower() in ('success', 'paid', 'done', 'completed', 'finished'):
+            return _plus_3ds_done(acc, purchase_token, invoice_id, csrf,
+                                  activate, check)
+        if invoice_id:
+            try:
+                inv = plus_invoice_status(acc, invoice_id=invoice_id, csrf=csrf)
+            except RuntimeError:
+                inv = {}
+            last['_invoice_status'] = inv
+            ist = str(inv.get('status') or '')
+            if ist in ('SUCCESS', 'DONE', 'PAID'):
+                return _plus_3ds_done(acc, purchase_token, invoice_id, csrf,
+                                      activate, check)
+            if ist in ('ERROR', 'CANCELED', 'CLOSED', 'FAILED'):
+                return {'ok': False, 'stage': 'failed',
+                        'error': f'Плюс: платёж после 3DS {ist}: '
+                                 f"{inv.get('error_code')}",
+                        'purchase_token': purchase_token,
+                        'invoice_id': invoice_id,
+                        '_invoice_status': inv, '_check': check}
+        time.sleep(poll)
+    return {'ok': False, 'stage': 'timeout',
+            'error': f'Плюс: 3DS не завершён за {timeout} с',
+            'purchase_token': purchase_token, 'invoice_id': invoice_id, **last}
+
+
 def _plus_finish_payment(acc, purchase_token, card, sms_code='', csrf='',
                          invoice_id='', _checkout=None, _invoice=None,
                          _start=None, _status=None):
@@ -3697,6 +3874,7 @@ def _plus_finish_payment(acc, purchase_token, card, sms_code='', csrf='',
     except RuntimeError as e:
         check = {'error': str(e)}
     ok_st = ('success', 'paid', 'done', 'completed', 'finished')
+    three_ds_wait = ''
     if invoice_id:
         for _ in range(20):
             try:
@@ -3706,9 +3884,28 @@ def _plus_finish_payment(acc, purchase_token, card, sms_code='', csrf='',
             ist = str(inv.get('status') or '')
             if ist in ('SUCCESS', 'DONE', 'PAID'):
                 break
+            if '3DS' in ist.upper() or ist in ('THREE_D', 'AUTH_REQUIRED'):
+                three_ds_wait = ist
+                break
             if ist in ('ERROR', 'CANCELED', 'CLOSED', 'FAILED'):
                 break
             time.sleep(3.0)
+        if three_ds_wait:
+            ch = {}
+            try:
+                ch = plus_3ds_challenge(acc, purchase_token, csrf=csrf)
+            except Exception as e:
+                ch = {'error': str(e)}
+            return {'ok': True, 'stage': '3ds',
+                    'error': f'Плюс: банк требует 3DS-челлендж '
+                             f'({three_ds_wait}). Откройте страницу банка '
+                             f'и введите SMS-код.',
+                    'purchase_token': purchase_token, 'invoice_id': invoice_id,
+                    'challenge_url': ch.get('challenge_url')
+                                     or (inv or {}).get('form') or '',
+                    'external_id': ch.get('external_id') or '',
+                    'card': parsed, '_up': up, '_bin': bin_, '_start': st,
+                    '_check': check, '_invoice_status': inv, '_challenge': ch}
         if inv and inv.get('status') in ('ERROR', 'CANCELED', 'CLOSED', 'FAILED'):
             return {'ok': False,
                     'error': f"Плюс: платёж не прошёл (invoiceStatus "
