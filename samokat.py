@@ -1,24 +1,6 @@
-import sys, os, json, uuid, time, re, html, base64
+import sys, os, json, uuid, time, re, html, base64, threading, queue
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
-
-try:
-    from curl_cffi import requests as cffi_requests
-except ImportError:
-    cffi_requests = None
-
-# Самокат стоит за антиботом ServicePipe: обычный requests (TLS-отпечаток Python)
-# отсекается 403, поэтому весь HTTP — через curl_cffi с эмуляцией Chrome.
-_CF = None
-
-
-def _cf():
-    global _CF
-    if _CF is None:
-        if cffi_requests is None:
-            raise RuntimeError('curl_cffi не установлен (pip install curl_cffi)')
-        _CF = cffi_requests.Session(impersonate='chrome')
-    return _CF
 
 # ============================================================
 #  Самокат: доставка.
@@ -57,16 +39,6 @@ REQUIRED_COOKIES = [
     'sberid_auto_error_pause', 'adtech_uid',
     'top100_id', 't3_sid_7726639',
 ]
-
-# Дефолтные заголовки веб-запроса (рабочие, взяты из проверенного curl).
-WEB_HEADERS = {
-    'Accept': '*/*',
-    'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
-    'Cache-Control': 'no-cache',
-    'Pragma': 'no-cache',
-    'Connection': 'keep-alive',
-}
 
 # Заголовки веб-API api-web.samokat.ru (из дампа браузера).
 # deviceid = кука spid; x-creeper уникален на каждый запрос — берём из аккаунта.
@@ -135,23 +107,8 @@ def get_tokens(cookies):
     accessTokenExpires (ms), expires (ISO), user.
     Кидает RuntimeError при ошибке/401.
     """
-    hdrs = dict(WEB_HEADERS)
-    hdrs['Cookie'] = _cookie_header(cookies)
-    try:
-        r = _cf().get(AUTH_SESSION_URL, headers=hdrs, timeout=30)
-    except Exception as e:
-        raise RuntimeError(f'Самокат: сеть (auth/session): {e}')
-    if r.status_code == 401:
-        raise RuntimeError('Самокат: куки истекли или невалидны (401), перезайдите на samokat.ru')
-    if r.status_code >= 400:
-        raise RuntimeError(f'Самокат: auth/session HTTP {r.status_code}: {r.text[:300]}')
-    try:
-        data = r.json()
-    except Exception:
-        raise RuntimeError(f'Самокат: ответ auth/session не JSON: {r.text[:200]}')
-    if not data.get('accessToken'):
-        raise RuntimeError('Самокат: в ответе auth/session нет accessToken (сессия не вошла)')
-    return data
+    # через браузерный мост — curl_cffi режется антиботом (403)
+    return _browser_session_tokens(cookies)
 
 
 def refresh_tokens(refresh_token, cookies):
@@ -159,22 +116,18 @@ def refresh_tokens(refresh_token, cookies):
 
     Возвращает тот же dict токенов. Кидает RuntimeError при ошибке.
     """
-    hdrs = dict(WEB_HEADERS)
-    hdrs['Cookie'] = _cookie_header(cookies)
-    hdrs['Content-Type'] = 'application/json'
-    try:
-        r = _cf().post(AUTH_REFRESH_URL, headers=hdrs,
-                       json={'refreshToken': refresh_token}, timeout=30)
-    except Exception as e:
-        raise RuntimeError(f'Самокат: сеть (auth/refresh): {e}')
-    if r.status_code == 401:
+    res = _browser_api(cookies, AUTH_REFRESH_URL, method='POST',
+                       body={'refreshToken': refresh_token})
+    status = res.get('status') or 0
+    text = res.get('body') or ''
+    if status == 401:
         raise RuntimeError('Самокат: refresh-токен истёк или невалиден (401)')
-    if r.status_code >= 400:
-        raise RuntimeError(f'Самокат: auth/refresh HTTP {r.status_code}: {r.text[:300]}')
+    if status >= 400:
+        raise RuntimeError(f'Самокат: auth/refresh HTTP {status}: {text[:300]}')
     try:
-        data = r.json()
+        data = json.loads(text) if text else {}
     except Exception:
-        raise RuntimeError(f'Самокат: ответ auth/refresh не JSON: {r.text[:200]}')
+        raise RuntimeError(f'Самокат: ответ auth/refresh не JSON: {text[:200]}')
     if not data.get('accessToken'):
         raise RuntimeError('Самокат: в ответе auth/refresh нет accessToken')
     return data
@@ -202,29 +155,6 @@ def is_token_expired(access_token_expires):
 _PENDING_CODES = {}
 
 
-def _web_session(cookies=None):
-    """GET /api/auth/session через curl_cffi: сырой dict токенов.
-
-    На «чистом» IP работает, но антибот ServicePipe на пути может
-    отдавать 403 — для полноценного входа есть браузерный flow.
-    """
-    hdrs = dict(WEB_HEADERS)
-    if cookies:
-        hdrs['Cookie'] = _cookie_header(cookies)
-    try:
-        r = _cf().get(AUTH_SESSION_URL, headers=hdrs, timeout=30)
-    except Exception as e:
-        raise RuntimeError(f'Самокат: сеть (auth/session): {e}')
-    if r.status_code == 401:
-        raise RuntimeError('Самокат: 401 в auth/session')
-    if r.status_code >= 400:
-        raise RuntimeError(f'Самокат: auth/session HTTP {r.status_code}: {r.text[:300]}')
-    try:
-        return r.json() or {}
-    except Exception:
-        return {}
-
-
 def request_sms_code(phone):
     """Отправить SMS-код: POST api-web.samokat.ru/confirmation/code.
 
@@ -237,28 +167,18 @@ def request_sms_code(phone):
     h = {
         'accept': 'application/json, text/plain, */*',
         'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-        'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'cross-site',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'origin': SAMOKAT_WEB,
-        'referer': SAMOKAT_WEB + '/',
         'content-type': 'application/json',
     }
-    try:
-        r = _cf().post(API_HOST + '/confirmation/code', headers=h,
-                       data=json.dumps({'phoneNumber': phone}), timeout=30)
-    except Exception as e:
-        raise RuntimeError(f'Самокат: сеть (confirmation/code): {e}')
-    if r.status_code == 403:
+    res = _browser_api({}, API_HOST + '/confirmation/code', method='POST',
+                       headers=h, body={'phoneNumber': phone})
+    status = res.get('status') or 0
+    text = res.get('body') or ''
+    if status == 403:
         raise RuntimeError('Самокат: антибот (403) — по IP временный лимит, подождите несколько минут или запустите с другого IP')
-    if r.status_code >= 400:
-        raise RuntimeError(f'Самокат: confirmation/code HTTP {r.status_code}: {r.text[:300]}')
+    if status >= 400:
+        raise RuntimeError(f'Самокат: confirmation/code HTTP {status}: {text[:300]}')
     try:
-        j = r.json()
+        j = json.loads(text)
     except Exception:
         j = {}
     _PENDING_CODES[phone] = {'sent_at': time.time()}
@@ -286,6 +206,163 @@ async (a) => {
 def _browser_fetch(page, url, method='GET', headers=None, body=None, form=None):
     """fetch из контекста страницы: куки/антибот браузера, same-origin."""
     return page.evaluate(_BROWSER_FETCH_JS, [url, method, headers, body, form])
+
+
+# ---------- браузерный API-мост (обходит антибот ServicePipe) ----------
+#
+# curl_cffi-запросы к samokat.ru / api-web.samokat.ru с этого IP режутся
+# антиботом (403), поэтому весь API ходит через реальный Chromium: одна
+# страница на аккаунт с его куками, запросы через page.evaluate(fetch).
+# Перед каждым вызовом берём свежий accessToken из /api/auth/session
+# (куки __Secure-next-auth.session-token валидны до 2027) — это заодно
+# решает 5-минутное истечение accessToken без ручного refresh.
+#
+# Playwright sync API живёт в одном потоке — все запросы гоняются через
+# фоновый воркер-поток с очередью, чтобы не конфликтовать с потоками webapp.
+
+_BROWSER_Q = None
+_BROWSER_LOCK = threading.Lock()
+
+
+def _ensure_browser_worker():
+    global _BROWSER_Q
+    with _BROWSER_LOCK:
+        if _BROWSER_Q is None:
+            _BROWSER_Q = queue.Queue()
+            t = threading.Thread(target=_browser_worker_main, daemon=True, name='samokat-browser')
+            t.start()
+    return _BROWSER_Q
+
+
+def _browser_worker_main():
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=['--disable-blink-features=AutomationControlled'],
+        )
+        contexts = {}   # cookies-hash -> (context, page)
+        while True:
+            task = _BROWSER_Q.get()
+            if task is None:
+                break
+            ck_hash, cookies, method, url, headers, body, form, result_q = task
+            try:
+                ctx, page = contexts.get(ck_hash) or (None, None)
+                if ctx is None:
+                    ctx = browser.new_context(
+                        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+                        locale='ru-RU',
+                    )
+                    if cookies:
+                        ctx.add_cookies(_playwright_cookies(cookies))
+                    page = ctx.new_page()
+                    contexts[ck_hash] = (ctx, page)
+                res = _browser_fetch_resilient(page, url, method, headers, body, form)
+                result_q.put((ck_hash, res))
+            except Exception as e:
+                result_q.put((ck_hash, {'error': repr(e)}))
+
+
+def _is_antibot_html(body):
+    """Антибот-стена ServicePipe: HTML без JSON, часто содержит servicepipe.tech или noscript-redirect."""
+    b = (body or '')
+    return ('<' in b) and ('json' not in (b[:60]).lower()) and ('servicepipe' in b.lower() or b.lstrip().startswith('<!DOCTYPE html>') or b.lstrip().startswith('<html'))
+
+
+def _browser_fetch_resilient(page, url, method, headers, body, form, attempts=5):
+    """fetch с проходом антибот-стены: грузим samokat.ru, при HTML-ответе
+    reload'им и повторяем, пока не вернётся не-HTML (JSON) или карточка без стены.
+
+    Если антибот поставил капчу (rndcaptcha) — reload обычный, капчу не решаем,
+    поэтому при стабильной блокировке IP вернём последний HTML-ответ как есть.
+    """
+    import time as _t
+    last = {'status': 0, 'ct': '', 'body': ''}
+    for i in range(attempts):
+        try:
+            page.goto(SAMOKAT_WEB + '/', timeout=45000, wait_until='domcontentloaded')
+        except Exception:
+            pass
+        page.wait_for_timeout(3000)
+        try:
+            res = _browser_fetch(page, url, method, headers, body, form)
+        except Exception as e:
+            last = {'status': 0, 'ct': '', 'body': '', 'error': repr(e)}
+            continue
+        last = res
+        if res.get('status') and res.get('status') != 403 and not _is_antibot_html(res.get('body')):
+            return res
+        # 403/стена — reload и ещё попытка
+        page.wait_for_timeout(2000)
+    return last
+
+
+def _cookies_hash(cookies):
+    import hashlib
+    key = ';'.join(f'{k}={v}' for k, v in sorted((cookies or {}).items()))
+    return hashlib.sha1(key.encode('utf-8', 'replace')).hexdigest()
+
+
+def _playwright_cookies(cookies):
+    """Привести куки аккаунта к формату playwright.
+
+    __Host-* куки обязаны быть host-only и Secure; __Secure-* — Secure.
+    host-only куки (domain без точки) не ходят на api-web.samokat.ru,
+    но __Host-* в любом случае на поддомены не отправляются.
+    """
+    out = []
+    for k, v in (cookies or {}).items():
+        if not v:
+            continue
+        c = {'name': k, 'value': str(v), 'path': '/'}
+        if k.startswith('__Host-'):
+            c['domain'] = 'samokat.ru'
+            c['secure'] = True
+        else:
+            c['domain'] = '.samokat.ru'
+            if k.startswith('__Secure-'):
+                c['secure'] = True
+        out.append(c)
+    return out
+
+
+def _browser_api(cookies, url, method='GET', headers=None, body=None, form=None, timeout=45):
+    """Выполнить запрос через браузерный мост. Возвращает {status, ct, body}."""
+    q = _ensure_browser_worker()
+    ck_hash = _cookies_hash(cookies)
+    result_q = queue.Queue(maxsize=1)
+    q.put((ck_hash, cookies, method, url, headers, body, form, result_q))
+    try:
+        _, res = result_q.get(timeout=timeout)
+    except queue.Empty:
+        raise RuntimeError(f'Самокат: таймаут браузерного запроса {url[:80]}')
+    if isinstance(res, dict) and res.get('error'):
+        raise RuntimeError(f'Самокат: браузерный запрос {url[:80]}: {res["error"]}')
+    return res
+
+
+def _browser_api_json(cookies, url, method='GET', headers=None, body=None, form=None):
+    """Браузерный запрос, ответ разбирается как JSON. Кидает RuntimeError."""
+    res = _browser_api(cookies, url, method=method, headers=headers, body=body, form=form)
+    status = res.get('status') or 0
+    text = res.get('body') or ''
+    if status == 401:
+        raise RuntimeError('Самокат: 401 — сессия истекла, перевойдите на samokat.ru')
+    if status >= 400:
+        raise RuntimeError(f'Самокат: HTTP {status}: {text[:300]}')
+    try:
+        return json.loads(text) if text else {}
+    except Exception:
+        return {}
+
+
+def _browser_session_tokens(cookies):
+    """Свежие токены через браузер: GET /api/auth/session."""
+    d = _browser_api_json(cookies, AUTH_SESSION_URL, method='GET')
+    if not d.get('accessToken'):
+        raise RuntimeError('Самокат: браузер не отдал accessToken из /api/auth/session')
+    return d
 
 
 def _browser_login_session(phone, code):
@@ -489,10 +566,17 @@ def refresh_samokat_account(name):
 
 
 def ensure_access_token(acc):
-    """Вернуть живой accessToken аккаунта, при необходимости продлевая."""
-    if is_token_expired(acc.get('access_token_expires')):
-        acc = refresh_samokat_account(acc.get('name'))
-    return acc.get('access_token')
+    """Живой accessToken аккаунта через браузерный GET /auth/session.
+
+    Не используем /auth/refresh: он на том же IP режется антиботом (403).
+    Куки __Secure-next-auth.session-token валидны до 2027, поэтому каждого
+    вызова хватает: session возвращает свежий accessToken (живёт ~5 мин).
+    """
+    cookies = acc.get('cookies') or {}
+    if not cookies:
+        raise RuntimeError('у аккаунта нет кук — перевойдите на samokat.ru')
+    data = get_tokens(cookies)
+    return data.get('accessToken')
 
 
 # ---------- сессии доступа ----------
@@ -564,13 +648,15 @@ def revoke_samokat_session(token):
 
 # ---------- API-клиент (api-web.samokat.ru) ----------
 
-def _api_headers(acc):
+def _api_headers(acc, with_token=True):
     """Заголовки запроса к api-web.samokat.ru (по образцу дампа браузера).
 
     deviceid = кука spid; Origin/Referer — samokat.ru; все куки шлём целиком.
+    При with_token=False не добавляет authorization (для анонимных вызовов).
     """
     h = dict(APP)
-    h['authorization'] = 'Bearer ' + ensure_access_token(acc)
+    if with_token:
+        h['authorization'] = 'Bearer ' + ensure_access_token(acc)
     ck = acc.get('cookies') or {}
     h['deviceid'] = ck.get('spid') or acc.get('device_id') or ''
     h['origin'] = SAMOKAT_WEB
@@ -583,38 +669,46 @@ def _api_headers(acc):
     return h
 
 
+def _api_url(path, **params):
+    url = API_HOST + path
+    if params:
+        from urllib.parse import urlencode
+        url += ('&' if '?' in url else '?') + urlencode(params)
+    return url
+
+
 def api_get(acc, path, **params):
-    """GET к api-web.samokat.ru, возвращает JSON. Кидает RuntimeError."""
+    """GET к api-web.samokat.ru через браузер, возвращает JSON. RuntimeError."""
     h = _api_headers(acc)
+    res = _browser_api(acc.get('cookies') or {},
+                       _api_url(path, **params), method='GET', headers=h)
+    status = res.get('status') or 0
+    text = res.get('body') or ''
+    if status == 401:
+        raise RuntimeError('Самокат: 401 — сессия истекла, перевойдите в аккаунт')
+    if status >= 400:
+        raise RuntimeError(f'Самокат: {path} HTTP {status}: {text[:300]}')
     try:
-        r = _cf().get(API_HOST + path, headers=h, params=params or None, timeout=25)
-    except Exception as e:
-        raise RuntimeError(f'Самокат: сеть {path}: {e}')
-    if r.status_code == 401:
-        raise RuntimeError('Самокат: 401 — сессия истекла, обновите токен в админке')
-    if r.status_code >= 400:
-        raise RuntimeError(f'Самокат: {path} HTTP {r.status_code}: {r.text[:300]}')
-    try:
-        return r.json()
+        return json.loads(text) if text else {}
     except Exception:
         return {}
 
 
 def api_post(acc, path, body=None):
-    """POST к api-web.samokat.ru, возвращает JSON. Кидает RuntimeError."""
+    """POST к api-web.samokat.ru через браузер, возвращает JSON. RuntimeError."""
     h = _api_headers(acc)
     h['content-type'] = 'application/json'
+    res = _browser_api(acc.get('cookies') or {},
+                       _api_url(path), method='POST', headers=h,
+                       body=body or {})
+    status = res.get('status') or 0
+    text = res.get('body') or ''
+    if status == 401:
+        raise RuntimeError('Самокат: 401 — сессия истекла, перевойдите в аккаунт')
+    if status >= 400:
+        raise RuntimeError(f'Самокат: {path} HTTP {status}: {text[:300]}')
     try:
-        r = _cf().post(API_HOST + path, headers=h,
-                       data=json.dumps(body or {}), timeout=25)
-    except Exception as e:
-        raise RuntimeError(f'Самокат: сеть {path}: {e}')
-    if r.status_code == 401:
-        raise RuntimeError('Самокат: 401 — сессия истекла, обновите токен в админке')
-    if r.status_code >= 400:
-        raise RuntimeError(f'Самокат: {path} HTTP {r.status_code}: {r.text[:300]}')
-    try:
-        return r.json()
+        return json.loads(text) if text else {}
     except Exception:
         return {}
 
