@@ -3441,8 +3441,49 @@ def _pick_trial_offer(offers):
     return max(pool, key=_intro_period_days)
 
 
+def _plus_landing_test_ids(account, url=PLUS_LANDING_PERF):
+    """testIdsArray экспериментов аккаунта из SSR __NEXT_DATA__ лендинга.
+
+    Виджет /api/v2/offers шлёт expTestIds = testIdsArray из SSR-конфига
+    лендинга (props.pageProps.experiments.testIdsArray), которые уникальны
+    для аккаунта. Статический PLUS_TEST_IDS (из старого перехвата) для части
+    аккаунтов даёт 404 «There is no offers configuration for the context» —
+    поэтому берём тест-айды из живого лендинга. Возвращает список int либо
+    None, если лендинг не отдал testIds.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    try:
+        r = requests.get(url, headers={
+            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+            'user-agent': PLUS_UA,
+            'referer': url.split('?')[0],
+        }, cookies=_web_cookies(acc), timeout=40, allow_redirects=True)
+    except requests.RequestException:
+        return None
+    h = r.text
+    i = h.find('__NEXT_DATA__" type="application/json" crossorigin="anonymous">')
+    if i < 0:
+        i = h.find('__NEXT_DATA__')
+        j = h.find('>', i)
+        if j < 0:
+            return None
+        i = j
+    i = h.find('>', i) + 1
+    j = h.find('</script>', i)
+    if j < 0:
+        return None
+    try:
+        d = json.loads(h[i:j])
+        tids = d['props']['pageProps']['experiments']['testIdsArray']
+    except Exception:
+        return None
+    out = [int(x) for x in tids if str(x).strip().isdigit()]
+    return out or None
+
+
 def plus_offers_v2(account, event_session_id='', page='plus_home',
-                   places=None, referer='https://plus.yandex.ru/'):
+                   places=None, referer='https://plus.yandex.ru/', test_ids=None):
     """Оффер Плюса через современный backend: api.acquisition-gwe.plus.yandex.ru.
 
     POST /api/v2/offers?eventSessionId=<uuid> — как лэндинг plus.yandex.ru
@@ -3463,7 +3504,7 @@ def plus_offers_v2(account, event_session_id='', page='plus_home',
             'widgetServiceName': 'landing_plus',
             'page': page,
             'places': places or [],
-            'expTestIds': PLUS_TEST_IDS,
+            'expTestIds': list(test_ids) if test_ids else PLUS_TEST_IDS,
             'expFlags': ['new_pay_widget_plain', 'tarifficator_web_success_screen_sdk',
                          'dwh_logger', 'dwh_metrics', 'tarrificator_sdk',
                          'new_payments_history', 'lk_checkout_widget_on'],
@@ -4186,10 +4227,16 @@ def plus_get_offer(account, event_session_id='', landing=''):
                 of = plus_offers_from_landing(acc, url)
                 of['_source'] = kind + ':' + url.split('?')[0]
             elif kind == 'v2_perf':
+                # testIds из SSR лендинга (уникальны для аккаунта) — как шлёт
+                # браузер; со статическим списком часть аккаунтов даёт 404
+                tids = _plus_landing_test_ids(acc, PLUS_LANDING_PERF)
                 of = plus_offers_v2(acc, event_session_id=event_session_id,
                                     page='perf', places=['main_card', 'secondary_card'],
-                                    referer=PLUS_LANDING_PERF.split('?')[0] + '/')
-                of['_source'] = 'v2_perf:/api/v2/offers (page=perf)'
+                                    referer=PLUS_LANDING_PERF.split('?')[0] + '/',
+                                    test_ids=tids)
+                of['_source'] = 'v2_perf:/api/v2/offers (page=perf' + \
+                    (f', testIds={len(tids)}' if tids else ', статич. testIds') + ')'
+                of['_test_ids'] = tids
             elif kind == 'ssr':
                 of = plus_offers(acc, target='plus-web', utm='afisha')
                 of['_source'] = 'ssr:plus.yandex.ru'
