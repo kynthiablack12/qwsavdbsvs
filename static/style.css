@@ -570,3 +570,10 @@ table.data-table {
 .card-add-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 4px; color: var(--muted); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
 .card-add-divider::before, .card-add-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 .card-form { margin-top: 12px; }
+.card-form label { display: block; font-size: 12.5px; font-weight: 600; color: var(--muted); margin-bottom: 10px; }
+.card-form input { width: 100%; }
+.card-form .card-row { display: flex; gap: 12px; }
+.card-form .card-row > label { flex: 1; }
+.card-form .card-exp { display: flex; align-items: center; gap: 6px; }
+.card-form .card-exp input { text-align: center; }
+.card-form .card-exp-sep { color: var(--muted); font-weight: 700; }

@@ -728,15 +728,14 @@ async function renderCardList() {
 }
 
 $('cardSave').addEventListener('click', async () => {
-  const input = $('cardInput');
   $('cardError').classList.add('hidden');
   let card = '';
   const sel = document.querySelector('#cardList .card-item.sel');
   if (sel) card = sel.dataset.card;
   if (!card) {
-    card = input.value.trim();
+    card = buildCardInput();
     if (!card) {
-      showCardError('Введи номер карты или выбери сохранённую');
+      showCardError('Введи номер, срок и CVC карты или выбери сохранённую');
       return;
     }
   }
@@ -754,8 +753,7 @@ $('cardSave').addEventListener('click', async () => {
         body: JSON.stringify({ label, card }),
       });
       cardStr = r.card.card;
-      input.value = '';
-      $('cardLabel').value = '';
+      clearCardInput();
     } catch (e) {
       $('cardSave').disabled = false;
       $('cardSave').textContent = 'Сохранить и подключить';
@@ -768,6 +766,50 @@ $('cardSave').addEventListener('click', async () => {
   pendingCardValue = cardStr;
   $('modalCard').classList.add('hidden');
   await plusSubscribeGo(pendingCardAccount, pendingCardValue);
+});
+
+function clearCardInput() {
+  $('cardNumber').value = '';
+  $('cardExpMonth').value = '';
+  $('cardExpYear').value = '';
+  $('cardCvc').value = '';
+  $('cardLabel').value = '';
+}
+
+function buildCardInput() {
+  const number = ($('cardNumber').value || '').replace(/\D/g, '');
+  const month = ($('cardExpMonth').value || '').replace(/\D/g, '');
+  const year = ($('cardExpYear').value || '').replace(/\D/g, '');
+  const cvc = ($('cardCvc').value || '').replace(/\D/g, '');
+  if (number.length < 13) { showCardError('Номер карты слишком короткий'); return ''; }
+  if (!/^\d{1,2}$/.test(month) || +month < 1 || +month > 12) { showCardError('Укажи месяц срока (ММ)'); return ''; }
+  if (!/^\d{1,2}$/.test(year)) { showCardError('Укажи год срока (ГГ)'); return ''; }
+  if (!/^\d{3,4}$/.test(cvc)) { showCardError('CVC — 3 или 4 цифры'); return ''; }
+  return { number, expiry: `${month.padStart(2, '0')}/${year.padStart(2, '0')}`, csc: cvc };
+}
+
+// форматирование номера карты по группам и автопереход к сроку
+$('cardNumber').addEventListener('input', () => {
+  const el = $('cardNumber');
+  const digits = el.value.replace(/\D/g, '').slice(0, 19);
+  el.value = digits.replace(/(\d{4})(?=\d)/g, '$1 ').trim();
+  if (digits.length >= 16) $('cardExpMonth').focus();
+});
+$('cardExpMonth').addEventListener('input', () => {
+  const el = $('cardExpMonth');
+  const d = el.value.replace(/\D/g, '').slice(0, 2);
+  el.value = d;
+  if (d.length === 2) $('cardExpYear').focus();
+});
+$('cardExpYear').addEventListener('input', () => {
+  const el = $('cardExpYear');
+  const d = el.value.replace(/\D/g, '').slice(0, 2);
+  el.value = d;
+  if (d.length === 2) $('cardCvc').focus();
+});
+$('cardCvc').addEventListener('input', () => {
+  const el = $('cardCvc');
+  el.value = el.value.replace(/\D/g, '').slice(0, 4);
 });
 
 $('cardClose').addEventListener('click', () => $('modalCard').classList.add('hidden'));

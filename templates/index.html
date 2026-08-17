@@ -568,9 +568,21 @@
       <span>или новая карта</span>
     </div>
     <div class="card-form">
-      <label>Номер, срок и CVC
-        <input type="text" id="cardInput" placeholder="4276 4013 9880 1234 12/27 321" autocomplete="off" spellcheck="false">
+      <label>Номер карты
+        <input type="text" id="cardNumber" placeholder="4276 4013 9880 1234" inputmode="numeric" maxlength="23" autocomplete="cc-number" spellcheck="false">
       </label>
+      <div class="card-row">
+        <label>Срок действия
+          <div class="card-exp">
+            <input type="text" id="cardExpMonth" placeholder="ММ" inputmode="numeric" maxlength="2" autocomplete="cc-exp-month" spellcheck="false">
+            <span class="card-exp-sep">/</span>
+            <input type="text" id="cardExpYear" placeholder="ГГ" inputmode="numeric" maxlength="2" autocomplete="cc-exp-year" spellcheck="false">
+          </div>
+        </label>
+        <label>CVC
+          <input type="text" id="cardCvc" placeholder="CVC" inputmode="numeric" maxlength="4" autocomplete="cc-csc" spellcheck="false">
+        </label>
+      </div>
       <label>Метка (необязательно)
         <input type="text" id="cardLabel" placeholder="например: моя Tinkoff" autocomplete="off">
       </label>

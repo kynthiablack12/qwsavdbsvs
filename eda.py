@@ -2296,6 +2296,7 @@ def save_eda_cards(cards):
 def eda_card_add(label, card):
     """Валидировать и сохранить новую карту. Возвращает запись карты.
 
+    Принимает строку "4276… 12/27 123" или dict {number, expiry, csc}.
     Бросает RuntimeError с понятным сообщением, если карта не распознаётся
     (plus_parse_card). В запись кладутся маска номера и срок для отображения.
     """
@@ -2305,10 +2306,16 @@ def eda_card_add(label, card):
     while any(c.get('id') == cid for c in cards):
         cid = 'card%d' % (int(cid[4:]) + 1)
     num = parsed.get('number', '')
+    csc = parsed.get('csc', '')
+    canon = num
+    if parsed.get('exp_month') and parsed.get('exp_year'):
+        canon += ' %s/%s' % (parsed['exp_month'], parsed['exp_year'][2:])
+    if csc:
+        canon += ' ' + csc
     entry = {
         'id': cid,
         'label': (label or '').strip() or ('**** ' + num[-4:]),
-        'card': str(card).strip(),
+        'card': canon,
         'mask': num[-4:] if len(num) >= 4 else num,
         'exp': '%s/%s' % (parsed.get('exp_month', ''), parsed.get('exp_year', '')[2:]),
     }
