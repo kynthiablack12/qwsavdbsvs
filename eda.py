@@ -4210,6 +4210,10 @@ def plus_get_offer(account, event_session_id='', landing=''):
     plus_offers_v2 (+ ключ '_source' — какой источник сработал).
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
+    _acc_name = acc.get('name', '?')
+    sid = (acc.get('session_id') or '').strip()
+    _uid = sid.split('|')[1].split('.')[0] if '|' in sid else '?'
+    print(f'[plus_get_offer] аккаунт={_acc_name} uid={_uid} yandexuid={acc.get("yandexuid","")} cookies={list(_web_cookies(acc).keys())}')
     attempts = []
     candidates = []
     if landing:
@@ -4223,6 +4227,7 @@ def plus_get_offer(account, event_session_id='', landing=''):
     ]
     for kind, url in candidates:
         try:
+            print(f'[plus_get_offer] пробую {kind}...')
             if kind in ('landing', 'perf', 'default'):
                 of = plus_offers_from_landing(acc, url)
                 of['_source'] = kind + ':' + url.split('?')[0]
@@ -4257,12 +4262,16 @@ def plus_get_offer(account, event_session_id='', landing=''):
                 of = plus_offers_v2(acc, event_session_id=event_session_id)
                 of['_source'] = 'v2:/api/v2/offers'
             if of and of.get('offer_token'):
+                print(f'[plus_get_offer] {kind}: ОК token={str(of.get("offer_token",""))[:40]}...')
                 return of
             attempts.append(f'{kind}: оффер пуст')
+            print(f'[plus_get_offer] {kind}: оффер пуст')
         except RuntimeError as e:
             attempts.append(f'{kind}: {e}')
-    raise RuntimeError('Плюс: ни один оффер не доступен. Пробовал: '
-                       + '; '.join(attempts))
+            print(f'[plus_get_offer] {kind}: ERR {e}')
+    _err = 'Плюс: ни один оффер не доступен. Пробовал: ' + '; '.join(attempts)
+    print(f'[plus_get_offer] ВСЕ ИСТОЧНИКИ ПРОВАЛЕНЫ: {_err}')
+    raise RuntimeError(_err)
 
 
 def plus_subscribe(account, card, sms_code='', purchase_token='',
