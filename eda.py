@@ -3441,7 +3441,8 @@ def _pick_trial_offer(offers):
     return max(pool, key=_intro_period_days)
 
 
-def plus_offers_v2(account, event_session_id=''):
+def plus_offers_v2(account, event_session_id='', page='plus_home',
+                   places=None, referer='https://plus.yandex.ru/'):
     """Оффер Плюса через современный backend: api.acquisition-gwe.plus.yandex.ru.
 
     POST /api/v2/offers?eventSessionId=<uuid> — как лэндинг plus.yandex.ru
@@ -3449,14 +3450,19 @@ def plus_offers_v2(account, event_session_id=''):
     offerNames), target (plus-web-random-trial), analyticData{batchId,
     positionId, placeId} и имя тарифного оффера. Это источник конфигурации
     виджета оплаты (вместо устаревшего парсинга HTML plus.yandex.ru).
+
+    page/places задают страницу и места лендинга: для рекламного
+    /perf/plus виджет acquisition шлёт page='perf',
+    places=['main_card','secondary_card'] (см. SSR-HTML лендинга), для
+    обычного — page='plus_home', places=[].
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     esid = event_session_id or uuid.uuid4().hex
     body = {
         'context': {
             'widgetServiceName': 'landing_plus',
-            'page': 'plus_home',
-            'places': [],
+            'page': page,
+            'places': places or [],
             'expTestIds': PLUS_TEST_IDS,
             'expFlags': ['new_pay_widget_plain', 'tarifficator_web_success_screen_sdk',
                          'dwh_logger', 'dwh_metrics', 'tarrificator_sdk',
@@ -3467,7 +3473,7 @@ def plus_offers_v2(account, event_session_id=''):
         'accept': 'application/json, text/plain, */*',
         'content-type': 'application/json',
         'origin': 'https://plus.yandex.ru',
-        'referer': 'https://plus.yandex.ru/',
+        'referer': referer,
         'x-request-id': str(int(time.time() * 1000)) + '-' + uuid.uuid4().hex[:18],
         'x-forwarded-for': '92.124.161.30',
         'x-preferred-language': 'ru',
@@ -4153,8 +4159,11 @@ def plus_get_offer(account, event_session_id='', landing=''):
       1. конкретный лендинг (plus_offers_from_landing), если задан landing;
       2. рекламный лендинг PLUS_LANDING_PERF (perf/plus);
       3. обычный лендинг PLUS_LANDING_DEFAULT;
-      4. устаревший SSR-парсер plus.yandex.ru (plus_offers);
-      5. современный backend /api/v2/offers (plus_offers_v2).
+      4. /api/v2/offers с контекстом рекламной страницы perf
+         (page='perf', places=['main_card','secondary_card']) — как шлёт
+         acquisition-виджет лендинга /perf/plus;
+      5. устаревший SSR-парсер plus.yandex.ru (plus_offers);
+      6. современный backend /api/v2/offers (plus_offers_v2, page plus_home).
     Первый источник, который вернул offerToken, побеждает. Если ни один не
     смог — RuntimeError со сводкой ошибок. Возвращает dict формата
     plus_offers_v2 (+ ключ '_source' — какой источник сработал).
@@ -4167,14 +4176,20 @@ def plus_get_offer(account, event_session_id='', landing=''):
     candidates += [
         ('perf', PLUS_LANDING_PERF),
         ('default', PLUS_LANDING_DEFAULT),
+        ('v2_perf', None),
         ('ssr', None),
         ('v2', None),
     ]
     for kind, url in candidates:
         try:
-            if kind == 'landing' or kind == 'perf' or kind == 'default':
+            if kind in ('landing', 'perf', 'default'):
                 of = plus_offers_from_landing(acc, url)
                 of['_source'] = kind + ':' + url.split('?')[0]
+            elif kind == 'v2_perf':
+                of = plus_offers_v2(acc, event_session_id=event_session_id,
+                                    page='perf', places=['main_card', 'secondary_card'],
+                                    referer=PLUS_LANDING_PERF.split('?')[0] + '/')
+                of['_source'] = 'v2_perf:/api/v2/offers (page=perf)'
             elif kind == 'ssr':
                 of = plus_offers(acc, target='plus-web', utm='afisha')
                 of['_source'] = 'ssr:plus.yandex.ru'
