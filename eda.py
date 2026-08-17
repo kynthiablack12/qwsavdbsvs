@@ -2421,6 +2421,18 @@ PLUS_TEST_IDS = [
 # krokenUuid уникален для аккаунта; promo_id — константа акции.
 PLUS_TRIGGER_ID = '7964dad0-5589-4c5f-8594-aa227deba4b8'
 PLUS_TRIGGER_REFERER = 'https://eda.yandex.ru/'
+# Офферы лендингов Плюса для подключения подписки. Пробуются по очереди:
+# если первый недоступен аккаунту — следующие (пользователь: "Если один не
+# доступен — пробовать другой"). Перед каждым — via /api/v2/offers.
+PLUS_LANDING_PERF = ('https://plus.yandex.ru/perf/plus'
+                     '?utm_source=direct_search&utm_medium=paid_performance'
+                     '&utm_campaign=704139747|MSCAMP-62_%5BPL-P%5D_%7BWS%3AS%7D_RU-225_goal-PL_upc-BRAND-LP%2F%2Fstrategy-test%20maxCPC'
+                     '&utm_term=%D1%8F%D0%BD%D0%B4%D0%B5%D0%BA%D1%81%20%D0%BF%D0%BB%D1%8E%D1%81'
+                     '&utm_content=cid|704139747|gid|5664383735|aid|17354566575'
+                     '&etext=2202.2ahaDfty1dut2LIJvnafGZSQbEsfP4kYzdNpqOvPcFR6cW15b2xtZXlyY2Zwd2pi.13bd4db11cd3c9156abde2f7f52ac2679d425e42'
+                     '&yclid=12948877443478847487')
+PLUS_LANDING_DEFAULT = 'https://plus.yandex.ru/?ysclid=mswuugft6z635156719'
+PLUS_LANDING_OFFERS = [PLUS_LANDING_PERF, PLUS_LANDING_DEFAULT]
 
 
 def _plus_hdrs(acc, csrf='', referer='', extra=None):
@@ -3329,6 +3341,70 @@ def plus_offers(account, target='plus-web', utm='afisha'):
     return out
 
 
+def plus_offers_from_landing(account, url=PLUS_LANDING_PERF):
+    """Получить оффер подписки с конкретного лендинга plus.yandex.ru.
+
+    Грузит заданный url (по умолчанию рекламный перф-лендинг) с куками
+    аккаунта и вытаскивает из SSR-HTML конфиг виджета оплаты: offerToken,
+    eventSessionId, crossSessionId, hashOrderId, batchId, positionId, target,
+    tariffOfferName. Подходит для промо-лендингов, которые не отдают оффер
+    через /api/v2/offers. Возвращает словарь в формате plus_offers_v2
+    (offer_token/target/batch_id/position_id/tariff_offer/event_session_id),
+    либо бросает RuntimeError, если для аккаунта этот оффер недоступен.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    referer = url.split('?')[0]
+    try:
+        r = requests.get(url, headers={
+            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+            'user-agent': PLUS_UA,
+            'referer': referer,
+        }, cookies=_web_cookies(acc), timeout=40, allow_redirects=True)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Плюс: лендинг {url}: {e}')
+    html = r.text
+    out = {}
+    m = re.search(r'https://payment-widget\.plus\.yandex\.ru/[^"\'\s\\]+', html, re.I)
+
+    def _q(name):
+        if not m:
+            return ''
+        mm = re.search(r'[?&]' + re.escape(name) + r'=([^&"\'\s\\]+)', m.group(0))
+        return urllib.parse.unquote(mm.group(1)) if mm else ''
+
+    if m:
+        for k in ('authMethod', 'crossSessionId', 'eventSessionId', 'hashOrderId',
+                  'lang', 'offerToken', 'offersBatchId', 'offersPositionIds',
+                  'silent', 'target', 'tariffOfferName', 'testIds', 'usePlusHost',
+                  'utm_source'):
+            out[k] = _q(k)
+    if not out.get('offerToken'):
+        mm = re.search(r'["\']offerToken["\']\s*:\s*["\']([^"\']+)["\']', html)
+        if mm:
+            out['offerToken'] = mm.group(1)
+    if not out.get('eventSessionId'):
+        mm = re.search(r'["\']eventSessionId["\']\s*:\s*["\']([0-9a-f-]+)["\']', html)
+        if mm:
+            out['eventSessionId'] = mm.group(1)
+    if not out.get('offerToken'):
+        raise RuntimeError(
+            f'Плюс: лендинг {url}: оффер этому аккаунту недоступен '
+            '(offerToken не найден в HTML)')
+    return {
+        'offer_token': out.get('offerToken') or '',
+        'target': out.get('target') or PLUS_WIDGET_TARGET,
+        'batch_id': out.get('offersBatchId') or '',
+        'position_id': out.get('offersPositionIds') or '',
+        'tariff_offer': out.get('tariffOfferName') or '',
+        'event_session_id': out.get('eventSessionId') or '',
+        'cross_session_id': out.get('crossSessionId') or '',
+        'hash_order_id': out.get('hashOrderId') or '',
+        '_landing': url,
+        '_raw': out,
+    }
+
+
 def _intro_period_days(o):
     """Длина trial-периода (INTRO_PLAN) оффера, напр. 'P30D' → 30."""
     to = _dig(o, 'catalogCompositeOffer', 'tariffOffer') or {}
@@ -4070,6 +4146,63 @@ def _plus_finish_payment(acc, purchase_token, card, sms_code='', csrf='',
             '_status_poll': _status, '_trigger': trigger_res}
 
 
+def plus_get_offer(account, event_session_id='', landing=''):
+    """Получить оффер Плюса для аккаунта, пробуя источники по очереди.
+
+    Порядок (пользователь: "Если вдруг один не доступен — пробовать другой"):
+      1. конкретный лендинг (plus_offers_from_landing), если задан landing;
+      2. рекламный лендинг PLUS_LANDING_PERF (perf/plus);
+      3. обычный лендинг PLUS_LANDING_DEFAULT;
+      4. устаревший SSR-парсер plus.yandex.ru (plus_offers);
+      5. современный backend /api/v2/offers (plus_offers_v2).
+    Первый источник, который вернул offerToken, побеждает. Если ни один не
+    смог — RuntimeError со сводкой ошибок. Возвращает dict формата
+    plus_offers_v2 (+ ключ '_source' — какой источник сработал).
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    attempts = []
+    candidates = []
+    if landing:
+        candidates.append(('landing', landing))
+    candidates += [
+        ('perf', PLUS_LANDING_PERF),
+        ('default', PLUS_LANDING_DEFAULT),
+        ('ssr', None),
+        ('v2', None),
+    ]
+    for kind, url in candidates:
+        try:
+            if kind == 'landing' or kind == 'perf' or kind == 'default':
+                of = plus_offers_from_landing(acc, url)
+                of['_source'] = kind + ':' + url.split('?')[0]
+            elif kind == 'ssr':
+                of = plus_offers(acc, target='plus-web', utm='afisha')
+                of['_source'] = 'ssr:plus.yandex.ru'
+                # нормализация ssr-вывода в формат plus_offers_v2
+                of = {
+                    'offer_token': of.get('offerToken') or '',
+                    'target': of.get('target') or PLUS_WIDGET_TARGET,
+                    'batch_id': of.get('offersBatchId') or '',
+                    'position_id': of.get('offersPositionIds') or '',
+                    'tariff_offer': of.get('tariffOfferName') or '',
+                    'event_session_id': of.get('eventSessionId') or '',
+                    'cross_session_id': of.get('crossSessionId') or '',
+                    'hash_order_id': of.get('hashOrderId') or '',
+                    '_source': 'ssr:plus.yandex.ru',
+                    '_raw': of,
+                }
+            else:
+                of = plus_offers_v2(acc, event_session_id=event_session_id)
+                of['_source'] = 'v2:/api/v2/offers'
+            if of and of.get('offer_token'):
+                return of
+            attempts.append(f'{kind}: оффер пуст')
+        except RuntimeError as e:
+            attempts.append(f'{kind}: {e}')
+    raise RuntimeError('Плюс: ни один оффер не доступен. Пробовал: '
+                       + '; '.join(attempts))
+
+
 def plus_subscribe(account, card, sms_code='', purchase_token='',
                    kroken_uuid='', promo_id='', save=False,
                    offer_token='', event_session_id='', tariff_offer='',
@@ -4140,13 +4273,16 @@ def plus_subscribe(account, card, sms_code='', purchase_token='',
                   'eventSessionId': event_session_id}
         try:
             if not of.get('offerToken'):
-                ofv = plus_offers_v2(acc, event_session_id=event_session_id)
+                ofv = plus_get_offer(acc, event_session_id=event_session_id)
                 of = {'offerToken': ofv['offer_token'],
                       'target': ofv['target'] or PLUS_WIDGET_TARGET,
                       'tariffOfferName': ofv['tariff_offer'],
                       'batchId': ofv['batch_id'],
                       'positionId': ofv['position_id'],
-                      'eventSessionId': ofv['event_session_id']}
+                      'eventSessionId': ofv['event_session_id'],
+                      '_source': ofv.get('_source') or ''}
+                cross_session_id = cross_session_id or ofv.get('cross_session_id') or ''
+                hash_order_id = hash_order_id or ofv.get('hash_order_id') or ''
             co = plus_composite_checkout(
                 acc, offer_token=of.get('offerToken') or '',
                 tarif=of.get('tariffOfferName') or '',
