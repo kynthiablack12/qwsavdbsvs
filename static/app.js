@@ -930,6 +930,52 @@ $('edaAccAdd').addEventListener('click', async () => {
   }
 });
 
+let edaRegTimer = null;
+$('edaRegStart').addEventListener('click', async () => {
+  const btn = $('edaRegStart');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/eda/reg/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('edaRegName').value.trim(),
+        count: parseInt($('edaRegCount').value || '1', 10) || 1,
+      }),
+    });
+    $('edaRegMsg').textContent = `запущено задач: ${(r.task_ids || []).length}`;
+    pollEdaReg();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function pollEdaReg() {
+  if (edaRegTimer) return;
+  const render = async () => {
+    try {
+      const r = await api('/api/eda/reg/status');
+      const tasks = Object.entries(r.tasks || {});
+      if (!tasks.length || tasks.every(([, t]) => t.state === 'done' || t.state === 'failed' || t.state === 'cancelled')) {
+        edaRegTimer = null;
+        if (tasks.length) loadEda();
+        return;
+      }
+      edaRegTimer = setTimeout(render, 2000);
+      const lines = tasks.map(([id, t]) => {
+        const st = esc(t.state);
+        const err = t.error ? ` <span class="db-err">${esc(t.error)}</span>` : '';
+        return `<div>#${esc(id)} [${st}] ${esc(t.name || '')} — ${esc(t.progress || '')}${err}</div>`;
+      }).join('');
+      $('edaRegMsg').innerHTML = lines;
+    } catch (e) {
+      edaRegTimer = null;
+    }
+  };
+  await render();
+}
+
 async function loadEdaSessions() {
   try {
     const sess = await api('/api/eda/sessions');

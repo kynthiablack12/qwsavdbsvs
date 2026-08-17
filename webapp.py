@@ -4,6 +4,7 @@ import core
 import pickup
 import eda
 import samokat
+import eda_reg
 from flask import Flask, jsonify, request, render_template, Response, session, redirect, url_for
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -486,6 +487,31 @@ def api_eda_qr_status(qr_id):
 @app.route('/qr')
 def page_qr():
     return render_template('qr.html')
+
+
+@app.route('/api/eda/reg/start', methods=['POST'])
+def api_eda_reg_start():
+    data = request.get_json(silent=True) or {}
+    try:
+        ids = eda_reg.start(data.get('name', ''), int(data.get('count', 1) or 1))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'task_ids': ids})
+
+
+@app.route('/api/eda/reg/status')
+def api_eda_reg_status():
+    return jsonify(eda_reg.status())
+
+
+@app.route('/api/eda/reg/status/<task_id>')
+def api_eda_reg_status_one(task_id):
+    return jsonify(eda_reg.status(task_id))
+
+
+@app.route('/api/eda/reg/cancel/<task_id>', methods=['POST'])
+def api_eda_reg_cancel(task_id):
+    return jsonify(eda_reg.cancel(task_id))
 
 
 @app.route('/api/eda/accounts/<name>', methods=['DELETE'])

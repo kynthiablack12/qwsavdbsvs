@@ -2494,24 +2494,143 @@ def _plus_token(data):
     return out
 
 
+def edadeal_authenticate(account):
+    """Авторизация в Едадиле (по флоу edadil_bot): обмен Yandex OAuth-токена
+    на JWT Едадила.
+
+    1) Регистрация анонимного устройства: POST /api/usr/auth/v1/device
+       -> анонимный JWT (заголовок Authorization) + edadeal-duid.
+    2) Обмен: POST /api/usr/auth/v1/auth {"duid", "provider":"am",
+       "token": <yandex OAuth token>} -> JWT + edadeal-uid + edadeal-duid.
+
+    Возвращает {'ok': True, 'jwt':…, 'duid':…, 'uid':…, 'login':…}
+    либо {'ok': False, 'error':…}.
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    tok = _extract_bearer(acc)
+    if not tok:
+        return {'ok': False, 'error': 'нет OAuth-токена Яндекса (token/webviewtoken)'}
+    hdrs = {
+        'User-Agent': 'okhttp/4.11.0 Edadeal/26.28.0',
+        'Accept': 'application/json',
+        'Accept-Language': 'ru_RU',
+        'Content-Type': 'application/json',
+        'x-platform': 'android',
+        'x-os-version': '12.0.0',
+        'x-app-version': '26.28.0',
+        'x-app-id': 'edadeal',
+        'x-locality-geoid': '66',
+        'x-locality-countrygeoid': '225',
+        'x-real-locality-geoid': '66',
+        'x-real-locality-countrygeoid': '225',
+        'x-position-latitude': '54.98934200',
+        'x-position-longitude': '73.36821200',
+        'x-device-timezone': 'Asia/Omsk',
+        'x-device-manufacturer': 'SAMSUNG',
+        'x-device-model': 'SM-F711B',
+        'x-device-ram-class': '3',
+        'amversion': '7.54.1',
+    }
+    try:
+        # 1) анонимное устройство
+        r1 = requests.post(
+            'https://api.edadeal.ru/api/usr/auth/v1/device',
+            headers={**hdrs, 'x-device-init-timestamp': str(int(time.time()))},
+            json={'platform': 'android', 'device_id': uuid.uuid4().hex,
+                  'uuid': uuid.uuid4().hex},
+            timeout=20)
+        if r1.status_code != 200:
+            return {'ok': False,
+                    'error': f'Регистрация устройства Едадил: HTTP {r1.status_code}: {r1.text[:200]}'}
+        anon_jwt = r1.headers.get('authorization', '')
+        anon_duid = r1.headers.get('edadeal-duid', '')
+        if not anon_jwt:
+            return {'ok': False, 'error': 'Едадил: нет анонимного JWT'}
+        # 2) обмен на JWT аккаунта
+        r2 = requests.post(
+            'https://api.edadeal.ru/api/usr/auth/v1/auth',
+            headers={**hdrs, 'Authorization': anon_jwt,
+                     'edadeal-duid': anon_duid},
+            json={'duid': anon_duid, 'provider': 'am', 'token': tok},
+            timeout=20)
+        if r2.status_code != 200:
+            err = r2.headers.get('Www-Authenticate', r2.text[:200])
+            return {'ok': False, 'error': f'Авторизация Едадил: HTTP {r2.status_code}: {err}'}
+        jwt = r2.headers.get('authorization', '')
+        uid = r2.headers.get('edadeal-uid', '')
+        duid = r2.headers.get('edadeal-duid', anon_duid)
+        if not jwt:
+            return {'ok': False, 'error': 'Едадил: нет JWT в ответе auth'}
+        login = ''
+        try:
+            m = jwt.split('.')
+            if len(m) == 3:
+                import base64 as _b64
+                p = m[1] + '=' * (4 - len(m[1]) % 4)
+                d = json.loads(_b64.urlsafe_b64decode(p))
+                login = d.get('sub', uid)
+        except Exception:
+            pass
+        return {'ok': True, 'jwt': jwt, 'duid': duid, 'uid': uid, 'login': login}
+    except requests.RequestException as e:
+        return {'ok': False, 'error': f'Едадил: сеть: {e}'}
+
+
+def edadeal_check_yandex_token(account):
+    """Проверка OAuth-токена Яндекса аккаунта через login.yandex.ru/info."""
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    tok = _extract_bearer(acc)
+    if not tok:
+        return {'ok': False, 'error': 'нет OAuth-токена Яндекса'}
+    try:
+        r = requests.get('https://login.yandex.ru/info',
+                         headers={'Authorization': f'OAuth {tok}'}, timeout=20)
+        if r.status_code != 200:
+            return {'ok': False, 'error': f'Яндекс: HTTP {r.status_code}'}
+        d = r.json()
+        return {'ok': True, 'login': d.get('login', ''),
+                'name': d.get('display_name', d.get('real_name', ''))}
+    except requests.RequestException as e:
+        return {'ok': False, 'error': f'Яндекс: сеть: {e}'}
+
+
 def edadeal_trigger(account, promo_id='', kroken_uuid=''):
     """Колбек акции Едадила на аккаунте: вызов перед подключением Плюса.
 
     trigger_proxy.edadeal.ru/triggers/<promo_id>?krokenUuid=<uuid4>.
     Должен выполняться на каждом аккаунте перед подпиской.
+    Авторизация — JWT Едадила (edadeal_authenticate), не паспорт-куки.
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     pid = promo_id or PLUS_TRIGGER_ID
     ku = kroken_uuid or uuid.uuid4().hex
+    auth = edadeal_authenticate(acc)
+    if not auth.get('ok'):
+        raise RuntimeError(f'Плюс: триггер Едадила: авторизация: {auth.get("error")}')
     params = {'krokenUuid': ku}
+    url = f'{EDADEAL_TRIGGER}/triggers/{pid}'
+    if params:
+        url += '?' + urllib.parse.urlencode({k: v for k, v in params.items()
+                                              if v is not None and v != ''})
+    hdrs = {
+        'accept': 'application/json, text/plain, */*',
+        'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+        'user-agent': PLUS_UA,
+        'referer': PLUS_TRIGGER_REFERER,
+        'Authorization': auth['jwt'],
+        'edadeal-duid': auth['duid'],
+        'edadeal-uid': auth['uid'],
+    }
     try:
-        d = _plus_call(acc, EDADEAL_TRIGGER, 'GET', f'/triggers/{pid}',
-                       params=params,
-                       referer=PLUS_TRIGGER_REFERER)
-    except RuntimeError as e:
-        raise RuntimeError(f'Плюс: триггер Едадила: {e}')
+        r = requests.get(url, headers=hdrs, timeout=25, allow_redirects=False)
+    except requests.RequestException as e:
+        raise RuntimeError(f'Плюс: триггер Едадила: сеть: {e}')
+    if r.status_code >= 400:
+        raise RuntimeError(f'Плюс: триггер Едадила: HTTP {r.status_code}: {r.text[:300]}')
     return {'ok': True, 'promo_id': pid, 'kroken_uuid': ku,
-            'response': d if isinstance(d, (dict, list)) else {'_text': str(d)[:200]}}
+            'status': r.status_code,
+            'response': {'_status': r.status_code,
+                         '_text': r.text[:300] if r.text else ''}}
 
 
 def _plus_widget_hdrs():
@@ -3797,7 +3916,7 @@ def plus_3ds_wait(acc, purchase_token, invoice_id='', csrf='', timeout=600,
 
 def _plus_finish_payment(acc, purchase_token, card, sms_code='', csrf='',
                          invoice_id='', _checkout=None, _invoice=None,
-                         _start=None, _status=None):
+                         _start=None, _status=None, trigger_res=None):
     """Оплатить инвойс по purchase_token: diehard-флоу без 3DS.
 
     trust update_payment (bind_card=true) → diehard bin_info →
@@ -3831,7 +3950,8 @@ def _plus_finish_payment(acc, purchase_token, card, sms_code='', csrf='',
                                 sms_code=sms_code)
     except RuntimeError as e:
         return {'ok': False, 'error': str(e), 'purchase_token': purchase_token,
-                'invoice_id': invoice_id, '_up': up, '_bin': bin_}
+                'invoice_id': invoice_id, '_up': up, '_bin': bin_,
+                '_trigger': trigger_res}
     raw = st.get('_raw') or {}
     status = st.get('status') or _dig(raw, 'result') or _dig(raw, 'status') or ''
     if sms_code and status in ('otp_incorrect', 'incorrect_otp', 'invalid_code',
@@ -3841,7 +3961,8 @@ def _plus_finish_payment(acc, purchase_token, card, sms_code='', csrf='',
                 'purchase_token': purchase_token,
                 'invoice_id': invoice_id,
                 'card': parsed, 'status': status,
-                '_start': st, '_up': up, '_bin': bin_}
+                '_start': st, '_up': up, '_bin': bin_,
+                '_trigger': trigger_res}
     if not sms_code and (status in SMS_STATUSES
                          or _dig(raw, 'threeDs') or _dig(raw, '3ds')
                          or _dig(raw, 'auth3ds') or _dig(raw, 'auth_3ds')):
@@ -3854,13 +3975,15 @@ def _plus_finish_payment(acc, purchase_token, card, sms_code='', csrf='',
                     'purchase_token': purchase_token,
                     'invoice_id': invoice_id,
                     'card': parsed, 'status': status,
-                    '_start': st, '_up': up, '_bin': bin_}
+                    '_start': st, '_up': up, '_bin': bin_,
+                    '_trigger': trigger_res}
         return {'ok': True, 'stage': 'sms',
                 'message': 'Требуется SMS-код от банка',
                 'purchase_token': purchase_token,
                 'invoice_id': invoice_id,
                 'card': parsed, 'status': status,
-                '_start': st, '_up': up, '_bin': bin_}
+                '_start': st, '_up': up, '_bin': bin_,
+                '_trigger': trigger_res}
     # 4) ожидание результата (check_payment + invoiceStatus)
     check = None
     inv = None
@@ -3905,14 +4028,16 @@ def _plus_finish_payment(acc, purchase_token, card, sms_code='', csrf='',
                                      or (inv or {}).get('form') or '',
                     'external_id': ch.get('external_id') or '',
                     'card': parsed, '_up': up, '_bin': bin_, '_start': st,
-                    '_check': check, '_invoice_status': inv, '_challenge': ch}
+                    '_check': check, '_invoice_status': inv, '_challenge': ch,
+                    '_trigger': trigger_res}
         if inv and inv.get('status') in ('ERROR', 'CANCELED', 'CLOSED', 'FAILED'):
             return {'ok': False,
                     'error': f"Плюс: платёж не прошёл (invoiceStatus "
                              f"{inv.get('status')}: {inv.get('error_code')})",
                     'purchase_token': purchase_token, 'invoice_id': invoice_id,
                     'card': parsed, '_up': up, '_bin': bin_, '_start': st,
-                    '_check': check, '_invoice_status': inv}
+                    '_check': check, '_invoice_status': inv,
+                    '_trigger': trigger_res}
     istatus = str((inv or {}).get('status') or '')
     cstatus = str((check or {}).get('status') or '') \
         + str((check or {}).get('tr_status') or '')
@@ -3923,7 +4048,7 @@ def _plus_finish_payment(acc, purchase_token, card, sms_code='', csrf='',
                 'error': 'Плюс: не удалось подтвердить оплату',
                 'purchase_token': purchase_token, 'invoice_id': invoice_id,
                 'card': parsed, '_up': up, '_bin': bin_, '_start': st,
-                '_check': check, '_invoice_status': inv}
+                '_check': check, '_invoice_status': inv, '_trigger': trigger_res}
     # 5) активация: changeVoluntaryAgreementStatus ALLOW (захват seq 1040)
     ag = {}
     try:
@@ -3935,7 +4060,7 @@ def _plus_finish_payment(acc, purchase_token, card, sms_code='', csrf='',
             'card': parsed, '_up': up, '_bin': bin_, '_start': st,
             '_check': check, '_invoice_status': inv, '_agreement': ag,
             '_checkout': _checkout, '_invoice': _invoice, '_start_inv': _start,
-            '_status_poll': _status}
+            '_status_poll': _status, '_trigger': trigger_res}
 
 
 def plus_subscribe(account, card, sms_code='', purchase_token='',
@@ -3965,26 +4090,39 @@ def plus_subscribe(account, card, sms_code='', purchase_token='',
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     try:
+        # 0) колбек акции Едадила «подтверждение участия» — ОБЯЗАТЕЛЕН перед
+        #    подключением подписки на КАЖДОМ аккаунте (trigger-proxy.edadeal.ru).
+        #    При повторном вызове (уже есть invoice/purchase_token) не шлём.
+        trigger_res = None
+        if not (invoice_id or purchase_token):
+            trigger_res = edadeal_trigger(acc, promo_id=promo_id,
+                                          kroken_uuid=kroken_uuid)
+            kroken_uuid = trigger_res.get('kroken_uuid', kroken_uuid)
         csrf = plus_csrf(acc)
         # 1) если инвойс уже создан — идём сразу к оплате/проверке
         if invoice_id or purchase_token:
             if purchase_token and not invoice_id:
                 return _plus_finish_payment(acc, purchase_token, card,
-                                            sms_code=sms_code, csrf=csrf)
+                                            sms_code=sms_code, csrf=csrf,
+                                            trigger_res=trigger_res)
             inv = plus_invoice_status(acc, invoice_id=invoice_id, csrf=csrf)
             pt = purchase_token or inv.get('purchase_token') or ''
             st = inv.get('status') or ''
             if st in ('SUCCESS', 'DONE', 'PAID'):
                 return {'ok': True, 'stage': 'done', 'status': st,
-                        'invoice_id': invoice_id, 'invoice': inv}
+                        'invoice_id': invoice_id, 'invoice': inv,
+                        '_trigger': trigger_res}
             if st in ('ERROR', 'CANCELED', 'CLOSED', 'FAILED'):
                 return {'ok': False, 'error': f'Плюс: инвойс {st}',
-                        'invoice_id': invoice_id, 'invoice': inv}
+                        'invoice_id': invoice_id, 'invoice': inv,
+                        '_trigger': trigger_res}
             if pt:
                 return _plus_finish_payment(acc, pt, card, sms_code=sms_code,
-                                            csrf=csrf, invoice_id=invoice_id)
+                                            csrf=csrf, invoice_id=invoice_id,
+                                            trigger_res=trigger_res)
             return {'ok': True, 'stage': 'pending', 'status': st,
-                    'invoice_id': invoice_id, 'invoice': inv}
+                    'invoice_id': invoice_id, 'invoice': inv,
+                    '_trigger': trigger_res}
         # 2) оффер + чекаут + инвойс
         of = {}
         if offer_token:
@@ -4015,7 +4153,7 @@ def plus_subscribe(account, card, sms_code='', purchase_token='',
             return {'ok': False,
                     'error': 'Плюс: чекаут не удался: '
                              + str((co or {}).get('raw') or co or {}),
-                    '_offers': of, '_checkout': co}
+                    '_offers': of, '_checkout': co, '_trigger': trigger_res}
         tarif = of.get('tariffOfferName') or co.get('tariff_offer') or ''
         esid = of.get('eventSessionId') or ''
         ci = plus_create_invoice(
@@ -4028,7 +4166,7 @@ def plus_subscribe(account, card, sms_code='', purchase_token='',
         if not inv_id:
             return {'ok': False,
                     'error': 'Плюс: createInvoice не вернул id: ' + str(ci)[:300],
-                    '_checkout': co, '_invoice': ci}
+                    '_checkout': co, '_invoice': ci, '_trigger': trigger_res}
         # 3) старт и ожидание purchase_token в externalInvoice.form
         si = plus_start_invoice(acc, inv_id, csrf=csrf)
         st = plus_wait_purchase_token(acc, inv_id, csrf=csrf, attempts=15, delay=2.0)
@@ -4038,11 +4176,11 @@ def plus_subscribe(account, card, sms_code='', purchase_token='',
                     'error': 'Плюс: инвойс не дал purchase_token в form '
                              f'(status {st.get("status")}): {str(st.get("_raw"))[:300]}',
                     'invoice_id': inv_id, '_checkout': co, '_invoice': ci,
-                    '_start': si, '_status': st}
+                    '_start': si, '_status': st, '_trigger': trigger_res}
         return _plus_finish_payment(acc, pt, card, sms_code=sms_code,
                                     csrf=csrf, invoice_id=inv_id,
                                     _checkout=co, _invoice=ci, _start=si,
-                                    _status=st)
+                                    _status=st, trigger_res=trigger_res)
     except RuntimeError as e:
         return {'ok': False, 'error': str(e)}
 
