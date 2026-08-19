@@ -5,6 +5,7 @@ import pickup
 import eda
 import samokat
 import eda_reg
+import market
 from flask import Flask, jsonify, request, render_template, Response, session, redirect, url_for
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -433,6 +434,8 @@ def api_eda_accounts():
                      'plus_balance': a.get('plus_balance'),
                      'plus_status': a.get('plus_status', ''),
                      'device': (a.get('device') or {}).get('model', ''),
+                     'warmup_at': a.get('warmup_at'),
+                     'promo_ready_at': a.get('promo_ready_at'),
                      'orders': counts[i]}
                     for i, a in enumerate(accs)])
 
@@ -977,6 +980,26 @@ def api_eda_sessions_create():
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, 'token': token,
                     'url': f'/d/{token}'})
+
+
+@app.route('/api/eda/warmup', methods=['POST'])
+def api_eda_warmup():
+    """Прогреть аккаунты Еды: зафиксировать device + запустить 22-мин отлёжку.
+
+    Тело: {names?: [..]} — если пусто, греем все аккаунты с токеном.
+    """
+    data = request.get_json(silent=True) or {}
+    names = data.get('names') or None
+    try:
+        res = eda.warmup_eda_accounts(names)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'results': res})
+
+
+@app.route('/api/eda/warmup/<name>', methods=['GET'])
+def api_eda_warmup_status(name):
+    return jsonify({'name': name, 'ready_in': eda.account_ready_in(name)})
 
 
 @app.route('/api/eda/sessions/<token>', methods=['DELETE'])
@@ -3046,6 +3069,122 @@ def api_samokat_orders(token):
         return jsonify({'ok': True, 'orders': samokat.orders(acc)})
     except NotImplementedError as e:
         return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================
+#  Яндекс Маркет: акции «Товар за 1 рубль»
+# ============================================================
+
+@app.route('/api/market/wow-offers')
+def api_market_wow_offers():
+    """Сканировать все аккаунты Яндекса на наличие акций «Wow Offers».
+
+    Использует аккаунты из eda_accounts.json (session_id/bearer).
+    Параллельно (5 потоков), возвращает аккаунты с акцией + статус прогрева.
+    """
+    try:
+        # Берём аккаунты Еды (у них есть session_id/bearer)
+        eda_accs = eda.load_eda_accounts()
+        # Фильтруем только те, у которых есть Session_id
+        yandex_accs = [a for a in eda_accs if eda.sp_session_id(a) or a.get('session_id')]
+
+        mkt_accs = [{
+            'name': a.get('name'),
+            'session_id': a.get('session_id', ''),
+            'bearer': a.get('bearer', ''),
+            'proxy': a.get('proxy', ''),
+        } for a in yandex_accs]
+
+        scanned = market.scan_all_accounts_wow_offers(mkt_accs, workers=5)
+
+        available = {}
+        for name, r in scanned.items():
+            if r.get('has_wow'):
+                acc = next((a for a in yandex_accs if a.get('name') == name), None)
+                available[name] = {
+                    'has_wow': True,
+                    'checked_at': r.get('checked_at'),
+                    'warmup_at': (acc or {}).get('warmup_at'),
+                    'promo_ready_at': (acc or {}).get('promo_ready_at'),
+                    'device': ((acc or {}).get('device') or {}).get('model', ''),
+                }
+
+        return jsonify({
+            'ok': True,
+            'total_scanned': len(scanned),
+            'available_count': len(available),
+            'available': available,
+            'all': scanned,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/market/wow-offers/<name>')
+def api_market_wow_offers_account(name):
+    """Сканировать конкретный аккаунт на акции."""
+    try:
+        # Ищем аккаунт в Еде
+        acc = eda.get_eda_account(name)
+        if not acc:
+            return jsonify({'error': f'аккаунт "{name}" не найден'}), 404
+
+        # Конвертируем формат
+        mkt_acc = {
+            'name': name,
+            'session_id': acc.get('session_id', ''),
+            'bearer': acc.get('bearer', ''),
+            'proxy': acc.get('proxy', ''),
+        }
+
+        result = market.scan_account_wow_offers(mkt_acc)
+
+        return jsonify({
+            'ok': True,
+            'account': name,
+            'has_offers': bool(result.get('has_wow')),
+            'result': result,
+            'warmup_at': acc.get('warmup_at'),
+            'promo_ready_at': acc.get('promo_ready_at'),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/market/wow-offers/scan', methods=['POST'])
+def api_market_scan_wow():
+    """Сканировать аккаунт по URL акции."""
+    d = request.get_json(silent=True) or {}
+    name = d.get('account')
+    url = d.get('url', '').strip()
+
+    if not name:
+        return jsonify({'error': 'account обязателен'}), 400
+
+    try:
+        # Ищем аккаунт в Еде
+        acc = eda.get_eda_account(name)
+        if not acc:
+            return jsonify({'error': f'аккаунт "{name}" не найден'}), 404
+
+        # Конвертируем формат
+        mkt_acc = {
+            'name': name,
+            'session_id': acc.get('session_id', ''),
+            'bearer': acc.get('bearer', ''),
+            'proxy': acc.get('proxy', ''),
+        }
+
+        if url:
+            results = market.get_wow_offers_from_url(mkt_acc, url)
+        else:
+            results = market.scan_account_wow_offers(mkt_acc)
+
+        return jsonify({'ok': True, 'account': name,
+                        'has_offers': bool(results.get('has_wow')),
+                        'result': results})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -73,6 +73,7 @@
     <button class="db-tab" data-tab="auto">🛍 Автозаказ</button>
     <button class="db-tab" data-tab="sp">🅿 Свои Плюсы</button>
     <button class="db-tab" data-tab="samokat">🛴 Самокат</button>
+    <button class="db-tab" data-tab="market">🛒 Маркет</button>
   </nav>
 
   <!-- ================= Аккаунты ================= -->
@@ -274,6 +275,7 @@
       </div>
       <div class="db-toolbar" style="margin-top:16px">
         <button class="btn btn-ghost btn-sm" id="edaCheckRun">🔄 Проверить токены</button>
+        <button class="btn btn-primary btn-sm" id="edaWarmupRun">🔥 Прогрев (22 мин)</button>
         <span class="db-mut" id="edaCheckMsg2"></span>
       </div>
       <div class="eda-promo-progress hidden" id="edaCheckProgress">
@@ -283,7 +285,7 @@
       <div id="edaCheckResult" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
       <div class="table-wrap" style="margin-top:16px">
         <table class="data-table" id="edaAccTable">
-          <thead><tr><th>Имя</th><th>Профиль</th><th>Плюс</th><th>uid</th><th>Токен</th><th>Сессия</th><th>Устройство</th><th>Заказы</th><th>Добавлен</th><th class="col-actions">Действия</th></tr></thead>
+          <thead><tr><th>Имя</th><th>Профиль</th><th>Плюс</th><th>uid</th><th>Токен</th><th>Сессия</th><th>Устройство</th><th>Готов через</th><th>Заказы</th><th>Добавлен</th><th class="col-actions">Действия</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -458,6 +460,40 @@
           <tbody></tbody>
         </table>
       </div>
+    </div>
+  </section>
+
+  <!-- ================= Маркет ================= -->
+  <section class="db-pane" id="pane-market">
+    <div class="db-tabs sub">
+      <button class="db-tab active" data-tab="mktWow">🔥 Акции за 1₽</button>
+    </div>
+    <div class="db-pane active" id="pane-mktWow">
+      <div class="eda-add">
+        <button class="btn btn-primary" id="mktWowScan">🔍 Сканировать все аккаунты</button>
+        <button class="btn btn-ghost" id="mktWowRefresh">🔄 Обновить</button>
+        <span class="db-count" id="mktWowCount"></span>
+      </div>
+      <div class="eda-add" style="margin-top:10px">
+        <label>URL для сканирования (оставьте пустым для URL по умолчанию)
+          <input type="text" id="mktWowUrl" placeholder="https://market.yandex.ru/page/wow_offers?..." style="width:100%">
+        </label>
+        <button class="btn btn-primary" id="mktWowScanUrl">🔗 Сканировать по URL</button>
+      </div>
+      <div class="table-wrap" style="margin-top:16px">
+        <table class="data-table" id="mktWowTable">
+          <thead>
+            <tr>
+              <th>Аккаунт</th>
+              <th>Статус</th>
+              <th>Прогрев</th>
+              <th class="col-actions">Действия</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="mktWowResults" style="margin-top:16px"></div>
     </div>
   </section>
 </div>

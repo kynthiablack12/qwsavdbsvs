@@ -45,23 +45,28 @@ DEFAULT_LON = 73.27583823706175
 # Пул реальных моделей для device-профилей (антифрод: разные устройства).
 # Каждая пара модель/версия ОС реалистична (версия не ниже той, с которой
 # модель вышла) — несоответствия типа S22 на Android 9 палят эмулятор.
+# Samsung-модели убраны: они сильнее фродятся антифродом Яндекса.
 DEVICE_MODELS = [
-    {'model': 'SM-S906N', 'brand': 'samsung', 'manufacturer': 'samsung', 'os_version': '13'},
-    {'model': 'SM-A235F', 'brand': 'samsung', 'manufacturer': 'samsung', 'os_version': '13'},
-    {'model': 'SM-A515F', 'brand': 'samsung', 'manufacturer': 'samsung', 'os_version': '10'},
-    {'model': 'SM-G991B', 'brand': 'samsung', 'manufacturer': 'samsung', 'os_version': '11'},
-    {'model': 'SM-S911B', 'brand': 'samsung', 'manufacturer': 'samsung', 'os_version': '14'},
+    {'model': 'M391Q', 'brand': 'meizu', 'manufacturer': 'Meizu', 'os_version': '13'},
+    {'model': 'M181Q', 'brand': 'meizu', 'manufacturer': 'Meizu', 'os_version': '11'},
+    {'model': 'M971Q', 'brand': 'meizu', 'manufacturer': 'Meizu', 'os_version': '9'},
+    {'model': 'RMX3562', 'brand': 'realme', 'manufacturer': 'realme', 'os_version': '12'},
+    {'model': 'RMX3363', 'brand': 'realme', 'manufacturer': 'realme', 'os_version': '12'},
+    {'model': 'RMX1921', 'brand': 'realme', 'manufacturer': 'realme', 'os_version': '9'},
     {'model': '23127PN0CC', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '14'},
     {'model': '2210132G', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '12'},
     {'model': '2201117TG', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '12'},
     {'model': '2107119DC', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '11'},
     {'model': 'M2004J19C', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '10'},
+    {'model': 'CPH2359', 'brand': 'oppo', 'manufacturer': 'OPPO', 'os_version': '13'},
+    {'model': 'CPH2387', 'brand': 'oppo', 'manufacturer': 'OPPO', 'os_version': '12'},
+    {'model': 'V2134', 'brand': 'vivo', 'manufacturer': 'vivo', 'os_version': '12'},
+    {'model': 'V2050', 'brand': 'vivo', 'manufacturer': 'vivo', 'os_version': '11'},
+    {'model': 'X663', 'brand': 'infinix', 'manufacturer': 'INFINIX', 'os_version': '12'},
+    {'model': 'KH6j', 'brand': 'tecno', 'manufacturer': 'TECNO', 'os_version': '12'},
+    {'model': 'LRA-NX9', 'brand': 'honor', 'manufacturer': 'HONOR', 'os_version': '12'},
     {'model': 'Pixel 7', 'brand': 'google', 'manufacturer': 'Google', 'os_version': '13'},
     {'model': 'Pixel 6a', 'brand': 'google', 'manufacturer': 'Google', 'os_version': '12'},
-    {'model': 'Pixel 4a', 'brand': 'google', 'manufacturer': 'Google', 'os_version': '10'},
-    {'model': 'RMX3363', 'brand': 'realme', 'manufacturer': 'realme', 'os_version': '12'},
-    {'model': 'RMX1921', 'brand': 'realme', 'manufacturer': 'realme', 'os_version': '9'},
-    {'model': 'LRA-NX9', 'brand': 'honor', 'manufacturer': 'HONOR', 'os_version': '12'},
 ]
 
 
@@ -78,6 +83,7 @@ def new_device_profile():
         'appmetrica_uuid': uuid.uuid4().hex,
         'mobile_ifa': str(uuid.uuid4()),
         'tracker_id': str(uuid.uuid4()),
+        'yandex_device_id': str(uuid.uuid4()),
         'model': m['model'],
         'brand': m['brand'],
         'manufacturer': m['manufacturer'],
@@ -94,23 +100,24 @@ def _dev(acc):
         'appmetrica_uuid': p.get('appmetrica_uuid') or APP['x-appmetrica-uuid'],
         'mobile_ifa': p.get('mobile_ifa') or APP.get('x-mobile-ifa', ''),
         'tracker_id': p.get('tracker_id') or APP.get('x-tracker-id', ''),
+        'yandex_device_id': p.get('yandex_device_id') or str(uuid.uuid4()),
         'model': p.get('model') or APP['x-device-model'],
         'brand': p.get('brand') or APP['x-device-brand'],
         'manufacturer': p.get('manufacturer') or APP['x-device-manufacturer'],
         'os_version': p.get('os_version') or APP['x-os-version'],
     }
 
-# App-параметры (дефолт — реальная модель Galaxy A23 на Android 13,
-# а не эмуляторная S22+Android 9: такие несоответствия палят антифрод).
+# App-параметры (дефолт — реальная модель Meizu, а не эмуляторная
+# S22+Android 9: такие несоответствия палят антифрод).
 # x-app-version/user-agent: поднимаем до актуальной версии приложения — мобильный
 # эндпоинт cart/promocode гейтит свежие промокоды (500go, FREE500) сообщением
 # «Необходимо обновить приложение» по версии в user-agent (порог ~3.80, проверено:
 # 3.19.0…3.70 — гейт, 3.80+ — реальный ответ). x-code-version на гейт не влияет.
 APP = {
     'x-os-version': '13',
-    'x-device-model': 'SM-A235F',
-    'x-device-brand': 'samsung',
-    'x-device-manufacturer': 'samsung',
+    'x-device-model': 'M391Q',
+    'x-device-brand': 'meizu',
+    'x-device-manufacturer': 'Meizu',
     'x-android-platform-services-type': 'google',
     'x-platform': 'android_app',
     'x-app-version': '3.99.0',
@@ -642,11 +649,20 @@ def create_eda_session(name, account, hours=24):
     account = (account or '').strip()
     if not name or not account:
         raise RuntimeError('name and account required')
-    if not get_eda_account(account):
+    acc = get_eda_account(account)
+    if not acc:
         raise RuntimeError(f'аккаунт "{account}" не найден')
     token = uuid.uuid4().hex + uuid.uuid4().hex[:8]
     now = time.time()
     sess = load_eda_sessions()
+    # переиспользуем device аккаунта, если он прогрет/зафиксирован —
+    # иначе таймер отлёжки 22 мин сбросился бы на каждом входе.
+    if acc.get('device'):
+        device = dict(acc['device'])
+        promo_ready_at = acc.get('promo_ready_at') or (now + DEVICE_WAIT_SECONDS)
+    else:
+        device = new_device_profile()
+        promo_ready_at = now + DEVICE_WAIT_SECONDS
     sess[token] = {
         'name': name,
         'account': account,
@@ -656,9 +672,9 @@ def create_eda_session(name, account, hours=24):
         'active': True,
         # каждая сессия — свежее «устройство» (свои device_id/модель),
         # поэтому таймер 22 мин считаем с момента создания сессии.
-        'device': new_device_profile(),
+        'device': device,
         'device_at': now,
-        'promo_ready_at': now + DEVICE_WAIT_SECONDS,
+        'promo_ready_at': promo_ready_at,
     }
     save_eda_sessions(sess)
     return token
@@ -687,6 +703,66 @@ def get_eda_session_account(token):
         acc = dict(acc)
         acc['device'] = dict(s['device'])
     return s, acc
+
+
+def account_warmup(name, wait_seconds=DEVICE_WAIT_SECONDS):
+    """Прогреть аккаунт: зафиксировать device-профиль и запустить таймер отлёжки.
+
+    Главная идея «отлёжки»: антифрод Я.Еды считает 22 минуты с момента
+    ПОЯВЛЕНИЯ устройства (первого запроса с этим device_id/моделью), а не
+    с момента входа в аккаунт. Поэтому:
+      1) сохраняем ОДИН фиксированный device-профиль на аккаунт,
+      2) делаем лёгкий запрос профиля — Яндекс запоминает это «устройство»
+         и запускает 22-мин таймер,
+      3) потом любая сессия на этом аккаунте переиспользует тот же device →
+         таймер НЕ сбрасывается, заказ можно делать сразу после отлёжки.
+    """
+    acc = get_eda_account(name)
+    if not acc:
+        raise RuntimeError(f'аккаунт "{name}" не найден')
+    with _store_lock():
+        store = _eda_read()
+        accs = store.get('accounts') or []
+        target = next((a for a in accs if a.get('name') == name), None)
+        if not target:
+            raise RuntimeError(f'аккаунт "{name}" не найден')
+        # фиксируем device-профиль, если его ещё нет
+        if not target.get('device'):
+            target['device'] = new_device_profile()
+        target['warmup_at'] = time.time()
+        target['promo_ready_at'] = time.time() + wait_seconds
+        store['accounts'] = accs
+        _eda_write(store)
+        dev = dict(target['device'])
+    # регистрируем устройство у Яндекса лёгким запросом (запуск таймера)
+    _eda_call(target, 'GET', '/api/v1/user/profile')
+    return {'name': name, 'device': dev,
+            'ready_in': max(0, target['promo_ready_at'] - time.time())}
+
+
+def warmup_eda_accounts(names=None, wait_seconds=DEVICE_WAIT_SECONDS):
+    """Прогреть несколько аккаунтов разом (по умолчанию — все с токеном)."""
+    accs = load_eda_accounts()
+    if names:
+        accs = [a for a in accs if a.get('name') in names]
+    out = []
+    for a in accs:
+        try:
+            out.append(account_warmup(a.get('name'), wait_seconds))
+        except Exception as e:
+            out.append({'name': a.get('name'), 'error': str(e)[:140]})
+    return out
+
+
+def account_ready_in(name):
+    """Сколько секунд осталось до готовности аккаунта к заказу (0 — готов)."""
+    acc = get_eda_account(name)
+    if not acc:
+        return 0
+    ready = acc.get('promo_ready_at')
+    if not ready:
+        return 0
+    return max(0, ready - time.time())
 
 
 def promo_ready_in(token):
@@ -748,6 +824,8 @@ def _hdrs(acc, lat=None, lon=None):
         h['x-mobile-ifa'] = d['mobile_ifa']
     if d.get('tracker_id'):
         h['x-tracker-id'] = d['tracker_id']
+    if d.get('yandex_device_id'):
+        h['x-yandex-deviceid'] = d['yandex_device_id']
     h['authorization'] = 'Bearer ' + _extract_bearer(acc)
     h['x-yandex-uid'] = str(acc.get('yandexuid', ''))
     h['x-ya-coordinates'] = f'latitude={lat},longitude={lon}'
@@ -764,9 +842,13 @@ def _eda_call(account, method, path, lat=None, lon=None, json_body=None, params=
         raise RuntimeError(f'аккаунт "{account}" не найден')
     hdrs = _hdrs(acc, lat, lon)
     url = EDA_HOST + path
+    proxies = None
+    proxy_url = (acc.get('proxy') or '').strip()
+    if proxy_url:
+        proxies = {'http': proxy_url, 'https': proxy_url}
     try:
         r = requests.request(method, url, headers=hdrs, json=json_body,
-                             params=params, timeout=timeout)
+                             params=params, timeout=timeout, proxies=proxies)
     except requests.RequestException as e:
         raise RuntimeError(f'Я.Еда: сеть ({method} {path}): {e}')
     if r.status_code in (401, 403):
@@ -1241,6 +1323,7 @@ def _web_hdrs(acc, lat=None, lon=None):
         'x-client-session': uuid.uuid4().hex[:32],
         'x-device-id': _dev(acc)['device_id'],
         'x-platform': 'desktop_web',
+        'x-yandex-deviceid': _dev(acc)['yandex_device_id'],
         'x-retpath-y': 'https://eda.yandex.ru/checkout',
         'x-taxi': f'{WEB_UA} platform=eats_desktop_web',
         'x-ya-coordinates': f'latitude={lat},longitude={lon}',
@@ -1253,9 +1336,14 @@ def _web_call(acc, method, path, json_body=None, params=None, timeout=25):
     hdrs = _web_hdrs(acc)
     ck = _web_cookies(acc)
     url = EDA_HOST + path
+    proxies = None
+    proxy_url = (acc.get('proxy') or '').strip()
+    if proxy_url:
+        proxies = {'http': proxy_url, 'https': proxy_url}
     try:
         r = requests.request(method, url, headers=hdrs, cookies=ck,
-                             json=json_body, params=params, timeout=timeout)
+                             json=json_body, params=params, timeout=timeout,
+                             proxies=proxies)
     except requests.RequestException as e:
         raise RuntimeError(f'Я.Еда (веб): сеть ({method} {path}): {e}')
     if r.status_code in (401, 403):
@@ -2467,9 +2555,14 @@ def _plus_call(acc, host, method, path, json_body=None, data=None,
         sep = '&' if '?' in url else '?'
         url += sep + urllib.parse.urlencode({k: v for k, v in params.items()
                                              if v is not None and v != ''})
+    proxies = None
+    proxy_url = (acc.get('proxy') or '').strip()
+    if proxy_url:
+        proxies = {'http': proxy_url, 'https': proxy_url}
     try:
         r = requests.request(method, url, headers=hdrs, cookies=_web_cookies(acc),
-                             json=json_body, data=data, timeout=timeout)
+                             json=json_body, data=data, timeout=timeout,
+                             proxies=proxies)
     except requests.RequestException as e:
         raise RuntimeError(f'Плюс: сеть ({method} {path}): {e}')
     if r.status_code >= 400:
@@ -3524,6 +3617,7 @@ def plus_offers_v2(account, event_session_id='', page='plus_home',
         'x-yandex-plus-platform': 'web',
         'x-yandex-plus-sdkversion': '0.10.14',
         'x-yandex-plus-service': 'plus',
+        'x-yandex-deviceid': _dev(acc).get('yandex_device_id', ''),
     }
     d = _plus_call(acc, PLUS_ACQ_API, 'POST', '/api/v2/offers',
                    json_body=body, params={'eventSessionId': esid},
@@ -4383,8 +4477,10 @@ def plus_subscribe(account, card, sms_code='', purchase_token='',
                     '_checkout': co, '_invoice': ci, '_trigger': trigger_res}
         # 3) старт и ожидание purchase_token в externalInvoice.form
         si = plus_start_invoice(acc, inv_id, csrf=csrf)
+        print(f'[plus_subscribe] start_invoice: status={si.get("status")} invoice_id={si.get("invoice_id")}')
         st = plus_wait_purchase_token(acc, inv_id, csrf=csrf, attempts=15, delay=2.0)
         pt = st.get('purchase_token') or ''
+        print(f'[plus_subscribe] wait_purchase_token: status={st.get("status")} pt={pt[:30]} form={str(st.get("form",""))[:100]}')
         if not pt.startswith('payment_'):
             return {'ok': False,
                     'error': 'Плюс: инвойс не дал purchase_token в form '
@@ -4428,6 +4524,7 @@ def _go_hdrs(acc, lat=None, lon=None):
         'x-appmetrica-uuid': d['appmetrica_uuid'],
         'x-client-session': uuid.uuid4().hex[:23],
         'x-device-id': d['device_id'],
+        'x-yandex-deviceid': d['yandex_device_id'],
         'x-requested-with': 'ru.yandex.taxi',
         'x-ya-coordinates': f'latitude={lat},longitude={lon}',
         'x-yandex-uid': str(acc.get('yandexuid', '')),
@@ -4440,9 +4537,14 @@ def _go_call(acc, method, path, json_body=None, params=None, timeout=25):
     """Запрос к суперапп-бэкенду (tc.eats.yandex.ru/4.0/eda-superapp)."""
     ck = _web_cookies(acc)
     url = GO_EATS_HOST + path
+    proxies = None
+    proxy_url = (acc.get('proxy') or '').strip()
+    if proxy_url:
+        proxies = {'http': proxy_url, 'https': proxy_url}
     try:
         r = requests.request(method, url, headers=_go_hdrs(acc), cookies=ck,
-                             json=json_body, params=params, timeout=timeout)
+                             json=json_body, params=params, timeout=timeout,
+                             proxies=proxies)
     except requests.RequestException as e:
         raise RuntimeError(f'Я.Еда (суперапп): сеть ({method} {path}): {e}')
     if r.status_code in (401, 403):

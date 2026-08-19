@@ -78,14 +78,14 @@ function switchTab(name) {
 document.querySelectorAll('#dbTabs .db-tab').forEach(b => b.addEventListener('click', () => {
   switchTab(b.dataset.tab);
   const loaders = { accounts: loadAdminAccounts, purchases: loadPurchases, coupons: loadCoupons,
-    prizes: loadPrizes, sessions: loadSessions, card: loadCardAdmin, eda: loadEda, auto: loadAuto, samokat: loadSamokat };
+    prizes: loadPrizes, sessions: loadSessions, card: loadCardAdmin, eda: loadEda, auto: loadAuto, samokat: loadSamokat, market: loadMarketWowOffers };
   if (loaders[b.dataset.tab]) loaders[b.dataset.tab]();
 }));
 
 $('btnRefresh').addEventListener('click', () => {
   const active = document.querySelector('#dbTabs .db-tab.active');
   const loaders = { accounts: loadAdminAccounts, purchases: loadPurchases, coupons: loadCoupons,
-    prizes: loadPrizes, sessions: loadSessions, card: loadCardAdmin, eda: loadEda, auto: loadAuto, samokat: loadSamokat };
+    prizes: loadPrizes, sessions: loadSessions, card: loadCardAdmin, eda: loadEda, auto: loadAuto, samokat: loadSamokat, market: loadMarketWowOffers };
   loadOverview();
   if (active && loaders[active.dataset.tab]) loaders[active.dataset.tab]();
 });
@@ -647,6 +647,7 @@ async function loadEdaAccounts() {
         <td>${a.has_token ? '<span class="sd-badge ok">есть</span>' : '<span class="db-mut">—</span>'}</td>
         <td>${a.has_sid ? '<span class="sd-badge ok">есть</span>' : '<span class="db-mut">—</span>'}</td>
         <td>${esc(a.device || '—')}</td>
+        <td class="num warmup-cell" data-warmup-name="${esc(a.name)}" data-ready-at="${a.promo_ready_at || ''}">${warmupCell(a)}</td>
         <td class="num">${a.orders != null ? esc(String(a.orders)) : '<span class="db-mut">—</span>'}</td>
         <td class="num">${esc(a.added || '—')}</td>
         <td class="col-actions">
@@ -654,7 +655,7 @@ async function loadEdaAccounts() {
           <button class="btn btn-ghost btn-sm" data-rotate="${esc(a.name)}">Устройство</button>
           <button class="btn btn-danger btn-sm" data-del="${esc(a.name)}">Удалить</button>
         </td>
-      </tr>`).join('') || '<tr><td colspan="10" class="db-empty">Аккаунтов Я.Еды нет</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="11" class="db-empty">Аккаунтов Я.Еды нет</td></tr>';
     tb.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
       await api(`/api/eda/accounts/${encodeURIComponent(b.dataset.del)}`, { method: 'DELETE' });
       loadEda();
@@ -674,9 +675,53 @@ async function loadEdaAccounts() {
     }));
     tb.querySelectorAll('[data-plus]').forEach(b => b.addEventListener('click', () => plusSubscribe(b.dataset.plus)));
   } catch (e) {
-    $('edaAccTable').querySelector('tbody').innerHTML = `<tr><td colspan="10" class="db-empty">${esc(e.message)}</td></tr>`;
+    $('edaAccTable').querySelector('tbody').innerHTML = `<tr><td colspan="11" class="db-empty">${esc(e.message)}</td></tr>`;
   }
 }
+
+function warmupCell(a) {
+  if (!a.warmup_at && !a.promo_ready_at) return '<span class="db-mut">—</span>';
+  if (a.promo_ready_at && a.promo_ready_at * 1000 <= Date.now()) return '<span class="sd-badge ok">готов 🔥</span>';
+  return '<span class="sd-badge warn">⏳ …</span>';
+}
+
+function fmtLeft(sec) {
+  const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+  return m > 0 ? `${m} мин ${s} с` : `${s} с`;
+}
+
+function tickWarmupCells() {
+  document.querySelectorAll('.warmup-cell').forEach(td => {
+    const t = Number(td.dataset.readyAt);
+    if (!t) return;
+    const left = t * 1000 - Date.now();
+    if (left <= 0) {
+      td.innerHTML = '<span class="sd-badge ok">готов 🔥</span>';
+    } else {
+      td.innerHTML = `<span class="sd-badge warn">⏳ ${fmtLeft(left / 1000)}</span>`;
+    }
+  });
+}
+setInterval(tickWarmupCells, 1000);
+
+async function runEdaWarmup() {
+  const btn = $('edaWarmupRun');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/eda/warmup', { method: 'POST' });
+    const ok = (r.results || []).filter(x => !x.error);
+    const err = (r.results || []).filter(x => x.error);
+    let msg = `Прогрев запущен: ${ok.length} аккаунтов`;
+    if (err.length) msg += `, ошибок: ${err.length} (${err[0].error})`;
+    alert(msg);
+    loadEda();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+$('edaWarmupRun').addEventListener('click', runEdaWarmup);
 
 let pendingCardAccount = '';
 let pendingCardValue = '';
@@ -2422,6 +2467,104 @@ async function runSpWheel() {
 }
 
 $('spWheelRun').addEventListener('click', runSpWheel);
+
+// ================= Market =================
+
+function switchMktTab(name) {
+  document.querySelectorAll('#pane-market .db-tabs.sub .db-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  $('pane-mktWow').classList.toggle('active', name === 'mktWow');
+  if (name === 'mktWow') loadMarketWowOffers();
+}
+document.querySelectorAll('#pane-market .db-tabs.sub .db-tab').forEach(b => b.addEventListener('click', () => switchMktTab(b.dataset.tab)));
+
+async function loadMarketWowOffers() {
+  const btn = $('mktWowScan');
+  const prog = $('mktWowResults');
+  btn.disabled = true;
+  prog.innerHTML = '<div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>';
+  try {
+    const r = await api('/api/market/wow-offers');
+    prog.innerHTML = '';
+    const tb = $('mktWowTable').querySelector('tbody');
+    const available = r.available || {};
+    const entries = Object.entries(available);
+    tb.innerHTML = entries.map(([name, result]) => {
+      const warmupAt = result.warmup_at || result.promo_ready_at;
+      const readyIn = result.promo_ready_at ? Math.max(0, result.promo_ready_at - Date.now() / 1000) : null;
+      const warmupInfo = readyIn > 0
+        ? `<span class="sd-badge warn">Прогрев ${Math.ceil(readyIn / 60)} мин</span>`
+        : (warmupAt ? `<span class="sd-badge ok">Прогрет</span>` : `<span class="sd-badge warn">Не прогрет</span>`);
+      return `
+        <tr>
+          <td><b>${esc(name)}</b></td>
+          <td><span class="sd-badge ok">✅ Акция за 1₽ доступна</span></td>
+          <td>${warmupInfo}</td>
+          <td class="col-actions">
+            <div class="row-actions">
+              <button class="btn btn-ghost btn-sm" data-mkt-warmup="${esc(name)}">🔥 Прогреть</button>
+            </div>
+          </td>
+        </tr>`;
+    }).join('') || '<tr><td colspan="4" class="db-empty">Нет аккаунтов с доступными акциями</td></tr>';
+    $('mktWowCount').textContent = `найдено: ${entries.length} из ${r.total_scanned || 0}`;
+    tb.querySelectorAll('[data-mkt-warmup]').forEach(b => b.addEventListener('click', async () => {
+      const name = b.dataset.mktWarmup;
+      b.disabled = true;
+      b.textContent = 'Прогреваем…';
+      try {
+        await api('/api/eda/warmup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names: [name] }) });
+        b.textContent = '🔥 Прогрето';
+        loadMarketWowOffers();
+      } catch (e) {
+        b.textContent = 'Ошибка';
+        prog.innerHTML = `<div class="db-empty">${esc(e.message)}</div>`;
+      }
+    }));
+  } catch (e) {
+    prog.innerHTML = `<div class="db-empty">${esc(e.message)}</div>`;
+    $('mktWowTable').querySelector('tbody').innerHTML = `<tr><td colspan="4" class="db-empty">${esc(e.message)}</td></tr>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$('mktWowScan').addEventListener('click', loadMarketWowOffers);
+$('mktWowRefresh').addEventListener('click', loadMarketWowOffers);
+
+$('mktWowScanUrl').addEventListener('click', async () => {
+  const btn = $('mktWowScanUrl');
+  const url = $('mktWowUrl').value.trim();
+  const prog = $('mktWowResults');
+  btn.disabled = true;
+  prog.innerHTML = '<div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>';
+  try {
+    // Получаем список аккаунтов
+    const accs = await api('/api/market/accounts');
+    const accounts = accs.accounts || [];
+    if (accounts.length === 0) {
+      prog.innerHTML = '<div class="db-empty">Нет аккаунтов Маркета</div>';
+      return;
+    }
+    // Сканируем каждый аккаунт
+    let html = '<h3>Результаты сканирования</h3>';
+    for (const acc of accounts) {
+      try {
+        const r = await api('/api/market/wow-offers/scan', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account: acc.name, url: url || undefined }),
+        });
+        html += `<div class="card"><h4>${esc(acc.name)}</h4><pre>${JSON.stringify(r.results, null, 2)}</pre></div>`;
+      } catch (e) {
+        html += `<div class="card"><h4>${esc(acc.name)}</h4><p class="error">${esc(e.message)}</p></div>`;
+      }
+    }
+    prog.innerHTML = html;
+  } catch (e) {
+    prog.innerHTML = `<div class="db-empty">${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 // ================= boot =================
 async function boot() {
