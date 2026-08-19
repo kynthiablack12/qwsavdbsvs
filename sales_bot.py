@@ -13,7 +13,6 @@ webapp (Railway) POST /api/activate-key и возвращает ссылку н�
 
 import os
 import re
-import time
 import asyncio
 import logging
 
@@ -185,24 +184,22 @@ async def main():
 
 
 def run_in_background():
-    """Запуск бота в фоновом потоке (вызывается из webapp при старте).
+    """Запуск бота как отдельного процесса (спавнится webapp при старте).
 
-    Петля с перезапуском: если polling упал (сеть, Telegram) — ждём и
-    пробуем снова, чтобы бот жил вместе с webapp.
+    aiogram не может работать в фоновом потоке внутри gunicorn
+    (set_wakeup_fd only works in main thread), поэтому запускаем
+    отдельный дочерний процесс python sales_bot.py.
     """
-    import threading
+    import subprocess
+    import sys
 
-    def loop():
-        while True:
-            try:
-                asyncio.run(main())
-            except Exception as e:
-                log.warning('бот упал, перезапуск через 5 c: %s', e)
-            time.sleep(5)
-
-    t = threading.Thread(target=loop, name='sales_bot', daemon=True)
-    t.start()
-    return t
+    env = dict(os.environ)
+    env.pop('SALES_BOT_ENABLED', None)
+    proc = subprocess.Popen(
+        [sys.executable, os.path.abspath(__file__)],
+        env=env,
+    )
+    return proc
 
 
 if __name__ == '__main__':
