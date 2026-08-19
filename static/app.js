@@ -78,14 +78,14 @@ function switchTab(name) {
 document.querySelectorAll('#dbTabs .db-tab').forEach(b => b.addEventListener('click', () => {
   switchTab(b.dataset.tab);
   const loaders = { accounts: loadAdminAccounts, purchases: loadPurchases, coupons: loadCoupons,
-    prizes: loadPrizes, sessions: loadSessions, card: loadCardAdmin, eda: loadEda, auto: loadAuto, samokat: loadSamokat, market: loadMarketWowOffers };
+    prizes: loadPrizes, sessions: loadSessions, card: loadCardAdmin, eda: loadEda, auto: loadAuto, samokat: loadSamokat, market: initMarketWow };
   if (loaders[b.dataset.tab]) loaders[b.dataset.tab]();
 }));
 
 $('btnRefresh').addEventListener('click', () => {
   const active = document.querySelector('#dbTabs .db-tab.active');
   const loaders = { accounts: loadAdminAccounts, purchases: loadPurchases, coupons: loadCoupons,
-    prizes: loadPrizes, sessions: loadSessions, card: loadCardAdmin, eda: loadEda, auto: loadAuto, samokat: loadSamokat, market: loadMarketWowOffers };
+    prizes: loadPrizes, sessions: loadSessions, card: loadCardAdmin, eda: loadEda, auto: loadAuto, samokat: loadSamokat, market: initMarketWow };
   loadOverview();
   if (active && loaders[active.dataset.tab]) loaders[active.dataset.tab]();
 });
@@ -2512,6 +2512,12 @@ function renderMktWowResults(r) {
       $('mktWowResults').innerHTML = `<div class="db-empty">${esc(e.message)}</div>`;
     }
   }));
+}
+
+function initMarketWow() {
+  $('mktWowResults').innerHTML = '<div class="db-empty">Нажмите «Сканировать все аккаунты», чтобы проверить акции за 1₽</div>';
+  $('mktWowTable').querySelector('tbody').innerHTML = '<tr><td colspan="4" class="db-empty">Результаты появятся после сканирования</td></tr>';
+  $('mktWowCount').textContent = '';
 }
 
 async function loadMarketWowOffers() {
