@@ -141,8 +141,8 @@ async def on_key(message: Message):
         data = await asyncio.to_thread(_activate, norm, user_id)
     except RuntimeError as e:
         await sent.edit_text(
-            f'❌ <b>Не удалось активировать ключ.</b>\n\n{esc(str(e))}\n\n'
-            'Убедитесь, что ключ введён верно, или обратитесь к продавцу.',
+            f'⚠️ <b>Не удалось активировать ключ.</b>\n\n{esc(str(e))}\n\n'
+            'Проверьте ключ и попробуйте ещё раз.',
             reply_markup=main_menu(),
         )
         return
