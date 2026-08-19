@@ -2564,9 +2564,12 @@ $('mktWowScan').addEventListener('click', loadMarketWowOffers);
 async function loadMarketReviews() {
   const btn = $('mktReviewBtn');
   const prog = $('mktWowResults');
+  const logEl = $('mktReviewLog');
   const text = $('mktReviewText').value.trim();
   const grade = parseInt($('mktReviewGrade').value, 10) || 5;
   btn.disabled = true;
+  logEl.style.display = 'block';
+  logEl.textContent = '';
   prog.innerHTML = '<div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>';
   try {
     const r = await api('/api/market/reviews', {
@@ -2580,8 +2583,8 @@ async function loadMarketReviews() {
         const pct = st.progress || 0;
         prog.innerHTML =
           `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>` +
-          `<div class="db-mut" style="margin-top:6px">${esc(st.message || '')}</div>` +
-          `<pre class="mkt-log">${(st.log || []).map(l => `[${esc(l.t)}] ${esc(l.msg)}`).join('\n')}</pre>`;
+          `<div class="db-mut" style="margin-top:6px">${esc(st.message || '')}</div>`;
+        logEl.textContent = (st.log || []).map(l => `[${l.t}] ${l.msg}`).join('\n');
         if (st.state === 'done') {
           clearInterval(poll);
           btn.disabled = false;
