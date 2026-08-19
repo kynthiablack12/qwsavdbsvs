@@ -689,7 +689,9 @@ def review_all_accounts(accs=None, text=None, grade=5, anonymity=0, workers=5,
         tasks = info.get('tasks') or []
         if not sk or not tasks:
             if progress:
-                progress(f'{name}: заданий на отзыв нет', None)
+                reason = ('страница загрузилась, но sk не найден'
+                          if not sk else 'страница загрузилась, заданий на отзыв не найдено')
+                progress(f'{name}: {reason} (sid {session_id[:16]}...)', None)
             return name, {'reviews': [], 'skipped': 'no tasks'}
 
         if progress:

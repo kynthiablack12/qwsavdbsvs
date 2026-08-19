@@ -3083,12 +3083,18 @@ MKT_WOW_LOCK = threading.Lock()
 
 def _mkt_wow_scan_task(accs):
     """Собрать аккаунты Еды с Session_id в формат Маркета."""
-    return [{
-        'name': a.get('name'),
-        'session_id': a.get('session_id', ''),
-        'bearer': a.get('bearer', ''),
-        'proxy': a.get('proxy', ''),
-    } for a in accs if eda.sp_session_id(a) or a.get('session_id')]
+    result = []
+    for a in accs:
+        sid = (eda.sp_session_id(a) or a.get('session_id') or '').strip()
+        if not sid:
+            continue
+        result.append({
+            'name': a.get('name'),
+            'session_id': sid,
+            'bearer': a.get('bearer', ''),
+            'proxy': a.get('proxy', ''),
+        })
+    return result
 
 
 @app.route('/api/market/wow-offers', methods=['POST'])
