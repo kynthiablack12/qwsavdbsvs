@@ -3077,49 +3077,126 @@ def api_samokat_orders(token):
 #  Яндекс Маркет: акции «Товар за 1 рубль»
 # ============================================================
 
-@app.route('/api/market/wow-offers')
+MKT_WOW_TASKS = {}
+MKT_WOW_LOCK = threading.Lock()
+
+
+def _mkt_wow_scan_task(accs):
+    """Собрать аккаунты Еды с Session_id в формат Маркета."""
+    return [{
+        'name': a.get('name'),
+        'session_id': a.get('session_id', ''),
+        'bearer': a.get('bearer', ''),
+        'proxy': a.get('proxy', ''),
+    } for a in accs if eda.sp_session_id(a) or a.get('session_id')]
+
+
+@app.route('/api/market/wow-offers', methods=['POST'])
 def api_market_wow_offers():
-    """Сканировать все аккаунты Яндекса на наличие акций «Wow Offers».
+    """Сканировать аккаунты на наличие акций «Wow Offers» (фон, с логом).
 
-    Использует аккаунты из eda_accounts.json (session_id/bearer).
-    Параллельно (5 потоков), возвращает аккаунты с акцией + статус прогрева.
+    Возвращает task_id; прогресс/лог — через GET /api/market/wow-offers/status/<id>.
     """
-    try:
-        # Берём аккаунты Еды (у них есть session_id/bearer)
-        eda_accs = eda.load_eda_accounts()
-        # Фильтруем только те, у которых есть Session_id
-        yandex_accs = [a for a in eda_accs if eda.sp_session_id(a) or a.get('session_id')]
+    data = request.get_json(silent=True) or {}
+    names = data.get('names') or None
+    workers = int(data.get('workers') or 5)
+    task_id = hashlib.md5(os.urandom(16)).hexdigest()[:12]
+    with MKT_WOW_LOCK:
+        MKT_WOW_TASKS[task_id] = {
+            'state': 'running', 'progress': 0, 'message': 'Запуск…',
+            'log': [], 'result': None,
+        }
 
-        mkt_accs = [{
-            'name': a.get('name'),
-            'session_id': a.get('session_id', ''),
-            'bearer': a.get('bearer', ''),
-            'proxy': a.get('proxy', ''),
-        } for a in yandex_accs]
+    def _run():
+        def _log(msg):
+            with MKT_WOW_LOCK:
+                t = MKT_WOW_TASKS.get(task_id)
+                if not t:
+                    return
+                t['log'] = t['log'] + [{'t': time.strftime('%H:%M:%S'), 'msg': msg}]
 
-        scanned = market.scan_all_accounts_wow_offers(mkt_accs, workers=5)
+        def _cb(msg, frac):
+            with MKT_WOW_LOCK:
+                t = MKT_WOW_TASKS.get(task_id)
+                if not t:
+                    return
+                if frac is None:
+                    t['log'] = t['log'] + [{'t': time.strftime('%H:%M:%S'), 'msg': msg}]
+                else:
+                    t['progress'] = int(frac * 100)
+                    t['message'] = msg
 
-        available = {}
-        for name, r in scanned.items():
-            if r.get('has_wow'):
-                acc = next((a for a in yandex_accs if a.get('name') == name), None)
-                available[name] = {
-                    'has_wow': True,
-                    'checked_at': r.get('checked_at'),
-                    'warmup_at': (acc or {}).get('warmup_at'),
-                    'promo_ready_at': (acc or {}).get('promo_ready_at'),
-                    'device': ((acc or {}).get('device') or {}).get('model', ''),
+        try:
+            eda_accs = eda.load_eda_accounts()
+            if names:
+                eda_accs = [a for a in eda_accs if a.get('name') in names]
+            mkt_accs = _mkt_wow_scan_task(eda_accs)
+            if not mkt_accs:
+                _log('Нет аккаунтов с Session_id')
+                with MKT_WOW_LOCK:
+                    t = MKT_WOW_TASKS[task_id]
+                    t['state'] = 'done'
+                    t['progress'] = 100
+                    t['message'] = 'Нет аккаунтов с Session_id'
+                    t['result'] = {'total_scanned': 0, 'available_count': 0,
+                                   'available': {}, 'all': {}}
+                return
+
+            _log(f'Всего аккаунтов: {len(mkt_accs)}')
+            scanned = market.scan_all_accounts_wow_offers(mkt_accs,
+                                                           workers=workers,
+                                                           progress=_cb)
+
+            available = {}
+            for name, r in scanned.items():
+                if r.get('has_wow'):
+                    acc = next((a for a in eda_accs if a.get('name') == name), None)
+                    available[name] = {
+                        'has_wow': True,
+                        'checked_at': r.get('checked_at'),
+                        'warmup_at': (acc or {}).get('warmup_at'),
+                        'promo_ready_at': (acc or {}).get('promo_ready_at'),
+                        'device': ((acc or {}).get('device') or {}).get('model', ''),
+                    }
+
+            found_names = list(available.keys())
+            if found_names:
+                _log(f'Найдено акций: {len(found_names)} — {", ".join(found_names)}')
+            else:
+                _log('Акций не найдено')
+
+            with MKT_WOW_LOCK:
+                t = MKT_WOW_TASKS[task_id]
+                t['state'] = 'done'
+                t['progress'] = 100
+                t['message'] = 'Готово'
+                t['result'] = {
+                    'total_scanned': len(scanned),
+                    'available_count': len(available),
+                    'available': available,
+                    'all': scanned,
                 }
+        except Exception as e:
+            _log(f'Ошибка: {e}')
+            with MKT_WOW_LOCK:
+                t = MKT_WOW_TASKS[task_id]
+                t['state'] = 'error'
+                t['message'] = str(e)
+                t['result'] = None
 
-        return jsonify({
-            'ok': True,
-            'total_scanned': len(scanned),
-            'available_count': len(available),
-            'available': available,
-            'all': scanned,
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({'ok': True, 'task_id': task_id})
+
+
+@app.route('/api/market/wow-offers/status/<task_id>')
+def api_market_wow_offers_status(task_id):
+    with MKT_WOW_LOCK:
+        t = MKT_WOW_TASKS.get(task_id)
+    if not t:
+        return jsonify({'error': 'task not found'}), 404
+    return jsonify({'state': t['state'], 'progress': t['progress'],
+                    'message': t['message'], 'log': t['log'],
+                    'result': t['result']})
 
 
 @app.route('/api/market/wow-offers/<name>')

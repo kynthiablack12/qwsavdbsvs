@@ -413,12 +413,13 @@ def scan_account_wow_offers(acc):
     }
 
 
-def scan_all_accounts_wow_offers(accs=None, workers=5):
+def scan_all_accounts_wow_offers(accs=None, workers=5, progress=None):
     """Сканировать аккаунты на наличие акций параллельно.
 
     accs — список dict-аккаунтов {name, session_id}. По умолчанию — все
     аккаунты из market_accounts.json.
     workers — число параллельных потоков (по умолчанию 5).
+    progress — колбэк (msg, frac) для лога/прогресса.
     Возвращает dict {name: {has_wow: bool, ...}}.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -428,18 +429,31 @@ def scan_all_accounts_wow_offers(accs=None, workers=5):
     if not accs:
         return {}
 
+    if progress:
+        progress(f'Найдено аккаунтов для проверки: {len(accs)}', None)
+
     def _check(acc):
         name = acc.get('name', 'unknown')
         try:
-            return name, scan_account_wow_offers(acc)
+            r = scan_account_wow_offers(acc)
+            if progress:
+                progress(f'{name}: {"акция ЕСТЬ" if r.get("has_wow") else "акции нет"}', None)
+            return name, r
         except Exception as e:
+            if progress:
+                progress(f'{name}: ошибка {e}', None)
             return name, {'has_wow': False, 'error': str(e)}
 
     results = {}
+    done = 0
+    total = len(accs)
     with ThreadPoolExecutor(max_workers=min(workers, len(accs))) as pool:
         futures = {pool.submit(_check, acc): acc for acc in accs}
         for f in as_completed(futures):
             name, result = f.result()
             results[name] = result
+            done += 1
+            if progress:
+                progress(f'Проверено {done}/{total}', done / total)
 
     return results

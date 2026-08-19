@@ -2473,9 +2473,46 @@ $('spWheelRun').addEventListener('click', runSpWheel);
 function switchMktTab(name) {
   document.querySelectorAll('#pane-market .db-tabs.sub .db-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   $('pane-mktWow').classList.toggle('active', name === 'mktWow');
-  if (name === 'mktWow') loadMarketWowOffers();
 }
 document.querySelectorAll('#pane-market .db-tabs.sub .db-tab').forEach(b => b.addEventListener('click', () => switchMktTab(b.dataset.tab)));
+
+function renderMktWowResults(r) {
+  const tb = $('mktWowTable').querySelector('tbody');
+  const available = r.available || {};
+  const entries = Object.entries(available);
+  tb.innerHTML = entries.map(([name, result]) => {
+    const warmupAt = result.warmup_at || result.promo_ready_at;
+    const readyIn = result.promo_ready_at ? Math.max(0, result.promo_ready_at - Date.now() / 1000) : null;
+    const warmupInfo = readyIn > 0
+      ? `<span class="sd-badge warn">Прогрев ${Math.ceil(readyIn / 60)} мин</span>`
+      : (warmupAt ? `<span class="sd-badge ok">Прогрет</span>` : `<span class="sd-badge warn">Не прогрет</span>`);
+    return `
+      <tr>
+        <td><b>${esc(name)}</b></td>
+        <td><span class="sd-badge ok">✅ Акция за 1₽ доступна</span></td>
+        <td>${warmupInfo}</td>
+        <td class="col-actions">
+          <div class="row-actions">
+            <button class="btn btn-ghost btn-sm" data-mkt-warmup="${esc(name)}">🔥 Прогреть</button>
+          </div>
+        </td>
+      </tr>`;
+  }).join('') || '<tr><td colspan="4" class="db-empty">Нет аккаунтов с доступными акциями</td></tr>';
+  $('mktWowCount').textContent = `найдено: ${entries.length} из ${r.total_scanned || 0}`;
+  tb.querySelectorAll('[data-mkt-warmup]').forEach(b => b.addEventListener('click', async () => {
+    const name = b.dataset.mktWarmup;
+    b.disabled = true;
+    b.textContent = 'Прогреваем…';
+    try {
+      await api('/api/eda/warmup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names: [name] }) });
+      b.textContent = '🔥 Прогрето';
+      setTimeout(() => loadMarketWowOffers(), 1500);
+    } catch (e) {
+      b.textContent = 'Ошибка';
+      $('mktWowResults').innerHTML = `<div class="db-empty">${esc(e.message)}</div>`;
+    }
+  }));
+}
 
 async function loadMarketWowOffers() {
   const btn = $('mktWowScan');
@@ -2483,53 +2520,40 @@ async function loadMarketWowOffers() {
   btn.disabled = true;
   prog.innerHTML = '<div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>';
   try {
-    const r = await api('/api/market/wow-offers');
-    prog.innerHTML = '';
-    const tb = $('mktWowTable').querySelector('tbody');
-    const available = r.available || {};
-    const entries = Object.entries(available);
-    tb.innerHTML = entries.map(([name, result]) => {
-      const warmupAt = result.warmup_at || result.promo_ready_at;
-      const readyIn = result.promo_ready_at ? Math.max(0, result.promo_ready_at - Date.now() / 1000) : null;
-      const warmupInfo = readyIn > 0
-        ? `<span class="sd-badge warn">Прогрев ${Math.ceil(readyIn / 60)} мин</span>`
-        : (warmupAt ? `<span class="sd-badge ok">Прогрет</span>` : `<span class="sd-badge warn">Не прогрет</span>`);
-      return `
-        <tr>
-          <td><b>${esc(name)}</b></td>
-          <td><span class="sd-badge ok">✅ Акция за 1₽ доступна</span></td>
-          <td>${warmupInfo}</td>
-          <td class="col-actions">
-            <div class="row-actions">
-              <button class="btn btn-ghost btn-sm" data-mkt-warmup="${esc(name)}">🔥 Прогреть</button>
-            </div>
-          </td>
-        </tr>`;
-    }).join('') || '<tr><td colspan="4" class="db-empty">Нет аккаунтов с доступными акциями</td></tr>';
-    $('mktWowCount').textContent = `найдено: ${entries.length} из ${r.total_scanned || 0}`;
-    tb.querySelectorAll('[data-mkt-warmup]').forEach(b => b.addEventListener('click', async () => {
-      const name = b.dataset.mktWarmup;
-      b.disabled = true;
-      b.textContent = 'Прогреваем…';
+    const r = await api('/api/market/wow-offers', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    const taskId = r.task_id;
+    const poll = setInterval(async () => {
       try {
-        await api('/api/eda/warmup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names: [name] }) });
-        b.textContent = '🔥 Прогрето';
-        loadMarketWowOffers();
+        const st = await api(`/api/market/wow-offers/status/${taskId}`);
+        const pct = st.progress || 0;
+        prog.innerHTML =
+          `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>` +
+          `<div class="db-mut" style="margin-top:6px">${esc(st.message || '')}</div>` +
+          `<pre class="mkt-log">${(st.log || []).map(l => `[${esc(l.t)}] ${esc(l.msg)}`).join('\n')}</pre>`;
+        if (st.state === 'done') {
+          clearInterval(poll);
+          btn.disabled = false;
+          renderMktWowResults(st.result || {});
+        } else if (st.state === 'error') {
+          clearInterval(poll);
+          btn.disabled = false;
+          prog.innerHTML = `<div class="db-empty">${esc(st.message || 'Ошибка сканирования')}</div>`;
+        }
       } catch (e) {
-        b.textContent = 'Ошибка';
+        clearInterval(poll);
+        btn.disabled = false;
         prog.innerHTML = `<div class="db-empty">${esc(e.message)}</div>`;
       }
-    }));
+    }, 1500);
   } catch (e) {
     prog.innerHTML = `<div class="db-empty">${esc(e.message)}</div>`;
-    $('mktWowTable').querySelector('tbody').innerHTML = `<tr><td colspan="4" class="db-empty">${esc(e.message)}</td></tr>`;
-  } finally {
     btn.disabled = false;
   }
 }
 
 $('mktWowScan').addEventListener('click', loadMarketWowOffers);
-$('mktWowRefresh').addEventListener('click', loadMarketWowOffers);
 
 $('mktWowScanUrl').addEventListener('click', async () => {
   const btn = $('mktWowScanUrl');

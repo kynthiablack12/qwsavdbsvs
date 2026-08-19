@@ -471,6 +471,7 @@ table.data-table {
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 .db-empty { text-align: center; padding: 30px 12px; color: var(--muted); }
 .db-mut { color: var(--muted); font-size: 11px; font-weight: 500; margin-top: 2px; }
+.mkt-log { max-height: 240px; overflow: auto; background: rgba(0,0,0,.25); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.6; margin-top: 8px; white-space: pre-wrap; word-break: break-word; }
 .mono { font-family: 'Cascadia Code', Consolas, monospace; }
 .num { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12px; white-space: nowrap; }
 .num.ok { color: var(--green); font-weight: 700; }
