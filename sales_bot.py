@@ -18,6 +18,7 @@ import logging
 
 import requests
 from aiogram import Bot, Dispatcher, F
+from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (Message, CallbackQuery, InlineKeyboardMarkup,
@@ -33,7 +34,7 @@ ADMIN_IDS = [int(x) for x in os.environ.get('ADMIN_IDS', '').split(',') if x.str
 
 KEY_RE = re.compile(r'^[A-Za-z0-9]{4,64}$')
 
-bot = Bot(BOT_TOKEN, default=ParseMode.HTML)
+bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
 WELCOME = (
