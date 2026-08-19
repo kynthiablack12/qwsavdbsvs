@@ -403,12 +403,12 @@ def scan_account_wow_offers(acc):
     """
     session_id = acc.get('session_id', '')
     if not session_id:
-        return {'has_wow': False, 'error': 'no session_id'}
+        return {'has_wow': False, 'error': 'no session_id', 'session_id': ''}
 
     has_wow = check_wow_offers(session_id)
     return {
         'has_wow': has_wow,
-        'session_id': session_id[:20] + '...',
+        'session_id': session_id[:24] + '...',
         'checked_at': time.time(),
     }
 
@@ -436,8 +436,16 @@ def scan_all_accounts_wow_offers(accs=None, workers=5, progress=None):
         name = acc.get('name', 'unknown')
         try:
             r = scan_account_wow_offers(acc)
+            sid = r.get('session_id') or ''
+            has = r.get('has_wow')
+            if has:
+                msg = f'{name}: акция ЕСТЬ (sid {sid})'
+            elif r.get('error'):
+                msg = f'{name}: ошибка: {r.get("error")}'
+            else:
+                msg = f'{name}: акции нет (sid {sid})'
             if progress:
-                progress(f'{name}: {"акция ЕСТЬ" if r.get("has_wow") else "акции нет"}', None)
+                progress(msg, None)
             return name, r
         except Exception as e:
             if progress:
