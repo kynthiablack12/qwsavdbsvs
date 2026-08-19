@@ -474,6 +474,15 @@
         <span class="db-count" id="mktWowCount"></span>
       </div>
       <div class="eda-add" style="margin-top:10px">
+        <label>Текст отзыва
+          <input type="text" id="mktReviewText" placeholder="Товар соответствует описанию. Доставка быстрая." style="width:100%">
+        </label>
+        <label style="margin-left:8px">Оценка
+          <input type="number" id="mktReviewGrade" value="5" min="1" max="5" style="width:60px">
+        </label>
+        <button class="btn btn-primary" id="mktReviewBtn">✍️ Оставить отзывы на всех аккаунтах</button>
+      </div>
+      <div class="eda-add" style="margin-top:10px">
         <label>URL для сканирования (оставьте пустым для URL по умолчанию)
           <input type="text" id="mktWowUrl" placeholder="https://market.yandex.ru/page/wow_offers?..." style="width:100%">
         </label>

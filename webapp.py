@@ -3266,6 +3266,116 @@ def api_market_scan_wow():
         return jsonify({'error': str(e)}), 500
 
 
+# ============================================================
+#  Яндекс Маркет: авто-отзывы (UGC) на всех аккаунтах
+# ============================================================
+
+MKT_REVIEW_TASKS = {}
+MKT_REVIEW_LOCK = threading.Lock()
+
+
+@app.route('/api/market/reviews', methods=['POST'])
+def api_market_reviews():
+    """Оставить отзывы на всех аккаунтах (фон, с логом).
+
+    Тело: {text, grade, anonymity, names, dry_run}.
+    Возвращает task_id; прогресс/лог — через GET /api/market/reviews/status/<id>.
+    """
+    data = request.get_json(silent=True) or {}
+    names = data.get('names') or None
+    text = (data.get('text') or '').strip()
+    grade = int(data.get('grade') or 5)
+    anonymity = int(data.get('anonymity') or 0)
+    dry_run = bool(data.get('dry_run'))
+    workers = int(data.get('workers') or 5)
+    task_id = hashlib.md5(os.urandom(16)).hexdigest()[:12]
+    with MKT_REVIEW_LOCK:
+        MKT_REVIEW_TASKS[task_id] = {
+            'state': 'running', 'progress': 0, 'message': 'Запуск…',
+            'log': [], 'result': None,
+        }
+
+    def _run():
+        def _log(msg):
+            with MKT_REVIEW_LOCK:
+                t = MKT_REVIEW_TASKS.get(task_id)
+                if not t:
+                    return
+                t['log'] = t['log'] + [{'t': time.strftime('%H:%M:%S'), 'msg': msg}]
+
+        def _cb(msg, frac):
+            with MKT_REVIEW_LOCK:
+                t = MKT_REVIEW_TASKS.get(task_id)
+                if not t:
+                    return
+                if frac is None:
+                    t['log'] = t['log'] + [{'t': time.strftime('%H:%M:%S'), 'msg': msg}]
+                else:
+                    t['progress'] = int(frac * 100)
+                    t['message'] = msg
+
+        try:
+            eda_accs = eda.load_eda_accounts()
+            if names:
+                eda_accs = [a for a in eda_accs if a.get('name') in names]
+            mkt_accs = _mkt_wow_scan_task(eda_accs)
+            if not mkt_accs:
+                _log('Нет аккаунтов с Session_id')
+                with MKT_REVIEW_LOCK:
+                    t = MKT_REVIEW_TASKS[task_id]
+                    t['state'] = 'done'
+                    t['progress'] = 100
+                    t['message'] = 'Нет аккаунтов с Session_id'
+                    t['result'] = {'total': 0, 'reviewed_count': 0, 'results': {}}
+                return
+
+            _log(f'Всего аккаунтов: {len(mkt_accs)}')
+            results = market.review_all_accounts(mkt_accs, text=text,
+                                                 grade=grade,
+                                                 anonymity=anonymity,
+                                                 workers=workers,
+                                                 progress=_cb,
+                                                 dry_run=dry_run)
+
+            reviewed = 0
+            for name, r in results.items():
+                reviewed += (r or {}).get('reviewed_count', 0) or 0
+
+            _log(f'Отзывов оставлено: {reviewed}')
+
+            with MKT_REVIEW_LOCK:
+                t = MKT_REVIEW_TASKS[task_id]
+                t['state'] = 'done'
+                t['progress'] = 100
+                t['message'] = 'Готово'
+                t['result'] = {
+                    'total': len(results),
+                    'reviewed_count': reviewed,
+                    'results': results,
+                }
+        except Exception as e:
+            _log(f'Ошибка: {e}')
+            with MKT_REVIEW_LOCK:
+                t = MKT_REVIEW_TASKS[task_id]
+                t['state'] = 'error'
+                t['message'] = str(e)
+                t['result'] = None
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({'ok': True, 'task_id': task_id})
+
+
+@app.route('/api/market/reviews/status/<task_id>')
+def api_market_reviews_status(task_id):
+    with MKT_REVIEW_LOCK:
+        t = MKT_REVIEW_TASKS.get(task_id)
+    if not t:
+        return jsonify({'error': 'task not found'}), 404
+    return jsonify({'state': t['state'], 'progress': t['progress'],
+                    'message': t['message'], 'log': t['log'],
+                    'result': t['result']})
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', '5001'))
     print(f' * Web UI: http://0.0.0.0:{port}')

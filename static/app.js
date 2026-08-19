@@ -2561,6 +2561,74 @@ async function loadMarketWowOffers() {
 
 $('mktWowScan').addEventListener('click', loadMarketWowOffers);
 
+async function loadMarketReviews() {
+  const btn = $('mktReviewBtn');
+  const prog = $('mktWowResults');
+  const text = $('mktReviewText').value.trim();
+  const grade = parseInt($('mktReviewGrade').value, 10) || 5;
+  btn.disabled = true;
+  prog.innerHTML = '<div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>';
+  try {
+    const r = await api('/api/market/reviews', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text || undefined, grade }),
+    });
+    const taskId = r.task_id;
+    const poll = setInterval(async () => {
+      try {
+        const st = await api(`/api/market/reviews/status/${taskId}`);
+        const pct = st.progress || 0;
+        prog.innerHTML =
+          `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>` +
+          `<div class="db-mut" style="margin-top:6px">${esc(st.message || '')}</div>` +
+          `<pre class="mkt-log">${(st.log || []).map(l => `[${esc(l.t)}] ${esc(l.msg)}`).join('\n')}</pre>`;
+        if (st.state === 'done') {
+          clearInterval(poll);
+          btn.disabled = false;
+          renderMktReviewResults(st.result || {});
+        } else if (st.state === 'error') {
+          clearInterval(poll);
+          btn.disabled = false;
+          prog.innerHTML = `<div class="db-empty">${esc(st.message || 'Ошибка отправки отзывов')}</div>`;
+        }
+      } catch (e) {
+        clearInterval(poll);
+        btn.disabled = false;
+        prog.innerHTML = `<div class="db-empty">${esc(e.message)}</div>`;
+      }
+    }, 1500);
+  } catch (e) {
+    prog.innerHTML = `<div class="db-empty">${esc(e.message)}</div>`;
+    btn.disabled = false;
+  }
+}
+
+function renderMktReviewResults(r) {
+  const results = r.results || {};
+  const names = Object.keys(results);
+  if (names.length === 0) {
+    $('mktWowResults').innerHTML = '<div class="db-empty">Нет результатов</div>';
+    return;
+  }
+  const rows = names.map(name => {
+    const res = results[name];
+    const revs = res.reviews || [];
+    const count = res.reviewed_count || 0;
+    const detail = revs.map(rv => {
+      if (rv.error) return `<div class="db-error">ошибка: ${esc(rv.error)}</div>`;
+      if (rv.dry_run) return `<div class="db-mut">найдено задание (dry run): sku ${esc((rv.data||{}).sku || '')}</div>`;
+      return `<div class="db-mut">отзыв ${rv.review_id ? '#' + rv.review_id : 'не сохранён'}: sku ${esc((rv.data||{}).sku || '')}</div>`;
+    }).join('');
+    const status = count ? `<span class="badge badge-ok">${count} отзыв(ов)</span>` : '<span class="badge badge-mut">нет</span>';
+    return `<tr><td>${esc(name)}</td><td>${status}</td><td>${detail}</td></tr>`;
+  }).join('');
+  $('mktWowTable').querySelector('tbody').innerHTML = rows;
+  $('mktWowCount').textContent = `отзывов оставлено: ${r.reviewed_count || 0} из ${r.total || 0} аккаунтов`;
+  $('mktWowResults').innerHTML = '';
+}
+
+$('mktReviewBtn').addEventListener('click', loadMarketReviews);
+
 $('mktWowScanUrl').addEventListener('click', async () => {
   const btn = $('mktWowScanUrl');
   const url = $('mktWowUrl').value.trim();

@@ -1,4 +1,4 @@
-import sys, os, json, uuid, time, re, random, threading, urllib.parse, html, contextlib
+import sys, os, json, uuid, time, re, random, threading, urllib.parse, html, contextlib, base64
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
 import requests
@@ -463,5 +463,274 @@ def scan_all_accounts_wow_offers(accs=None, workers=5, progress=None):
             done += 1
             if progress:
                 progress(f'Проверено {done}/{total}', done / total)
+
+    return results
+
+
+# ---------- UGC reviews (авто-отзывы) ----------
+
+# Базовый URL UGC-эндпоинтов (получен из браузера, см. market_review_flow.md)
+UGC_MARKET_FRONT = (
+    'https://market.yandex.ru/api/web/'
+    'market.front.marketFront.MarketFront'
+)
+
+MY_TASKS_PATH = '/my/tasks'
+
+
+def _parse_tasks_page(text):
+    """Извлечь sk (CSRF) и задания на отзыв из HTML страницы /my/tasks.
+
+    Возвращает (sk, tasks), где tasks — список dict
+    {'context': base64, 'data': {раскодированный JSON}, 'title': str}.
+    """
+    sk = None
+    m = re.search(r'"sk":"(u[0-9a-f]{32})"', text)
+    if m:
+        sk = m.group(1)
+
+    tasks = []
+    b64pat = re.compile(r'[A-Za-z0-9+/]{60,}={0,2}')
+    for mm in b64pat.finditer(text):
+        s = mm.group(0)
+        try:
+            d = json.loads(base64.b64decode(s))
+        except Exception:
+            continue
+        if not isinstance(d, dict):
+            continue
+        if not ('orderId' in d and 'agitationId' in d and 'modelId' in d):
+            continue
+        tasks.append({'context': s, 'data': d})
+
+    # Уникализация по agitationId
+    seen = set()
+    uniq = []
+    for t in tasks:
+        key = t['data'].get('agitationId') or t['context']
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(t)
+    return sk, uniq
+
+
+def get_review_tasks(session_id, timeout=30):
+    """Получить задания на отзыв (UGC-контексты) для аккаунта.
+
+    session_id — строка Session_id (начинается с "3:...").
+    Возвращает dict {'sk': str, 'tasks': [...], 'error': str|None}.
+    """
+    if not session_id:
+        return {'sk': None, 'tasks': [], 'error': 'no session_id'}
+
+    if session_id.startswith('Session_id='):
+        session_id = session_id[len('Session_id='):]
+
+    hdrs = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                      'AppleWebKit/537.36 (KHTML, like Gecko) '
+                      'Chrome/151.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ru-RU,ru;q=0.9',
+        'Cookie': f'Session_id={session_id}',
+    }
+
+    try:
+        r = requests.get(MARKET_HOST + MY_TASKS_PATH, headers=hdrs, timeout=timeout)
+    except requests.RequestException as e:
+        return {'sk': None, 'tasks': [], 'error': f'сеть: {e}'}
+
+    if r.status_code in (401, 403):
+        return {'sk': None, 'tasks': [], 'error': 'авторизация отклонена (сессия невалидна)'}
+    if r.status_code >= 400:
+        return {'sk': None, 'tasks': [], 'error': f'HTTP {r.status_code}'}
+
+    sk, tasks = _parse_tasks_page(r.text)
+    return {'sk': sk, 'tasks': tasks, 'error': None}
+
+
+def _ugc_headers(sk, session_id):
+    """Заголовки для UGC-запросов (соответствуют реальным из браузера)."""
+    return {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                      'AppleWebKit/537.36 (KHTML, like Gecko) '
+                      'Chrome/151.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Language': 'ru',
+        'Content-Type': 'application/json',
+        'Origin': 'https://market.yandex.ru',
+        'Referer': 'https://market.yandex.ru/my/tasks',
+        'sk': sk,
+        'x-market-app-version': '2026.08.16.0-desktop.t4520775952',
+        'x-market-apphost-target': 'market-pers-master-apphost',
+        'x-market-core-service': '<UNKNOWN>',
+        'x-market-front-glue': '1787131749000',
+        'x-market-page-id': 'market:my-tasks',
+        'x-requested-with': 'XMLHttpRequest',
+        'x-retpath-y': 'https://market.yandex.ru/my/tasks',
+        'Cookie': f'Session_id={session_id}',
+    }
+
+
+def _ugc_call(sk, session_id, method, body, timeout=30):
+    """Вызвать UGC-эндпоинт Маркета."""
+    url = f'{UGC_MARKET_FRONT}/{method}'
+    try:
+        r = requests.post(url, headers=_ugc_headers(sk, session_id),
+                          json=body, timeout=timeout)
+    except requests.RequestException as e:
+        return {'_error': f'сеть: {e}'}
+    if r.status_code >= 400:
+        return {'_error': f'HTTP {r.status_code}: {r.text[:300]}'}
+    try:
+        return r.json()
+    except Exception:
+        return {'_status': r.status_code, '_text': r.text[:500]}
+
+
+def post_review(session_id, sk, context, text, grade=5, anonymity=0,
+                factors=None, timeout=30):
+    """Отправить отзыв на задание из «Мои задания».
+
+    session_id — Session_id аккаунта.
+    sk — CSRF-токен со страницы /my/tasks.
+    context — base64-контекст задания (из get_review_tasks).
+    text — текст отзыва (pro).
+    grade — оценка 1..5.
+    anonymity — 0 (публично) или 1 (анонимно).
+    factors — dict выбранных факторов (по умолчанию {}).
+    Возвращает dict с результатом Save + ThankPage.
+    """
+    if session_id.startswith('Session_id='):
+        session_id = session_id[len('Session_id='):]
+
+    save_body = {
+        'path': '/my/tasks',
+        'params': {
+            'requestType': 'SAVE_REVIEW',
+            'context': context,
+            'body': {
+                'averageGrade': grade,
+                'pro': text,
+                'anonymity': anonymity,
+                'selectedFactors': factors or {},
+                'media': [],
+            },
+        },
+    }
+    save_res = _ugc_call(sk, session_id, 'apiUgcReviewFormSave', save_body, timeout)
+
+    result = {'save': save_res}
+
+    # Если отзыв сохранён — завершаем флоу (ThankPage)
+    review_id = None
+    try:
+        col = (save_res.get('result') or {}).get('collections') or {}
+        for rid, rv in (col.get('review') or {}).items():
+            review_id = rid
+            break
+    except Exception:
+        pass
+    result['review_id'] = review_id
+
+    if review_id is not None:
+        thanks_body = {
+            'path': '/my/tasks',
+            'params': {'requestType': 'THANKS', 'context': context},
+        }
+        result['thank'] = _ugc_call(sk, session_id, 'apiUgcThankPage', thanks_body, timeout)
+
+    return result
+
+
+def review_all_accounts(accs=None, text=None, grade=5, anonymity=0, workers=5,
+                        progress=None, dry_run=False):
+    """Оставить отзывы на всех аккаунтах.
+
+    accs — список dict {name, session_id}. По умолчанию — все из
+    market_accounts.json.
+    text — текст отзыва. По умолчанию — нейтральный.
+    grade — оценка 1..5.
+    anonymity — 0/1.
+    workers — число параллельных потоков.
+    progress — колбэк (msg, frac).
+    dry_run — не отправлять, только показать найденные задания.
+    Возвращает dict {name: результат}.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    if accs is None:
+        accs = load_market_accounts()
+    if not accs:
+        return {}
+
+    if text is None:
+        text = 'Товар соответствует описанию. Доставка быстрая.'
+
+    if progress:
+        progress(f'Аккаунтов для отзывов: {len(accs)}', None)
+
+    def _work(acc):
+        name = acc.get('name', 'unknown')
+        session_id = acc.get('session_id', '')
+        if not session_id:
+            if progress:
+                progress(f'{name}: нет session_id', None)
+            return name, {'error': 'no session_id'}
+
+        info = get_review_tasks(session_id)
+        if info.get('error'):
+            if progress:
+                progress(f'{name}: ошибка {info["error"]}', None)
+            return name, {'error': info['error']}
+
+        sk = info.get('sk')
+        tasks = info.get('tasks') or []
+        if not sk or not tasks:
+            if progress:
+                progress(f'{name}: заданий на отзыв нет', None)
+            return name, {'reviews': [], 'skipped': 'no tasks'}
+
+        if progress:
+            progress(f'{name}: заданий на отзыв: {len(tasks)}', None)
+
+        reviews = []
+        for t in tasks:
+            context = t['context']
+            data = t.get('data') or {}
+            if dry_run:
+                reviews.append({'context': context, 'data': data,
+                                'dry_run': True})
+                continue
+            try:
+                res = post_review(session_id, sk, context, text,
+                                  grade=grade, anonymity=anonymity)
+                rid = res.get('review_id')
+                status = f'отзыв #{rid}' if rid else 'не сохранён'
+                reviews.append({'context': context, 'data': data,
+                                'review_id': rid, 'save': res.get('save'),
+                                'thank': res.get('thank')})
+                if progress:
+                    progress(f'{name}: {status}', None)
+            except Exception as e:
+                reviews.append({'context': context, 'data': data,
+                                'error': str(e)})
+                if progress:
+                    progress(f'{name}: ошибка отзыва: {e}', None)
+
+        return name, {'reviews': reviews, 'reviewed_count': len(reviews)}
+
+    results = {}
+    done = 0
+    total = len(accs)
+    with ThreadPoolExecutor(max_workers=min(workers, len(accs))) as pool:
+        futures = {pool.submit(_work, acc): acc for acc in accs}
+        for f in as_completed(futures):
+            name, result = f.result()
+            results[name] = result
+            done += 1
+            if progress:
+                progress(f'Обработано {done}/{total}', done / total)
 
     return results
