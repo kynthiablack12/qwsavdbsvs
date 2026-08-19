@@ -278,6 +278,8 @@ h1,h2,h3{font-family:'YSCompressed','YSText',sans-serif;font-weight:800}
 .cart-row .btn-main{width:auto;margin:0;padding:12px 16px;white-space:nowrap}
 select.inp,.ap-field select{appearance:none;-webkit-appearance:none}
 .chk-block details summary{cursor:pointer;color:var(--ink45);font-size:13px}
+.plus-switch{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;font-size:13px;color:var(--ink);font-weight:500;white-space:nowrap}
+.plus-switch input{width:18px;height:18px;accent-color:var(--yellow)}
 .db-mut{color:var(--ink45);font-size:12px;line-height:1.5}
 /* пустая корзина */
 .cart-empty{padding:60px 24px 24px;text-align:center}
@@ -287,11 +289,8 @@ select.inp,.ap-field select{appearance:none;-webkit-appearance:none}
 .cart-empty .btn-yellow{display:block;width:100%;max-width:320px;margin:28px auto 0;background:var(--yellow);color:var(--ink);border:none;border-radius:16px;font-family:inherit;font-size:15px;font-weight:500;padding:16px;cursor:pointer}
 
 /* ---------- Выбор адреса ---------- */
-.screen#address{display:none;padding-bottom:0;flex-direction:column;height:100dvh;overflow:hidden}
-#address.active{display:flex}
-.addr-top{position:sticky;top:0;z-index:30;background:var(--bg);padding:8px 16px 12px;display:flex;align-items:center;gap:6px}
-.addr-top .backlink{flex-shrink:0}
-.addr-search{margin:0;flex:1;min-width:0}
+#address .addr-top{position:sticky;top:0;z-index:30;background:var(--bg);padding:8px 16px 12px;display:flex;align-items:center;gap:6px}
+#address .addr-top .backlink{flex-shrink:0}
 .addr-suggest{position:absolute;top:0;left:0;right:0;z-index:40;background:#fff;border-radius:0 0 20px 20px;box-shadow:0 8px 24px rgba(33,32,31,.14);max-height:62vh;overflow:auto;padding:8px 0}
 .addr-suggest .as-item{display:flex;align-items:center;gap:10px;padding:12px 18px;cursor:pointer;font-size:14px;border:none;background:none;width:100%;text-align:left;font-family:inherit;color:var(--ink)}
 .addr-suggest .as-item:active{background:var(--bg)}
@@ -302,13 +301,6 @@ select.inp,.ap-field select{appearance:none;-webkit-appearance:none}
 .addr-saved .as-item:active{background:var(--bg)}
 .addr-saved .as-item .ic{font-size:18px;flex-shrink:0;opacity:.6}
 .addr-saved .as-item small{display:block;color:var(--ink45);font-size:12px;margin-top:2px}
-.addr-mapwrap{position:relative;flex:1;min-height:280px;margin-top:10px;background:#E9EBEA}
-#addrMap{position:absolute;inset:0}
-.addr-pin{position:absolute;left:50%;top:50%;width:0;height:0;z-index:20;pointer-events:none;transform:translate(-50%,-100%)}
-.addr-pin::before{content:"";position:absolute;left:-17px;top:-34px;width:34px;height:34px;border-radius:50%;background:var(--red);box-shadow:0 2px 8px rgba(0,0,0,.35)}
-.addr-pin::after{content:"";position:absolute;left:-5px;top:-14px;width:10px;height:10px;border-radius:50%;background:#fff}
-.addr-recenter{position:absolute;right:14px;bottom:18px;z-index:20;width:44px;height:44px;border-radius:50%;background:#fff;border:none;box-shadow:0 2px 10px rgba(33,32,31,.2);font-size:20px;cursor:pointer;font-family:inherit;color:var(--ink)}
-.addr-panel{position:sticky;bottom:0;z-index:30;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -4px 20px rgba(33,32,31,.08);padding:16px 16px 20px}
 .addr-panel .btn-main{width:100%;margin:10px 0 0}
 .ap-main{display:flex;align-items:flex-start;gap:12px}
 .ap-line{font-size:15px;font-weight:500;color:var(--ink);line-height:1.35}
@@ -334,11 +326,11 @@ select.inp,.ap-field select{appearance:none;-webkit-appearance:none}
   <div class="screen active" id="home">
     <header class="top">
       <button class="avatar" onclick="showView('orders')" title="Заказы">Е</button>
-      <div class="addr" onclick="openAddress()">
-        <span class="addr-line">Адрес и время доставки ›</span>
-        <strong id="addrCity">Омск, проспект Мира, 33</strong>
+      <div class="addr" onclick="openAddrPick()">
+        <span class="addr-line" id="addrLineTop">Привезти сюда?</span>
+        <strong id="addrCity">Выбрать адрес</strong>
       </div>
-      <button class="plus" onclick="toast('Яндекс Плюс: пока недоступно')">Плюс</button>
+      <button class="plus" id="plusBtn" onclick="showPlusInfo()" title="Баллы Яндекс Плюс">Плюс</button>
     </header>
 
     <div class="promo-timer hidden" id="promoTimer"></div>
@@ -487,35 +479,7 @@ select.inp,.ap-field select{appearance:none;-webkit-appearance:none}
 
   <!-- ================= ВЫБОР АДРЕСА ================= -->
   <div class="screen" id="address">
-    <div class="addr-top">
-      <button class="backlink" onclick="closeAddress()">‹</button>
-      <div class="search addr-search">
-        <i>🔍</i>
-        <input id="addrInput" type="text" placeholder="Куда доставить?" autocomplete="off">
-        <button class="clear hidden" id="addrClear">✕</button>
-      </div>
-    </div>
-    <div id="addrSuggest" class="addr-suggest hidden"></div>
-    <div id="addrSaved" class="addr-saved"></div>
-    <div class="addr-mapwrap" id="addrMapWrap">
-      <div id="addrMap"></div>
-      <div class="addr-pin" id="addrPin"></div>
-      <div class="addr-recenter" id="addrRecenter" onclick="addrGeocodePin()">⌖</div>
-    </div>
-    <div class="addr-panel" id="addrPanel">
-      <div class="ap-main">
-        <div class="ap-line" id="addrLine1">Доставка</div>
-        <div class="ap-line2" id="addrLine2">Переместите метку на карте или выберите адрес</div>
-      </div>
-      <div class="ap-fields">
-        <label class="ap-field"><span>Квартира</span><input id="addrFlat" type="text" inputmode="numeric" placeholder="Кв."></label>
-        <label class="ap-field"><span>Этаж</span><input id="addrFloor" type="text" inputmode="numeric" placeholder="—"></label>
-        <label class="ap-field"><span>Подъезд</span><input id="addrEntrance" type="text" inputmode="numeric" placeholder="—"></label>
-        <label class="ap-field"><span>Домофон</span><input id="addrIntercom" type="text" inputmode="numeric" placeholder="—"></label>
-      </div>
-      <input class="ap-comment" id="addrComment" type="text" placeholder="Комментарий курьеру (по желанию)">
-      <button class="btn-main" id="addrApply" onclick="addrApply()">Доставка сюда</button>
-    </div>
+    <div id="addrPickBox" style="padding:0 14px 24px"></div>
   </div>
 
 </div>
@@ -633,14 +597,37 @@ function applyQuery(q, biz) {
 
 async function loadHome() {
   loadReady();
-  try {
-    const info = await api(`/api/eda/${TOKEN}/info`);
-    const c = $('addrCity');
-    if (c && !(state.addr && state.addr.text)) {
-      c.textContent = (info.addr && info.addr.full_text) || 'Омск, проспект Мира, 33';
-    }
-  } catch (e) {}
+  await loadSavedAddr();
   loadRestaurants();
+  loadPlusBalance();
+}
+
+/* ---------- Яндекс Плюс: реальный баланс ---------- */
+let plusCache = { balance: null, currency: '', status: '' };
+async function loadPlusBalance() {
+  try {
+    const r = await api(`/api/eda/${TOKEN}/plus`);
+    plusCache = r.plus || plusCache;
+  } catch (e) { plusCache = plusCache || {}; }
+  renderPlusBtn();
+}
+function renderPlusBtn() {
+  const b = $('plusBtn');
+  if (!b) return;
+  const bal = plusCache.balance;
+  if (bal == null) { b.textContent = 'Плюс'; return; }
+  b.textContent = 'Плюс · ' + fmtBal(bal);
+}
+function fmtBal(v) {
+  const n = Math.round(Number(v));
+  return n.toLocaleString('ru-RU') + ' балл.';
+}
+function showPlusInfo() {
+  const bal = plusCache.balance;
+  if (bal == null) { toast('Яндекс Плюс: баллы не получены. Попробуйте обновить страницу.'); return; }
+  const st = plusCache.status || '';
+  const stTxt = st ? `Статус: ${st}` : '';
+  toast(`Яндекс Плюс\nБаллы: ${fmtBal(bal)}${stTxt ? '\n' + stTxt : ''}`);
 }
 
 function normP(p) {
@@ -1475,6 +1462,7 @@ const chk = {
   cities: [], city: '', addrSel: 0, addrData: null, manualAddr: null,
   payment: null, available: [], checkout: null,
   promo: '', phone: '', orderNr: '', readyIn: 0,
+  spendPlus: false, plusBalance: null,
 };
 
 /* ---------- таймер 22 мин (свежее устройство сессии) ---------- */
@@ -1507,39 +1495,54 @@ function renderPromoTimer() {
 setInterval(() => { if (chk.readyIn > 0) { chk.readyIn--; renderPromoTimer(); } }, 1000);
 setInterval(loadReady, 30000);
 
-/* ---------- шаг 1: выбор адреса (сохранённый или поиск/ввод) ---------- */
+/* ---------- оформление: сразу чекаут с сохранённым адресом ---------- */
 async function checkoutFlow() {
   const box = $('cartBox');
   box.innerHTML = '<div class="hint">Загрузка…</div>';
-  try {
-    if (!chk.cities.length) {
-      const r = await api(`/api/eda/${TOKEN}/cities`);
-      chk.cities = r.cities || [];
-    }
-    renderAddressStep();
-  } catch (e) {
-    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  if (!state.addr || !state.addr.text || !state.addr.lat) {
+    toast('Выберите адрес доставки');
+    openAddrPick();
+    return;
   }
+  chk.addrData = addrFromState();
+  webCheckout();
 }
 
-function renderAddressStep() {
-  const box = $('cartBox');
+function addrFromState() {
+  const a = state.addr || {};
+  const loc = a.location || {};
+  return {
+    city: a.city || '', street: a.street || '', house: a.house || '',
+    country: a.country || 'Россия',
+    short_text: a.short_text || a.text || '',
+    full_text: a.full_text || a.text || '',
+    location: {
+      latitude: loc.latitude != null ? loc.latitude : a.lat,
+      longitude: loc.longitude != null ? loc.longitude : a.lon,
+    },
+    office: a.flat || '', entrance: a.entrance || '',
+    floor: a.floor || '', doorcode: a.intercom || '',
+  };
+}
+
+function renderAddressStep(boxId, p, opts) {
+  const box = $(boxId);
   const cities = chk.cities;
   const hasSaved = cities && cities.length;
   const city = chk.city || (cities[0] ? cities[0].city : '');
   const cur = cities.find(c => c.city === city) || (cities[0] || null);
   const addrSel = chk.addrSel || 0;
   box.innerHTML = `
-    <button class="backlink" onclick="showView('cart')">‹</button>
+    <button class="backlink" onclick="showView('${opts.backTo}')">‹</button>
     <div class="vhead"><h2>Адрес доставки</h2><p>${hasSaved ? 'Сохранённый или любой другой адрес' : 'Укажите адрес доставки'}</p></div>
     ${hasSaved ? `
     <div class="chk-block">
       <h3>Город</h3>
-      <select class="inp" id="chkCity">
+      <select class="inp" id="${p}City">
         ${cities.map(c => `<option value="${esc(c.city)}" ${c.city === city ? 'selected' : ''}>${esc(c.city)}</option>`).join('')}
       </select>
       <h3 style="margin-top:14px">Сохранённый адрес</h3>
-      <select class="inp" id="chkAddr">
+      <select class="inp" id="${p}Addr">
         ${(cur.addresses || []).map((a, i) =>
           `<option value="${i}" ${i === addrSel ? 'selected' : ''}>${esc(a.full_text || a.short_text || '—')}</option>`).join('')}
       </select>
@@ -1549,66 +1552,66 @@ function renderAddressStep() {
       <div class="chk-search">
         <div class="search">
           <i>🔍</i>
-          <input id="chkSearch" type="text" placeholder="Улица, дом, город…" autocomplete="off">
-          <button class="clear hidden" id="chkClear" type="button">✕</button>
+          <input id="${p}Search" type="text" placeholder="Улица, дом, город…" autocomplete="off">
+          <button class="clear hidden" id="${p}Clear" type="button">✕</button>
         </div>
-        <div id="chkSuggest" class="addr-suggest hidden"></div>
+        <div id="${p}Suggest" class="addr-suggest hidden"></div>
       </div>
-      <div id="chkAddrRes" class="chk-addr-res hidden"></div>
+      <div id="${p}AddrRes" class="chk-addr-res hidden"></div>
     </div>
     <div class="chk-block">
       <h3>Квартира / этаж / подъезд / домофон</h3>
       <div class="ap-fields">
-        <label class="ap-field"><span>Квартира</span><input id="chkFlat" type="text" inputmode="numeric" placeholder="Кв."></label>
-        <label class="ap-field"><span>Этаж</span><input id="chkFloor" type="text" inputmode="numeric" placeholder="—"></label>
-        <label class="ap-field"><span>Подъезд</span><input id="chkEntrance" type="text" inputmode="numeric" placeholder="—"></label>
-        <label class="ap-field"><span>Домофон</span><input id="chkIntercom" type="text" inputmode="numeric" placeholder="—"></label>
+        <label class="ap-field"><span>Квартира</span><input id="${p}Flat" type="text" inputmode="numeric" placeholder="Кв."></label>
+        <label class="ap-field"><span>Этаж</span><input id="${p}Floor" type="text" inputmode="numeric" placeholder="—"></label>
+        <label class="ap-field"><span>Подъезд</span><input id="${p}Entrance" type="text" inputmode="numeric" placeholder="—"></label>
+        <label class="ap-field"><span>Домофон</span><input id="${p}Intercom" type="text" inputmode="numeric" placeholder="—"></label>
       </div>
     </div>
-    <button class="btn-main" id="chkAddrGo">Продолжить → способы оплаты</button>`;
+    <button class="btn-main" id="${p}AddrGo">${opts.btnText}</button>`;
   if (hasSaved) {
-    $('chkCity').addEventListener('change', () => {
-      chk.city = $('chkCity').value;
+    $(`${p}City`).addEventListener('change', () => {
+      chk.city = $(`${p}City`).value;
       chk.addrSel = 0;
       chk.manualAddr = null;
-      renderAddressStep();
+      renderAddressStep(boxId, p, opts);
     });
   }
-  $('chkAddrGo').addEventListener('click', () => {
+  $(`${p}AddrGo`).addEventListener('click', () => {
     const fields = {
-      flat: $('chkFlat').value.trim(),
-      entrance: $('chkEntrance').value.trim(),
-      floor: $('chkFloor').value.trim(),
-      intercom: $('chkIntercom').value.trim(),
+      flat: $(`${p}Flat`).value.trim(),
+      entrance: $(`${p}Entrance`).value.trim(),
+      floor: $(`${p}Floor`).value.trim(),
+      intercom: $(`${p}Intercom`).value.trim(),
     };
     if (chk.manualAddr) {
       chk.addrData = buildChkAddr(chk.manualAddr, fields);
     } else if (hasSaved) {
-      const cur2 = chk.cities.find(c => c.city === $('chkCity').value) || cur;
-      chk.addrSel = Number($('chkAddr').value || 0);
+      const cur2 = chk.cities.find(c => c.city === $(`${p}City`).value) || cur;
+      chk.addrSel = Number($(`${p}Addr`).value || 0);
       chk.addrData = buildChkAddr(cur2.addresses[chk.addrSel], fields);
     } else {
       toast('Найдите или введите адрес доставки');
       return;
     }
-    webCheckout();
+    opts.onDone(chk.addrData);
   });
-  $('chkSearch').addEventListener('input', () => {
-    const v = $('chkSearch').value.trim();
-    $('chkClear').classList.toggle('hidden', !v);
+  $(`${p}Search`).addEventListener('input', () => {
+    const v = $(`${p}Search`).value.trim();
+    $(`${p}Clear`).classList.toggle('hidden', !v);
     if (chk.manualAddr) chk.manualAddr = null;
-    $('chkAddrRes').classList.add('hidden');
-    chkDoSearch(v);
+    $(`${p}AddrRes`).classList.add('hidden');
+    chkDoSearch(v, p);
   });
-  $('chkClear').addEventListener('click', () => {
-    $('chkSearch').value = '';
-    $('chkClear').classList.add('hidden');
-    $('chkSuggest').classList.add('hidden');
-    $('chkAddrRes').classList.add('hidden');
+  $(`${p}Clear`).addEventListener('click', () => {
+    $(`${p}Search`).value = '';
+    $(`${p}Clear`).classList.add('hidden');
+    $(`${p}Suggest`).classList.add('hidden');
+    $(`${p}AddrRes`).classList.add('hidden');
     chk.manualAddr = null;
   });
-  $('chkSearch').addEventListener('blur', () => {
-    setTimeout(() => $('chkSuggest').classList.add('hidden'), 180);
+  $(`${p}Search`).addEventListener('blur', () => {
+    setTimeout(() => $(`${p}Suggest`).classList.add('hidden'), 180);
   });
 }
 
@@ -1637,8 +1640,8 @@ function buildChkAddr(a, f) {
 /* поиск и выбор произвольного адреса через ymaps */
 let chkST = null;
 
-function chkDoSearch(q) {
-  const box = $('chkSuggest');
+function chkDoSearch(q, p) {
+  const box = $(`${p}Suggest`);
   clearTimeout(chkST);
   if (!q) { box.classList.add('hidden'); return; }
   box.innerHTML = '<div class="hint" style="padding:20px">Поиск…</div>';
@@ -1653,7 +1656,7 @@ function chkDoSearch(q) {
         box.innerHTML = `
           <div class="hint" style="padding:20px;display:flex;align-items:center;justify-content:space-between;gap:10px">
             <span>Ничего не найдено</span>
-            <button type="button" onclick="document.getElementById('chkSuggest').classList.add('hidden')"
+            <button type="button" onclick="document.getElementById('${p}Suggest').classList.add('hidden')"
               style="border:none;background:none;font-family:inherit;font-size:18px;cursor:pointer;color:var(--ink45)" aria-label="Закрыть">✕</button>
           </div>`;
         return;
@@ -1663,17 +1666,17 @@ function chkDoSearch(q) {
         const pos = (b.dataset.pos || '').split(',');
         const lat = pos[1] ? Number(pos[1]) : null;
         const lon = pos[0] ? Number(pos[0]) : null;
-        chkPickAddr(b.dataset.t, lat, lon);
+        chkPickAddr(b.dataset.t, lat, lon, p);
       }));
     });
   }, 300);
 }
 
-function chkPickAddr(text, lat, lon) {
-  $('chkSearch').value = text;
-  $('chkSuggest').classList.add('hidden');
-  $('chkClear').classList.remove('hidden');
-  const res = $('chkAddrRes');
+function chkPickAddr(text, lat, lon, p) {
+  $(`${p}Search`).value = text;
+  $(`${p}Suggest`).classList.add('hidden');
+  $(`${p}Clear`).classList.remove('hidden');
+  const res = $(`${p}AddrRes`);
   res.classList.remove('hidden');
   res.innerHTML = '<span class="sp"></span> Уточняю адрес…';
   const apply = (obj, la, lo) => {
@@ -1857,7 +1860,7 @@ function renderChkCheckout() {
   const addr = chk.addrData || {};
   const loc = addr.location || {};
   box.innerHTML = `
-    <button class="backlink" onclick="chk.cities=[];checkoutFlow()">‹</button>
+    <button class="backlink" onclick="showView('cart')">‹</button>
     <div class="vhead"><h2>Оформление</h2><p>${esc(addr.full_text || addr.short_text || '')}</p></div>
     <div class="promo-timer hidden" id="chkTimer"></div>
     <div class="chk-block">
@@ -1876,6 +1879,17 @@ function renderChkCheckout() {
       <h3>Телефон получателя</h3>
       <input class="inp" id="chkPhone" placeholder="+7 900 000-00-00" value="${esc(chk.phone)}">
     </div>
+    <div class="chk-block">
+      <h3>Яндекс Плюс</h3>
+      <div class="cart-row" id="chkPlusRow">
+        <div class="db-mut" id="chkPlusLabel">Баллы: —</div>
+        <label class="plus-switch" id="chkPlusSwitchWrap">
+          <input type="checkbox" id="chkPlusSwitch" ${chk.spendPlus ? 'checked' : ''}>
+          <span>Списать все баллы</span>
+        </label>
+      </div>
+      <div class="db-mut" id="chkPlusMsg" style="margin-top:8px"></div>
+    </div>
     <button class="btn-main order-gated" id="chkOrderBtn">💳 Оформить заказ</button>`;
   $('chkPromoGo').addEventListener('click', applyPromo);
   $('chkPromo').addEventListener('keydown', (e) => { if (e.key === 'Enter') applyPromo(); });
@@ -1883,7 +1897,41 @@ function renderChkCheckout() {
   renderPromoTimer();
   chkRenderPayBox();
   chkLoadCards();
+  initChkPlus();
 }
+
+/* ---------- Яндекс Плюс в оформлении: списание всех баллов ---------- */
+async function initChkPlus() {
+  const label = $('chkPlusLabel');
+  const sw = $('chkPlusSwitch');
+  const msg = $('chkPlusMsg');
+  if (!label || !sw) return;
+  if (plusCache.balance == null) {
+    try {
+      const r = await api(`/api/eda/${TOKEN}/plus`);
+      plusCache = r.plus || plusCache;
+    } catch (e) {}
+  }
+  chk.plusBalance = plusCache.balance != null ? Number(plusCache.balance) : null;
+  if (chk.plusBalance == null || chk.plusBalance <= 0) {
+    label.textContent = chk.plusBalance == null ? 'Баллы: не получены' : 'Баллы: 0';
+    sw.disabled = true;
+    msg.textContent = 'Списание баллов недоступно';
+    chk.spendPlus = false;
+    return;
+  }
+  label.textContent = `Баллы: ${fmtBal(chk.plusBalance)}`;
+  msg.textContent = chk.spendPlus
+    ? `Будут списаны все баллы (${fmtBal(chk.plusBalance)})`
+    : 'Включите, чтобы списать все баллы с заказа';
+  sw.addEventListener('change', () => {
+    chk.spendPlus = sw.checked;
+    msg.textContent = sw.checked
+      ? `Будут списаны все баллы (${fmtBal(chk.plusBalance)})`
+      : 'Включите, чтобы списать все баллы с заказа';
+  });
+}
+
 
 async function applyPromo() {
   const code = $('chkPromo').value.trim();
@@ -1966,6 +2014,7 @@ async function placeOrder() {
         code: chk.promo || undefined,
         lat: loc.latitude, lon: loc.longitude,
         payment_id, payment_type,
+        spend_plus: chk.spendPlus ? chk.plusBalance : undefined,
       }),
     });
     chk.orderNr = (r.order || {}).orderNr || '';
@@ -2011,6 +2060,9 @@ async function placeOrder() {
 /* ---------- шаг 3: заказ создан + QR/оплата ---------- */
 function renderChkOrder(o) {
   const box = $('cartBox');
+  chk.spendPlus = false;
+  chk.plusBalance = null;
+  loadPlusBalance();
   box.innerHTML = `
     <button class="backlink" onclick="showView('orders')">‹</button>
     <div class="vhead"><h2>Заказ создан</h2><p>Номер: <b>${esc((o && o.orderNr) || chk.orderNr || '—')}</b></p></div>
@@ -2115,78 +2167,8 @@ if (!INVALID) {
 }
 
 /* ---------- выбор адреса ---------- */
-const DEF_ADDR = { text: 'Омск, проспект Мира, 33', lat: 55.02878527315827, lon: 73.27583823706175, flat: '', floor: '', entrance: '', intercom: '', comment: '' };
+const DEF_ADDR = { text: '', lat: 55.02878527315827, lon: 73.27583823706175, flat: '', floor: '', entrance: '', intercom: '', comment: '' };
 state.addr = Object.assign({}, DEF_ADDR);
-let addrMap = null, addrPlacemark = null, addrBusy = false, addrT = null, addrGeoT = null, addrGeocodingAt = null;
-
-function addrGeocodeSet(addrText, lat, lon) {
-  state.addr.text = addrText || 'Доставка';
-  state.addr.lat = lat;
-  state.addr.lon = lon;
-  $('addrLine1').textContent = state.addr.text;
-  $('addrLine2').textContent = '';
-}
-
-function addrGeocodePin() {
-  if (!addrMap || addrBusy) return;
-  const c = addrMap.getCenter();
-  addrBusy = true;
-  addrGeocodingAt = [c[0], c[1]];
-  $('addrLine2').innerHTML = '<span class="ap-spin"></span> Ищем адрес…';
-  ymaps.geocode([c[0], c[1]], { results: 1 }).then(res => {
-    const obj = res.geoObjects.get(0);
-    const text = obj ? obj.getAddressLine() : 'Выбранная точка';
-    addrGeocodeSet(text, c[0], c[1]);
-    addrBusy = false;
-    if (addrMap && addrGeocodingAt) {
-      const cc = addrMap.getCenter();
-      if (Math.abs(cc[0] - addrGeocodingAt[0]) > 1e-5 || Math.abs(cc[1] - addrGeocodingAt[1]) > 1e-5) {
-        addrGeocodePin();
-      }
-    }
-  }).catch(() => {
-    addrGeocodeSet('Выбранная точка', c[0], c[1]);
-    addrBusy = false;
-  });
-}
-
-function addrRenderPanel() {
-  const l1 = $('addrLine1'), l2 = $('addrLine2');
-  if (!l1) return;
-  l1.textContent = state.addr.text || 'Доставка';
-  if (l2) l2.textContent = state.addr.text ? 'Время доставки рассчитаем после выбора адреса' : 'Переместите метку на карте или выберите адрес';
-}
-
-function addrApply() {
-  if (!state.addr) return;
-  addrCollectFields();
-  $('addrCity').textContent = state.addr.text;
-  closeAddress();
-  loadRestaurants();
-}
-
-function addrCollectFields() {
-  state.addr.flat = $('addrFlat').value.trim();
-  state.addr.floor = $('addrFloor').value.trim();
-  state.addr.entrance = $('addrEntrance').value.trim();
-  state.addr.intercom = $('addrIntercom').value.trim();
-  state.addr.comment = $('addrComment').value.trim();
-}
-
-function addrFillFields() {
-  $('addrFlat').value = state.addr.flat || '';
-  $('addrFloor').value = state.addr.floor || '';
-  $('addrEntrance').value = state.addr.entrance || '';
-  $('addrIntercom').value = state.addr.intercom || '';
-  $('addrComment').value = state.addr.comment || '';
-}
-
-function closeAddress() {
-  $('addrInput').value = '';
-  $('addrClear').classList.add('hidden');
-  $('addrSuggest').classList.add('hidden');
-  showView('home');
-}
 
 function addrSuggestItems(items) {
   return items.map(s => `
@@ -2195,146 +2177,89 @@ function addrSuggestItems(items) {
     </button>`).join('');
 }
 
-function addrSelect(text, lat, lon) {
-  $('addrInput').value = text;
-  $('addrSuggest').classList.add('hidden');
-  addrGeocodeSet(text, lat, lon);
-  if (lat) {
-    if (addrMap) addrMap.setCenter([lat, lon], 17, { checkZoomRange: true });
-    if (addrPlacemark) addrPlacemark.geometry.setCoordinates([lat, lon]);
-    addrRenderPanel();
-  } else if (text) {
-    ymaps.geocode(text, { results: 1 }).then(res => {
-      const obj = res.geoObjects.get(0);
-      if (obj) {
-        const c = obj.geometry.getCoordinates();
-        addrGeocodeSet(obj.getAddressLine(), c[0], c[1]);
-        if (addrMap) addrMap.setCenter([c[0], c[1]], 17, { checkZoomRange: true });
-        if (addrPlacemark) addrPlacemark.geometry.setCoordinates([c[0], c[1]]);
-      }
-      addrRenderPanel();
-    }).catch(() => addrRenderPanel());
-  } else {
-    addrRenderPanel();
-  }
-}
-
-function addrDoSearch(q) {
-  const box = $('addrSuggest');
-  clearTimeout(addrT);
-  if (!q) { box.classList.add('hidden'); return; }
-  box.innerHTML = '<div class="hint" style="padding:20px">Поиск…</div>';
-  box.classList.remove('hidden');
-  addrT = setTimeout(() => {
-    ymaps.suggest(q, { results: 7 }).then(res => {
-      const items = res.map(s => ({
-        value: s.value,
-        pos: s.items && s.items[0] && s.items[0].position,
-      }));
-      if (!items.length) {
-        box.innerHTML = '<div class="hint" style="padding:20px">Ничего не найдено</div>';
-        return;
-      }
-      box.innerHTML = addrSuggestItems(items);
-      box.querySelectorAll('.as-item').forEach(b => b.addEventListener('click', () => {
-        const pos = (b.dataset.pos || '').split(',');
-        const lat = pos[1] ? Number(pos[1]) : null;
-        const lon = pos[0] ? Number(pos[0]) : null;
-        addrSelect(b.dataset.t, lat, lon);
-      }));
-    });
-  }, 300);
-}
-
-function addrSavedList() {
-  const box = $('addrSaved');
-  const a = state.addr || {};
-  const parts = [];
-  if (a.flat) parts.push('кв. ' + a.flat);
-  if (a.entrance) parts.push('подъезд ' + a.entrance);
-  if (a.floor) parts.push('этаж ' + a.floor);
-  if (a.intercom) parts.push('домофон ' + a.intercom);
-  if (a.comment) parts.push('«' + a.comment + '»');
-  const detail = parts.length ? parts.join(' · ') : 'Дом, подъезд, этаж, квартира';
-  box.innerHTML = `
-    <div class="as-title">Сохранённый адрес</div>
-    <button class="as-item" onclick="addrUseSaved()"><span class="ic">🏠</span>
-      <span>${esc(state.addr.text || 'Дом')}<small>${esc(detail)}</small></span></button>`;
-}
-
-function addrUseSaved() {
-  addrSelect(state.addr.text, state.addr.lat, state.addr.lon);
-}
-
-function initAddrMap() {
-  const wrap = $('addrMapWrap');
-  const rect = wrap.getBoundingClientRect();
-  if (rect.width < 50 || rect.height < 50) return;
-  if (!window.ymaps || addrMap) return;
-  ymaps.ready(() => {
-    const ll = [state.addr.lat, state.addr.lon];
-    addrMap = new ymaps.Map('addrMap', {
-      center: ll, zoom: 16, controls: ['zoomControl'],
-    });
-    addrMap.options.set('suppressMapOpenBlock', true);
-    addrPlacemark = new ymaps.Placemark(ll, { iconCaption: 'Выберите адрес' }, {
-      preset: 'islands#redDotIconWithCaption',
-      draggable: false,
-    });
-    addrMap.geoObjects.add(addrPlacemark);
-    addrMap.events.add('actionend', () => addrGeocodePin());
-    addrMap.events.add('boundschange', e => {
-      if (e.get('type') === 'continuous') {
-        clearTimeout(addrGeoT);
-        addrGeoT = setTimeout(addrGeocodePin, 350);
-      }
-    });
-    addrGeocodePin();
+function addrSetPicked(a) {
+  if (!a) return;
+  const loc = a.location || {};
+  state.addr = Object.assign({}, DEF_ADDR, {
+    text: a.full_text || a.short_text || a.text || 'Доставка',
+    lat: loc.latitude || a.lat || DEF_ADDR.lat,
+    lon: loc.longitude || a.lon || DEF_ADDR.lon,
+    flat: a.office || a.flat || '',
+    floor: a.floor || '',
+    entrance: a.entrance || '',
+    intercom: a.doorcode || a.intercom || '',
+    comment: a.comment || '',
+    city: a.city || '',
+    street: a.street || '',
+    house: a.house || '',
+    country: a.country || 'Россия',
+    full_text: a.full_text || '',
+    short_text: a.short_text || '',
+    location: loc,
   });
+  const c = $('addrCity');
+  if (c) c.textContent = state.addr.text;
+  const l = $('addrLineTop');
+  if (l) l.textContent = state.addr.text ? 'Изменить адрес ›' : 'Привезти сюда?';
 }
 
-function openAddress() {
+function renderAddrTop() {
+  const c = $('addrCity');
+  if (c) c.textContent = state.addr.text || 'Выбрать адрес';
+  const l = $('addrLineTop');
+  if (l) l.textContent = state.addr && state.addr.text ? 'Изменить адрес ›' : 'Привезти сюда?';
+}
+
+async function openAddrPick() {
   showView('address');
-  const saved = JSON.parse(localStorage.getItem('eda_addr') || 'null');
-  if (saved) state.addr = Object.assign({}, DEF_ADDR, saved);
-  $('addrCity').textContent = state.addr.text;
-  $('addrLine1').textContent = state.addr.text;
-  $('addrLine2').textContent = 'Переместите метку на карте или выберите адрес';
-  $('addrSuggest').classList.add('hidden');
-  addrRenderPanel();
-  addrFillFields();
-  addrSavedList();
-  setTimeout(initAddrMap, 80);
+  const box = $('addrPickBox');
+  box.innerHTML = '<div class="hint" style="padding:20px">Загрузка…</div>';
+  try {
+    if (!chk.cities.length) {
+      const r = await api(`/api/eda/${TOKEN}/cities`);
+      chk.cities = r.cities || [];
+    }
+    renderAddressStep('addrPickBox', 'pk', {
+      btnText: 'Привезти сюда',
+      backTo: 'home',
+      onDone: (a) => {
+        addrSetPicked(a);
+        saveAddrToSession();
+        showView('home');
+        loadRestaurants();
+      },
+    });
+    $('pkSearch').value = state.addr.text || '';
+    $('pkClear').classList.toggle('hidden', !$('pkSearch').value);
+    if (state.addr.flat) $('pkFlat').value = state.addr.flat;
+    if (state.addr.floor) $('pkFloor').value = state.addr.floor;
+    if (state.addr.entrance) $('pkEntrance').value = state.addr.entrance;
+    if (state.addr.intercom) $('pkIntercom').value = state.addr.intercom;
+  } catch (e) {
+    box.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
 }
 
-$('addrInput').addEventListener('input', () => {
-  const v = $('addrInput').value.trim();
-  $('addrClear').classList.toggle('hidden', !v);
-  addrDoSearch(v);
-});
-$('addrClear').addEventListener('click', () => {
-  $('addrInput').value = '';
-  $('addrClear').classList.add('hidden');
-  $('addrSuggest').classList.add('hidden');
-});
+async function saveAddrToSession() {
+  try {
+    await api(`/api/eda/${TOKEN}/address`, {
+      method: 'POST',
+      body: JSON.stringify({ address: state.addr }),
+    });
+  } catch (e) {}
+}
 
-// сохраняем адрес при подтверждении и обновляем рестораны
-const _addrApplyOrig = addrApply;
-addrApply = function() {
-  addrCollectFields();
-  localStorage.setItem('eda_addr', JSON.stringify(state.addr));
-  _addrApplyOrig();
-};
-
-// показывать сохранённый адрес при старте
-try {
-  const saved = JSON.parse(localStorage.getItem('eda_addr') || 'null');
-  if (saved) {
-    state.addr = Object.assign({}, DEF_ADDR, saved);
-    const city = $('addrCity');
-    if (city) city.textContent = state.addr.text;
-  }
-} catch (e) {}
+async function loadSavedAddr() {
+  try {
+    const r = await api(`/api/eda/${TOKEN}/address`);
+    if (r.addr && r.addr.text) {
+      addrSetPicked(r.addr);
+    } else if (r.addr && r.addr.full_text) {
+      addrSetPicked(r.addr);
+    }
+  } catch (e) {}
+  renderAddrTop();
+}
 </script>
 <script src="/static/js/qrcode.min.js"></script>
 </body>

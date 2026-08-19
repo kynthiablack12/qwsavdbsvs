@@ -1073,21 +1073,37 @@ async function loadEdaSessions() {
         <td><b>${esc(s.name)}</b></td>
         <td><b>${esc(s.account)}</b></td>
         <td><span class="mono db-mut">${esc(location.origin + '/d/' + token)}</span></td>
+        <td><span class="mono db-mut" id="sk-${token}">${esc(s.sale_key || '—')}</span></td>
         <td class="num">${esc(s.expires_at || '—')}</td>
         <td class="col-actions">
           <div class="row-actions">
-            <button class="btn btn-ghost btn-sm" data-copy="${esc(location.origin + '/d/' + token)}">Копировать</button>
+            <button class="btn btn-ghost btn-sm" data-copy="${esc(location.origin + '/d/' + token)}">Ссылка</button>
+            <button class="btn btn-ghost btn-sm" data-key="${token}">🔑 Ключ</button>
             <button class="btn btn-danger btn-sm" data-revoke="${token}">Отозвать</button>
           </div>
         </td>
-      </tr>`).join('') || '<tr><td colspan="5" class="db-empty">Активных сессий Еды нет</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="6" class="db-empty">Активных сессий Еды нет</td></tr>';
     tb.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy, b)));
+    tb.querySelectorAll('[data-key]').forEach(b => b.addEventListener('click', async () => {
+      const btn = b;
+      btn.disabled = true;
+      try {
+        const r = await api(`/api/eda/${b.dataset.key}/sale-key`, { method: 'GET' });
+        const span = $(`sk-${b.dataset.key}`);
+        if (span) span.textContent = r.sale_key;
+        copyText(r.sale_key, btn);
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }));
     tb.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
       await api(`/api/eda/sessions/${b.dataset.revoke}`, { method: 'DELETE' });
       loadEdaSessions();
     }));
   } catch (e) {
-    $('edaSessTable').querySelector('tbody').innerHTML = `<tr><td colspan="5" class="db-empty">${esc(e.message)}</td></tr>`;
+    $('edaSessTable').querySelector('tbody').innerHTML = `<tr><td colspan="6" class="db-empty">${esc(e.message)}</td></tr>`;
   }
 }
 

@@ -508,6 +508,18 @@ def refresh_eda_account(name):
     raise RuntimeError(f'аккаунт "{name}" не найден')
 
 
+def set_plus_balance(name, balance, status=''):
+    """Сохранить баланс/статус Я.Плюс в конфиг аккаунта (без сетевых вызовов)."""
+    accs = load_eda_accounts()
+    for a in accs:
+        if a.get('name') == name:
+            a['plus_balance'] = balance
+            a['plus_status'] = status
+            save_eda_accounts(accs)
+            return
+    raise RuntimeError(f'аккаунт "{name}" не найден')
+
+
 def rotate_eda_device(name):
     """Сменить device-профиль аккаунта (новые device_id/appmetrica/модель).
 
@@ -670,6 +682,7 @@ def create_eda_session(name, account, hours=24):
         'expires_at': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now + hours * 3600)),
         'last_seen': None,
         'active': True,
+        'address': None,
         # каждая сессия — свежее «устройство» (свои device_id/модель),
         # поэтому таймер 22 мин считаем с момента создания сессии.
         'device': device,
@@ -689,6 +702,101 @@ def get_eda_session(token):
     if s.get('expires_at') and s['expires_at'] < time.strftime('%Y-%m-%d %H:%M:%S'):
         return None
     return s
+
+
+def set_eda_session_address(token, address):
+    """Сохранить выбранный пользователем адрес доставки в сессии."""
+    if not token:
+        raise RuntimeError('token required')
+    sess = load_eda_sessions()
+    if token not in sess:
+        raise RuntimeError('сессия не найдена')
+    sess[token]['address'] = address or None
+    save_eda_sessions(sess)
+    return sess[token]['address']
+
+
+# ------------------------------------------------------------
+#  Продажа доступа к сессии: ключ активации.
+#  Ключ многоразовый: каждый, кто его введёт, получает ссылку
+#  на сессию (если сессия активна и не истекла).
+# ------------------------------------------------------------
+
+SALE_KEY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'  # без 0/O/1/I
+SALE_KEY_FORMAT = 'ED-XXXX-XXXX-XXXX'
+
+
+def _gen_sale_key():
+    import secrets
+    def chunk(n):
+        return ''.join(secrets.choice(SALE_KEY_ALPHABET) for _ in range(n))
+    return 'ED-' + '-'.join(chunk(4) for _ in range(3))
+
+
+def get_sale_key(token):
+    """Вернуть ключ продажи сессии; если его нет — сгенерировать."""
+    if not token:
+        raise RuntimeError('token required')
+    sess = load_eda_sessions()
+    if token not in sess:
+        raise RuntimeError('сессия не найдена')
+    if not sess[token].get('sale_key'):
+        sess[token]['sale_key'] = _gen_sale_key()
+        save_eda_sessions(sess)
+    return sess[token]['sale_key']
+
+
+def regenerate_sale_key(token):
+    """Перегенерировать ключ продажи (старый перестаёт работать)."""
+    if not token:
+        raise RuntimeError('token required')
+    sess = load_eda_sessions()
+    if token not in sess:
+        raise RuntimeError('сессия не найдена')
+    sess[token]['sale_key'] = _gen_sale_key()
+    save_eda_sessions(sess)
+    return sess[token]['sale_key']
+
+
+def activate_sale_key(key, base_url='', user_id=None):
+    """Активировать ключ: закрепить за первым пользователем.
+
+    Ключ одноразовый — после первой активации закрепляется за
+    пользователем (user_id). Повторная активация тем же пользователем
+    возвращает ту же ссылку, другим — отказ. Возвращает dict
+    {token, url, name, expires_at, first} или бросает RuntimeError.
+    """
+    if not key:
+        raise RuntimeError('введите ключ')
+    norm = str(key).strip().upper().replace(' ', '').replace('-', '')
+    if not norm:
+        raise RuntimeError('ключ пустой')
+    sess = load_eda_sessions()
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    for token, s in sess.items():
+        sk = str(s.get('sale_key') or '').strip().upper().replace(' ', '').replace('-', '')
+        if sk and sk == norm:
+            if not s.get('active'):
+                raise RuntimeError('сессия отозвана')
+            if s.get('expires_at') and s['expires_at'] < now:
+                raise RuntimeError('срок сессии истёк')
+            owner = s.get('sale_key_owner') or ''
+            first = not bool(owner)
+            if owner and user_id and owner != str(user_id):
+                raise RuntimeError('ключ уже использован')
+            if first:
+                s['sale_key_owner'] = str(user_id or '')
+                s['sale_key_activated_at'] = now
+                save_eda_sessions(sess)
+            base = (base_url or '').rstrip('/')
+            return {
+                'token': token,
+                'url': f'{base}/d/{token}',
+                'name': s.get('name', ''),
+                'expires_at': s.get('expires_at', ''),
+                'first': first,
+            }
+    raise RuntimeError('ключ не найден')
 
 
 def get_eda_session_account(token):
@@ -1635,13 +1743,15 @@ def web_promocodes(account, cart_id, receiving_type='delivery'):
 def web_create_order(account, slug, address, offer_identity, payment_info, phone='',
                      code=None, lat=None, lon=None, request_id=None, cart_id=None,
                      extended_options=None, recently_link_cards=False,
-                     plus_subscription_toggle_state=False, user_address_id=None):
+                     plus_subscription_toggle_state=False, user_address_id=None,
+                     spend_plus=None):
     """Создать заказ с оплатой СБП (POST /api/v1/orders, веб-флоу).
 
     payment_info — possiblePayment из go-checkout (id='sbp_qr',
     type='sbp', costForCustomer.value, currency). request_id по умолчанию
     = cart_id + '.' + offer_identity (как offer.requestId на фронте).
     Ответ: {orderNr, firstOrder, ...} — orderNr используется для tracking.
+    spend_plus — списать баллы Я.Плюс (cashback_participation, amount).
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     lat, lon = _coords(acc, lat, lon)
@@ -1668,8 +1778,10 @@ def web_create_order(account, slug, address, offer_identity, payment_info, phone
             'id': payment_info.get('id') or 'sbp_qr',
             'currency': currency or 'RUB',
         },
-        'extended_options': (extended_options if extended_options is not None else
-                             [{'type': 'delivery_options', 'leave_at_the_door': False}]),
+        'extended_options': _with_spend_plus(
+            extended_options if extended_options is not None else
+            [{'type': 'delivery_options', 'leave_at_the_door': False}],
+            spend_plus),
         'payment': {'recently_link_cards': recently_link_cards},
         'place_slug': slug,
         'address': address,
@@ -1830,15 +1942,34 @@ def mob_apply_promocode(account, slug, code, offer_identity='', lat=None, lon=No
                      params=params, json_body={'code': code})
 
 
+def _with_spend_plus(extended_options, spend_plus):
+    """Добавить cashback_participation (списание баллов) в extended_options.
+
+    spend_plus — количество баллов (int/str/None). None — без списания.
+    """
+    if not spend_plus:
+        return extended_options
+    base = extended_options if extended_options is not None else []
+    try:
+        amt = str(int(float(spend_plus)))
+    except (TypeError, ValueError):
+        amt = str(spend_plus)
+    out = [o for o in base
+           if not (isinstance(o, dict) and o.get('type') == 'cashback_participation')]
+    out.append({'type': 'cashback_participation', 'action': 'use', 'amount': amt})
+    return out
+
+
 def mob_create_order(account, slug, address, offer_identity, payment_info, phone='',
                      lat=None, lon=None,
                      request_id=None, cart_id=None, extended_options=None,
                      recently_link_cards=False,
-                     plus_subscription_toggle_state=False):
+                     plus_subscription_toggle_state=False, spend_plus=None):
     """Создать заказ мобильным каналом: POST /api/v1/orders (без code!).
 
     code не передаём: промокод уже применён к корзине через cart/promocode,
     передача code заново вызывает перепроверку акции и ошибку 58.
+    spend_plus — списать баллы Я.Плюс (cashback_participation, amount).
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     _ensure_bearer(acc)
@@ -1866,8 +1997,10 @@ def mob_create_order(account, slug, address, offer_identity, payment_info, phone
             'id': payment_info.get('id') or 'sbp_qr',
             'currency': currency or 'RUB',
         },
-        'extended_options': (extended_options if extended_options is not None else
-                             [{'type': 'delivery_options', 'leave_at_the_door': False}]),
+        'extended_options': _with_spend_plus(
+            extended_options if extended_options is not None else
+            [{'type': 'delivery_options', 'leave_at_the_door': False}],
+            spend_plus),
         'payment': {'recently_link_cards': recently_link_cards},
         'place_slug': slug,
         'address': address,
@@ -1880,7 +2013,7 @@ def mob_create_order(account, slug, address, offer_identity, payment_info, phone
 def mob_order_with_retry(account, slug, address, phone='',
                          payment_id='sbp_qr', payment_type='sbp',
                          lat=None, lon=None, recently_link_cards=False,
-                         attempts=3, delays=(0.6, 2.5)):
+                         attempts=3, delays=(0.6, 2.5), spend_plus=None):
     """Создать заказ мобильным каналом с повторами при изменении цены.
 
     go-checkout → выбор оффера → /api/v1/orders. Если сервер отвечает
@@ -1892,6 +2025,7 @@ def mob_order_with_retry(account, slug, address, phone='',
         '_d' (свежий go-checkout), 'payment' (подобранный способ/оффер) —
         маршрут отдаёт их фронту, чтобы он показал новую сумму и дал
         подтвердить заказ ещё раз (без спама быстрых повторов).
+    spend_plus — списать баллы Я.Плюс (cashback_participation, amount).
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     meta = {}
@@ -1919,7 +2053,8 @@ def mob_order_with_retry(account, slug, address, phone='',
                 acc, slug, address, offer.get('offer_identity'), pp,
                 phone=phone, lat=lat, lon=lon,
                 request_id=offer.get('requestId') or None,
-                recently_link_cards=recently_link_cards)
+                recently_link_cards=recently_link_cards,
+                spend_plus=spend_plus)
             meta['created'] = True
             return res, meta
         except RuntimeError as e:
@@ -1972,13 +2107,14 @@ def is_sbp_payment(payment_id, payment_type=None):
 def web_order_with_retry(account, slug, address, phone='',
                          payment_id='sbp_qr', payment_type='sbp',
                          lat=None, lon=None, recently_link_cards=False,
-                         attempts=2, delays=(1.0,)):
+                         attempts=2, delays=(1.0,), spend_plus=None):
     """Создать заказ веб-флоу (оплата на сайте, payment_method_id EATS).
 
     Аналог mob_order_with_retry, но каналом eda.yandex.ru (cookie Session_id,
     desktop_web). На сайте СБП-оплата даётся единым способом EATS_PAYMENTS —
     независимо от мобильных офферов, поэтому это запасной путь для СБП.
     Возвращает (res, meta) как mob_order_with_retry, meta['channel']='web'.
+    spend_plus — списать баллы Я.Плюс (cashback_participation, amount).
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     meta = {'channel': 'web'}
@@ -2006,7 +2142,8 @@ def web_order_with_retry(account, slug, address, phone='',
                 acc, slug, address, offer.get('offer_identity'), pp,
                 phone=phone, code=None, lat=lat, lon=lon,
                 request_id=offer.get('requestId') or None,
-                recently_link_cards=recently_link_cards)
+                recently_link_cards=recently_link_cards,
+                spend_plus=spend_plus)
             meta['created'] = True
             return res, meta
         except RuntimeError as e:
@@ -2027,7 +2164,8 @@ def web_order_with_retry(account, slug, address, phone='',
 
 def eda_order_create(account, slug, address, phone='',
                      payment_id='sbp_qr', payment_type='sbp',
-                     lat=None, lon=None, recently_link_cards=False):
+                     lat=None, lon=None, recently_link_cards=False,
+                     spend_plus=None):
     """Создать заказ, выбирая канал: мобильный → (для СБП) веб.
 
     Сначала пробуем мобильный флоу (mob_order_with_retry). Если СБП в нём
@@ -2036,18 +2174,21 @@ def eda_order_create(account, slug, address, phone='',
     способ СБП — повторяем через веб-флоу (оплата «на сайте»).
     Возвращает (res, meta); res None — заказ не создан, meta['channel']
     = 'mob'|'web', в meta диагностика для маршрута.
+    spend_plus — списать баллы Я.Плюс (cashback_participation, amount).
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     if not is_sbp_payment(payment_id, payment_type):
         return mob_order_with_retry(
             acc, slug, address, phone=phone,
             payment_id=payment_id, payment_type=payment_type,
-            lat=lat, lon=lon, recently_link_cards=recently_link_cards)
+            lat=lat, lon=lon, recently_link_cards=recently_link_cards,
+            spend_plus=spend_plus)
     try:
         res, meta = mob_order_with_retry(
             acc, slug, address, phone=phone,
             payment_id=payment_id, payment_type=payment_type,
-            lat=lat, lon=lon, recently_link_cards=recently_link_cards)
+            lat=lat, lon=lon, recently_link_cards=recently_link_cards,
+            spend_plus=spend_plus)
     except RuntimeError as e:
         res, meta = None, {'last_error': str(e)[:300]}
     if res:
@@ -2058,7 +2199,8 @@ def eda_order_create(account, slug, address, phone='',
         res, wmeta = web_order_with_retry(
             acc, slug, address, phone=phone,
             payment_id=payment_id, payment_type=payment_type,
-            lat=lat, lon=lon, recently_link_cards=recently_link_cards)
+            lat=lat, lon=lon, recently_link_cards=recently_link_cards,
+            spend_plus=spend_plus)
     except RuntimeError as e:
         meta['web_error'] = str(e)[:300]
         return None, meta
@@ -4644,13 +4786,14 @@ def go_apply_promocode(account, slug, code, offer_identity='', lat=None, lon=Non
 def go_create_order(account, slug, address, offer_identity, payment_info, phone='',
                     code=None, request_id=None, cart_id=None,
                     extended_options=None, recently_link_cards=False,
-                    plus_subscription_toggle_state=False):
+                    plus_subscription_toggle_state=False, spend_plus=None):
     """Создать заказ супераппом: POST /api/v1/orders.
 
     Тело — копия из flows_eda_mumu.mitm (260815-5424038 / 260815-6472614):
     address base_info/details, extended_options с tips_chosen_offer,
     payment_information {type, costForCustomer, id, currency},
     request_id = cart_id.offer_identity.
+    spend_plus — списать баллы Я.Плюс (cashback_participation, amount).
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     if not request_id and cart_id:
@@ -4681,7 +4824,7 @@ def go_create_order(account, slug, address, offer_identity, payment_info, phone=
             'id': payment_info.get('id') or 'sbp_qr',
             'currency': currency or 'RUB',
         },
-        'extended_options': extended_options,
+        'extended_options': _with_spend_plus(extended_options, spend_plus),
         'payment': {'recently_link_cards': recently_link_cards},
         'place_slug': slug,
         'address': _addr_superapp(address),

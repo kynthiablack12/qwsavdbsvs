@@ -492,6 +492,11 @@ def page_qr():
     return render_template('qr.html')
 
 
+@app.route('/landing')
+def page_landing():
+    return render_template('landing.html')
+
+
 @app.route('/api/eda/reg/start', methods=['POST'])
 def api_eda_reg_start():
     data = request.get_json(silent=True) or {}
@@ -980,6 +985,39 @@ def api_eda_sessions_create():
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, 'token': token,
                     'url': f'/d/{token}'})
+
+
+@app.route('/api/eda/<token>/sale-key', methods=['GET', 'POST'])
+def api_eda_sale_key(token):
+    """Ключ продажи сессии. GET — получить (создаст, если нет),
+    POST — перегенерировать."""
+    try:
+        eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        if request.method == 'POST':
+            key = eda.regenerate_sale_key(token)
+        else:
+            key = eda.get_sale_key(token)
+        return jsonify({'ok': True, 'sale_key': key})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/activate-key', methods=['POST'])
+def api_activate_key():
+    """Активация ключа (бот продаж → webapp). Принимает {key},
+    возвращает ссылку на сессию. BASE_URL берём из настроек/request.
+    """
+    data = request.get_json(silent=True) or {}
+    base = data.get('base_url') or os.environ.get('PUBLIC_BASE_URL', '')
+    try:
+        res = eda.activate_sale_key(data.get('key'), base,
+                                    user_id=data.get('user_id'))
+    except RuntimeError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 404
+    return jsonify({'ok': True, 'key': data.get('key'), 'session': res})
 
 
 @app.route('/api/eda/warmup', methods=['POST'])
@@ -1791,7 +1829,50 @@ def api_eda_info(token):
     return jsonify({'name': s['name'], 'account': s['account_name'],
                     'expires_at': s['expires_at'],
                     'promo_ready_in': eda.promo_ready_in(token),
-                    'promo_ready_at': s.get('promo_ready_at')})
+                    'promo_ready_at': s.get('promo_ready_at'),
+                    'addr': s.get('address')})
+
+
+@app.route('/api/eda/<token>/address', methods=['GET', 'POST'])
+def api_eda_address(token):
+    """Чтение/сохранение адреса доставки выбранного в сессии."""
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    if request.method == 'GET':
+        return jsonify({'ok': True, 'addr': s.get('address')})
+    data = request.get_json(silent=True) or {}
+    try:
+        addr = eda.set_eda_session_address(token, data.get('address'))
+        return jsonify({'ok': True, 'addr': addr})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/eda/<token>/plus')
+def api_eda_plus(token):
+    """Реальный баланс и статус Я.Плюс аккаунта сессии.
+
+    Возвращает {ok, plus: {balance, currency, status}}. Сохраняет баланс
+    в конфиг аккаунта (plus_balance), чтобы его видел админка/автозаказ.
+    """
+    try:
+        s = eda_session(token)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 403
+    try:
+        pb = eda.plus_balance(s['account'])
+    except NotImplementedError as e:
+        return jsonify({'error': str(e)}), 501
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    try:
+        eda.set_plus_balance(s['account_name'], pb.get('balance'),
+                             pb.get('status'))
+    except Exception:
+        pass
+    return jsonify({'ok': True, 'plus': pb})
 
 
 @app.route('/api/eda/<token>/profile')
@@ -2178,6 +2259,7 @@ def api_eda_order_create(token):
         return jsonify({'error': 'address обязателен'}), 400
     payment_id = data.get('payment_id') or 'sbp_qr'
     payment_type = data.get('payment_type') or 'sbp'
+    spend_plus = data.get('spend_plus')
     try:
         res, meta = eda.eda_order_create(
             s['account'], slug, address,
@@ -2186,6 +2268,7 @@ def api_eda_order_create(token):
             lat=data.get('lat'), lon=data.get('lon'),
             recently_link_cards=bool(data.get('recently_link_cards'))
             or payment_id == 'add_new_card',
+            spend_plus=spend_plus,
         )
         if not res:
             if meta.get('code59'):
@@ -2628,6 +2711,7 @@ def api_eda_az_order_create(name):
             lat=data.get('lat'), lon=data.get('lon'),
             recently_link_cards=bool(data.get('recently_link_cards'))
             or payment_id == 'add_new_card',
+            spend_plus=data.get('spend_plus'),
         )
         if not res:
             if meta.get('code59'):
@@ -3380,6 +3464,25 @@ def api_market_reviews_status(task_id):
     return jsonify({'state': t['state'], 'progress': t['progress'],
                     'message': t['message'], 'log': t['log'],
                     'result': t['result']})
+
+
+def _start_sales_bot():
+    """Запустить бот активации ключей в фоновом потоке (Railway).
+
+    Не блокирует webapp: если Telegram недоступен — поток перезапускается
+    в sales_bot.run_in_background. Отключить: SALES_BOT_ENABLED=0.
+    """
+    if os.environ.get('SALES_BOT_ENABLED', '1') == '0':
+        return
+    try:
+        import sales_bot
+        sales_bot.run_in_background()
+        print(' * Sales bot: запущен в фоне')
+    except Exception as e:
+        print(f' * Sales bot: не стартовал: {e}')
+
+
+_start_sales_bot()
 
 
 if __name__ == '__main__':
