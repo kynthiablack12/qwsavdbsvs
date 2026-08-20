@@ -32,10 +32,6 @@ EDA_HOST = 'https://eda.yandex.ru'
 # (суперапп), а не api.eda.yandex.ru. Авторизация — cookie Session_id
 # (Bearer не нужен). Промокоды лежат в informers_v2 лайаута.
 GO_EATS_HOST = 'https://tc.eats.yandex.ru/4.0/eda-superapp'
-GO_EATS_UA = ('Mozilla/5.0 (Linux; Android 15; SM-A235F Build/V417IR; wv) AppleWebKit/537.36 '
-              '(KHTML, like Gecko) Version/4.0 Chrome/110.0.5481.154 Safari/537.36 '
-              'yandex-taxi/5.89.1.128364 Android/15 (Samsung; SM-A235F) Superapp/Eats '
-              'promoMode/restricted EatsKit/29.3.0 mode/fullscreen')
 GO_DEVICE_ID = 'z14561cd16b144d695f05886b6ff21e2'  # webviewuserid из захвата Go
 
 # Дефолтная точка: Омск, проспект Мира, 33 (координаты из дампа).
@@ -47,27 +43,60 @@ DEFAULT_LON = 73.27583823706175
 # модель вышла) — несоответствия типа S22 на Android 9 палят эмулятор.
 # Samsung-модели убраны: они сильнее фродятся антифродом Яндекса.
 DEVICE_MODELS = [
-    {'model': 'M391Q', 'brand': 'meizu', 'manufacturer': 'Meizu', 'os_version': '13'},
-    {'model': 'M181Q', 'brand': 'meizu', 'manufacturer': 'Meizu', 'os_version': '11'},
-    {'model': 'M971Q', 'brand': 'meizu', 'manufacturer': 'Meizu', 'os_version': '9'},
-    {'model': 'RMX3562', 'brand': 'realme', 'manufacturer': 'realme', 'os_version': '12'},
-    {'model': 'RMX3363', 'brand': 'realme', 'manufacturer': 'realme', 'os_version': '12'},
-    {'model': 'RMX1921', 'brand': 'realme', 'manufacturer': 'realme', 'os_version': '9'},
-    {'model': '23127PN0CC', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '14'},
-    {'model': '2210132G', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '12'},
-    {'model': '2201117TG', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '12'},
-    {'model': '2107119DC', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '11'},
-    {'model': 'M2004J19C', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '10'},
-    {'model': 'CPH2359', 'brand': 'oppo', 'manufacturer': 'OPPO', 'os_version': '13'},
-    {'model': 'CPH2387', 'brand': 'oppo', 'manufacturer': 'OPPO', 'os_version': '12'},
-    {'model': 'V2134', 'brand': 'vivo', 'manufacturer': 'vivo', 'os_version': '12'},
-    {'model': 'V2050', 'brand': 'vivo', 'manufacturer': 'vivo', 'os_version': '11'},
-    {'model': 'X663', 'brand': 'infinix', 'manufacturer': 'INFINIX', 'os_version': '12'},
-    {'model': 'KH6j', 'brand': 'tecno', 'manufacturer': 'TECNO', 'os_version': '12'},
-    {'model': 'LRA-NX9', 'brand': 'honor', 'manufacturer': 'HONOR', 'os_version': '12'},
-    {'model': 'Pixel 7', 'brand': 'google', 'manufacturer': 'Google', 'os_version': '13'},
-    {'model': 'Pixel 6a', 'brand': 'google', 'manufacturer': 'Google', 'os_version': '12'},
+    {'model': 'M391Q', 'brand': 'meizu', 'manufacturer': 'Meizu', 'os_version': '13',
+     'density': 2.75, 'width': 1080, 'height': 2340},
+    {'model': 'M181Q', 'brand': 'meizu', 'manufacturer': 'Meizu', 'os_version': '11',
+     'density': 2.75, 'width': 1080, 'height': 2340},
+    {'model': 'M971Q', 'brand': 'meizu', 'manufacturer': 'Meizu', 'os_version': '9',
+     'density': 2.75, 'width': 1080, 'height': 2340},
+    {'model': 'RMX3562', 'brand': 'realme', 'manufacturer': 'realme', 'os_version': '12',
+     'density': 2.75, 'width': 1080, 'height': 2400},
+    {'model': 'RMX3363', 'brand': 'realme', 'manufacturer': 'realme', 'os_version': '12',
+     'density': 2.0, 'width': 720, 'height': 1600},
+    {'model': 'RMX1921', 'brand': 'realme', 'manufacturer': 'realme', 'os_version': '9',
+     'density': 2.75, 'width': 1080, 'height': 2340},
+    {'model': '23127PN0CC', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '14',
+     'density': 2.0, 'width': 720, 'height': 1600},
+    {'model': '2210132G', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '12',
+     'density': 2.75, 'width': 1080, 'height': 2400},
+    {'model': '2201117TG', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '12',
+     'density': 2.75, 'width': 1080, 'height': 2400},
+    {'model': '2107119DC', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '11',
+     'density': 2.75, 'width': 1080, 'height': 2400},
+    {'model': 'M2004J19C', 'brand': 'xiaomi', 'manufacturer': 'Xiaomi', 'os_version': '10',
+     'density': 2.0, 'width': 720, 'height': 1600},
+    {'model': 'CPH2359', 'brand': 'oppo', 'manufacturer': 'OPPO', 'os_version': '13',
+     'density': 2.75, 'width': 1080, 'height': 2400},
+    {'model': 'CPH2387', 'brand': 'oppo', 'manufacturer': 'OPPO', 'os_version': '12',
+     'density': 2.75, 'width': 1080, 'height': 2400},
+    {'model': 'V2134', 'brand': 'vivo', 'manufacturer': 'vivo', 'os_version': '12',
+     'density': 2.0, 'width': 720, 'height': 1600},
+    {'model': 'V2050', 'brand': 'vivo', 'manufacturer': 'vivo', 'os_version': '11',
+     'density': 2.75, 'width': 1080, 'height': 2400},
+    {'model': 'X663', 'brand': 'infinix', 'manufacturer': 'INFINIX', 'os_version': '12',
+     'density': 2.75, 'width': 1080, 'height': 2400},
+    {'model': 'KH6j', 'brand': 'tecno', 'manufacturer': 'TECNO', 'os_version': '12',
+     'density': 2.0, 'width': 720, 'height': 1600},
+    {'model': 'LRA-NX9', 'brand': 'honor', 'manufacturer': 'HONOR', 'os_version': '12',
+     'density': 2.75, 'width': 1080, 'height': 2400},
+    {'model': 'Pixel 7', 'brand': 'google', 'manufacturer': 'Google', 'os_version': '13',
+     'density': 2.75, 'width': 1080, 'height': 2400},
+    {'model': 'Pixel 6a', 'brand': 'google', 'manufacturer': 'Google', 'os_version': '12',
+     'density': 2.75, 'width': 1080, 'height': 2400},
 ]
+
+# Реальные версии Я.Еды (Play Store): 3.99.0 — 3.106.0
+EDA_APP_VERSIONS = ['3.99.0', '3.100.0', '3.101.0', '3.102.0',
+                    '3.103.0', '3.104.0', '3.105.0', '3.106.0']
+# Коды сборки (x-code-version) — варьируются с версией
+EDA_CODE_VERSIONS = ['249708', '250312', '251045', '251890', '252401']
+# Реальные версии Яндекс Такси (superapp UA)
+TAXI_VERSIONS = ['5.89.1.128364', '5.90.0.129102', '5.91.2.130450', '5.92.1.131200']
+# Версии EatsKit
+EATSKIT_VERSIONS = ['29.3.0', '29.4.0', '29.5.0', '29.6.0']
+# Build-строки для superapp UA
+ANDROID_BUILDS = ['V417IR', 'UP1A.231005.007', 'TP1A.220905.001',
+                  'SQ3A.220705.003.A1', 'RD2A.220624.014']
 
 
 def new_device_profile():
@@ -88,6 +117,14 @@ def new_device_profile():
         'brand': m['brand'],
         'manufacturer': m['manufacturer'],
         'os_version': m['os_version'],
+        'density': m.get('density', 2.75),
+        'width': m.get('width', 1080),
+        'height': m.get('height', 2400),
+        'app_version': random.choice(EDA_APP_VERSIONS),
+        'code_version': random.choice(EDA_CODE_VERSIONS),
+        'android_build': random.choice(ANDROID_BUILDS),
+        'taxi_version': random.choice(TAXI_VERSIONS),
+        'eatskit_version': random.choice(EATSKIT_VERSIONS),
     }
 
 
@@ -105,6 +142,14 @@ def _dev(acc):
         'brand': p.get('brand') or APP['x-device-brand'],
         'manufacturer': p.get('manufacturer') or APP['x-device-manufacturer'],
         'os_version': p.get('os_version') or APP['x-os-version'],
+        'density': p.get('density', 2.75),
+        'width': p.get('width', 1080),
+        'height': p.get('height', 2400),
+        'app_version': p.get('app_version') or APP['x-app-version'],
+        'code_version': p.get('code_version') or APP['x-code-version'],
+        'android_build': p.get('android_build', 'V417IR'),
+        'taxi_version': p.get('taxi_version', TAXI_VERSIONS[0]),
+        'eatskit_version': p.get('eatskit_version', EATSKIT_VERSIONS[0]),
     }
 
 # App-параметры (дефолт — реальная модель Meizu, а не эмуляторная
@@ -919,6 +964,7 @@ def _hdrs(acc, lat=None, lon=None):
     lon = lon if lon is not None else float(acc.get('lon', DEFAULT_LON))
     d = _dev(acc)
     h = dict(APP)
+    ua_ver = d['app_version']
     h.update({
         'x-device-id': d['device_id'],
         'x-appmetrica-deviceid': d['appmetrica_deviceid'],
@@ -927,6 +973,12 @@ def _hdrs(acc, lat=None, lon=None):
         'x-device-brand': d['brand'],
         'x-device-manufacturer': d['manufacturer'],
         'x-os-version': d['os_version'],
+        'x-app-version': ua_ver,
+        'x-code-version': d['code_version'],
+        'user-agent': f'android ({ua_ver})',
+        'x-screen-density': str(d['density']),
+        'x-screen-width': str(d['width']),
+        'x-screen-height': str(d['height']),
     })
     if d.get('mobile_ifa'):
         h['x-mobile-ifa'] = d['mobile_ifa']
@@ -1007,7 +1059,7 @@ def plus_balance(account, lat=None, lon=None):
         'Content-Type': 'application/json; charset=utf-8',
         'Authorization': f'OAuth {bearer}',
         'X-Yandex-Plus-AppId': 'ru.foodfox.client',
-        'X-Yandex-Plus-HostAppVersion': APP['x-app-version'],
+        'X-Yandex-Plus-HostAppVersion': _dev(acc)['app_version'],
         'X-Yandex-DeviceID': _dev(acc)['device_id'],
         'X-Yandex-Plus-Platform': 'Android',
         'X-Yandex-PUID': uid,
@@ -1420,6 +1472,7 @@ def _use_web(acc):
 def _web_hdrs(acc, lat=None, lon=None):
     lat = lat if lat is not None else float(acc.get('lat', DEFAULT_LAT))
     lon = lon if lon is not None else float(acc.get('lon', DEFAULT_LON))
+    d = _dev(acc)
     return {
         'accept': 'application/json, text/plain, */*',
         'accept-language': 'ru',
@@ -1427,11 +1480,11 @@ def _web_hdrs(acc, lat=None, lon=None):
         'origin': 'https://eda.yandex.ru',
         'referer': 'https://eda.yandex.ru/checkout',
         'user-agent': WEB_UA,
-        'x-app-version': '18.41.3',
+        'x-app-version': d['app_version'],
         'x-client-session': uuid.uuid4().hex[:32],
-        'x-device-id': _dev(acc)['device_id'],
+        'x-device-id': d['device_id'],
         'x-platform': 'desktop_web',
-        'x-yandex-deviceid': _dev(acc)['yandex_device_id'],
+        'x-yandex-deviceid': d['yandex_device_id'],
         'x-retpath-y': 'https://eda.yandex.ru/checkout',
         'x-taxi': f'{WEB_UA} platform=eats_desktop_web',
         'x-ya-coordinates': f'latitude={lat},longitude={lon}',
@@ -4658,10 +4711,10 @@ def _go_hdrs(acc, lat=None, lon=None):
         'origin': 'https://tc.eats.yandex.ru',
         'referer': ref,
         'x-retpath-y': ref,
-        'user-agent': GO_EATS_UA,
+        'user-agent': _go_ua(acc),
         'x-platform': 'superapp_taxi_web',
         'x-superapp-version': '1',
-        'x-app-version': '18.38.2',
+        'x-app-version': d['app_version'],
         'x-appmetrica-deviceid': d['appmetrica_deviceid'],
         'x-appmetrica-uuid': d['appmetrica_uuid'],
         'x-client-session': uuid.uuid4().hex[:23],
@@ -4878,7 +4931,7 @@ def go_sbp_qr(account, order_id, attempts=15, delay=1.5):
             r = requests.get(
                 'https://trust.yandex.ru/web/get_payment',
                 headers={
-                    'user-agent': GO_EATS_UA,
+                    'user-agent': _go_ua(acc),
                     'accept': '*/*',
                     'referer': 'https://trust.yandex.ru/web/payment?template_tag=desktop%2Fform',
                 },
@@ -5023,6 +5076,19 @@ def _places_from_layout(d):
     return slugs
 
 
+def _go_ua(acc):
+    """User-Agent для superapp-запросов, уникальный под device-профиль."""
+    d = _dev(acc)
+    return (
+        f'Mozilla/5.0 (Linux; Android {d["os_version"]}; {d["model"]} '
+        f'Build/{d["android_build"]}; wv) AppleWebKit/537.36 '
+        f'(KHTML, like Gecko) Version/4.0 Chrome/110.0.5481.154 Safari/537.36 '
+        f'yandex-taxi/{d["taxi_version"]} Android/{d["os_version"]} '
+        f'({d["manufacturer"]}; {d["model"]}) Superapp/Eats '
+        f'promoMode/restricted EatsKit/{d["eatskit_version"]} mode/fullscreen'
+    )
+
+
 def _go_cookies(acc):
     """Куки для вкладки «Еда» в Go: webviewuserid + Session_id + yandexuid."""
     wid = _dev(acc)['device_id']
@@ -5048,7 +5114,7 @@ def go_food_layout(acc, lat=None, lon=None):
     lat, lon = _coords(acc, lat, lon)
     url = GO_EATS_HOST + '/eats/v1/layout-constructor/v1/layout'
     hdrs = {
-        'user-agent': GO_EATS_UA,
+        'user-agent': _go_ua(acc),
         'content-type': 'application/json;charset=UTF-8',
         'accept': 'application/json, text/plain, */*',
         'origin': GO_EATS_HOST,
