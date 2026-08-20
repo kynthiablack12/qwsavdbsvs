@@ -859,14 +859,15 @@ def get_eda_session_account(token):
 
 
 def account_warmup(name, wait_seconds=DEVICE_WAIT_SECONDS):
-    """Прогреть аккаунт: зафиксировать device-профиль и запустить таймер отлёжки.
+    """Прогреть аккаунт: сэмулировать запуск приложения на новом устройстве.
 
     Главная идея «отлёжки»: антифрод Я.Еды считает 22 минуты с момента
     ПОЯВЛЕНИЯ устройства (первого запроса с этим device_id/моделью), а не
     с момента входа в аккаунт. Поэтому:
       1) сохраняем ОДИН фиксированный device-профиль на аккаунт,
-      2) делаем лёгкий запрос профиля — Яндекс запоминает это «устройство»
-         и запускает 22-мин таймер,
+      2) делаем последовательность запросов как при реальном запуске
+         приложения — layout, profile, addresses, promocodes —
+         Яндекс запоминает это «устройство» и запускает 22-мин таймер,
       3) потом любая сессия на этом аккаунте переиспользует тот же device →
          таймер НЕ сбрасывается, заказ можно делать сразу после отлёжки.
     """
@@ -879,7 +880,6 @@ def account_warmup(name, wait_seconds=DEVICE_WAIT_SECONDS):
         target = next((a for a in accs if a.get('name') == name), None)
         if not target:
             raise RuntimeError(f'аккаунт "{name}" не найден')
-        # фиксируем device-профиль, если его ещё нет
         if not target.get('device'):
             target['device'] = new_device_profile()
         target['warmup_at'] = time.time()
@@ -887,9 +887,49 @@ def account_warmup(name, wait_seconds=DEVICE_WAIT_SECONDS):
         store['accounts'] = accs
         _eda_write(store)
         dev = dict(target['device'])
-    # регистрируем устройство у Яндекса лёгким запросом (запуск таймера)
-    _eda_call(target, 'GET', '/api/v1/user/profile')
-    return {'name': name, 'device': dev,
+
+    steps_done = []
+    # Шаг 1: загрузка главного экрана (layout) — первый запрос при открытии прил
+    try:
+        layout(target)
+        steps_done.append('layout')
+    except Exception:
+        pass
+    time.sleep(random.uniform(0.8, 2.0))
+
+    # Шаг 2: профиль пользователя
+    try:
+        _eda_call(target, 'GET', '/api/v1/user/profile')
+        steps_done.append('profile')
+    except Exception:
+        pass
+    time.sleep(random.uniform(0.5, 1.5))
+
+    # Шаг 3: сохранённые адреса
+    try:
+        _eda_call(target, 'GET', '/api/v3/user/addresses')
+        steps_done.append('addresses')
+    except Exception:
+        pass
+    time.sleep(random.uniform(0.3, 1.0))
+
+    # Шаг 4: личные промокоды
+    try:
+        _eda_call(target, 'GET', '/api/v1/user/promocodes')
+        steps_done.append('promocodes')
+    except Exception:
+        pass
+
+    # Шаг 5: superapp layout (Яндекс Go) — если есть Session_id
+    sid = (target.get('session_id') or '').strip() or (target.get('cookies') or {}).get('Session_id', '').strip()
+    if sid:
+        try:
+            go_food_layout(target)
+            steps_done.append('go_layout')
+        except Exception:
+            pass
+
+    return {'name': name, 'device': dev, 'steps': steps_done,
             'ready_in': max(0, target['promo_ready_at'] - time.time())}
 
 
