@@ -358,7 +358,7 @@ def fetch_session_id(acc):
 
     # 1) passport desk page → CSRF
     try:
-        r = s.get('https://passport.yandex.ru/desk?retpath=https://tc.eats.yandex.ru',
+        r = s.get('https://passport.yandex.ru/desk?retpath=https://eda.yandex.ru',
                    timeout=20, proxies=proxies, allow_redirects=True)
     except requests.RequestException:
         return False
@@ -381,9 +381,6 @@ def fetch_session_id(acc):
                          'Content-Type': 'application/x-www-form-urlencoded',
                          'X-CSRF-Token': csrf,
                          'Authorization': f'OAuth {bearer}',
-                         'Origin': 'https://passport.yandex.ru',
-                         'Referer': 'https://passport.yandex.ru/auth/welcome',
-                         'X-Requested-With': 'XMLHttpRequest',
                      },
                      data='retpath=https://eda.yandex.ru',
                      timeout=20, proxies=proxies, allow_redirects=False)
