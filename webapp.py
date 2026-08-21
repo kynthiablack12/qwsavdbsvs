@@ -2227,10 +2227,19 @@ def api_eda_web_checkout(token):
     payment_id = data.get('payment_id') or 'sbp_qr'
     payment_type = data.get('payment_type') or 'sbp'
     try:
-        d = eda.go_checkout(s['account'], data.get('place_slug'),
-                            data.get('address', {}),
-                            lat=data.get('lat'), lon=data.get('lon'),
-                            payment_id=None, payment_type=None)
+        d = None
+        try:
+            d = eda.go_checkout(s['account'], data.get('place_slug'),
+                                data.get('address', {}),
+                                lat=data.get('lat'), lon=data.get('lon'),
+                                payment_id=None, payment_type=None)
+        except Exception:
+            pass
+        if not d:
+            d = eda.mob_checkout(s['account'], data.get('place_slug'),
+                                 data.get('address', {}),
+                                 lat=data.get('lat'), lon=data.get('lon'),
+                                 payment_id=None, payment_type=None)
         avail = eda.web_available_payments(d)
         avail = [a for a in avail if a.get('type') != 'add_new_card']
         offer, pp = eda.web_offer(d, payment_id, payment_type)
@@ -2287,12 +2296,23 @@ def api_eda_promocode(token):
     if not code:
         return jsonify({'error': 'code обязателен'}), 400
     try:
-        out = eda.go_promo_apply_checkout(
-            s['account'], slug, code, data.get('address') or {},
-            lat=data.get('lat'), lon=data.get('lon'),
-            payment_id=data.get('payment_id') or 'sbp_qr',
-            payment_type=data.get('payment_type') or 'sbp',
-            offer_identity=data.get('offer_identity'))
+        out = None
+        try:
+            out = eda.go_promo_apply_checkout(
+                s['account'], slug, code, data.get('address') or {},
+                lat=data.get('lat'), lon=data.get('lon'),
+                payment_id=data.get('payment_id') or 'sbp_qr',
+                payment_type=data.get('payment_type') or 'sbp',
+                offer_identity=data.get('offer_identity'))
+        except Exception:
+            pass
+        if not out:
+            out = eda.mob_promo_apply_checkout(
+                s['account'], slug, code, data.get('address') or {},
+                lat=data.get('lat'), lon=data.get('lon'),
+                payment_id=data.get('payment_id') or 'sbp_qr',
+                payment_type=data.get('payment_type') or 'sbp',
+                offer_identity=data.get('offer_identity'))
         return jsonify({'ok': True, **out,
                         'promo_ready_in': eda.promo_ready_in(token)})
     except NotImplementedError as e:

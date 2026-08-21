@@ -334,6 +334,56 @@ def exchange_sessionid(session_id, client_id=None, client_secret=None):
     return tok, uid
 
 
+def fetch_session_id(acc):
+    """Получить Session_id cookie из passport через OAuth Bearer-токен.
+
+    Создаёт passport web-сессию (GET /passport简历/session/create) и
+    извлекает Session_id из Set-Cookie. Сохраняет в аккаунт.
+    Возвращает True/False.
+    """
+    bearer = _extract_bearer(acc)
+    if not bearer:
+        return False
+    existing = (acc.get('session_id') or '').strip() or (acc.get('cookies') or {}).get('Session_id', '').strip()
+    if existing:
+        return True
+    s = requests.Session()
+    s.headers.update({
+        'User-Agent': _go_ua(acc),
+        'Accept': '*/*',
+        'Authorization': f'OAuth {bearer}',
+    })
+    proxies = None
+    proxy_url = (acc.get('proxy') or '').strip()
+    if proxy_url:
+        proxies = {'http': proxy_url, 'https': proxy_url}
+    try:
+        r = s.get('https://passport.yandex.ru/desk?retpath=https://eda.yandex.ru',
+                   timeout=20, proxies=proxies, allow_redirects=True)
+        if r.status_code >= 400:
+            return False
+    except requests.RequestException:
+        return False
+    ck = {c.name: c.value for c in s.cookies}
+    sid = ck.get('Session_id') or ''
+    if not sid:
+        return False
+    with _store_lock():
+        store = _eda_read()
+        accs = store.get('accounts') or []
+        target = next((a for a in accs if a.get('name') == acc.get('name')), None)
+        if target:
+            target['session_id'] = sid
+            if not target.get('yandexuid') and ck.get('yandexuid'):
+                target['yandexuid'] = ck['yandexuid']
+            store['accounts'] = accs
+            _eda_write(store)
+        acc['session_id'] = sid
+        if ck.get('yandexuid'):
+            acc['yandexuid'] = ck['yandexuid']
+    return True
+
+
 # ---------- QR-вход (passport magic link) ----------
 
 # Протокол (вход по QR-ссылке, без сканирования):
@@ -1014,8 +1064,17 @@ def account_warmup(name, wait_seconds=DEVICE_WAIT_SECONDS):
     except Exception:
         pass
 
-    # Шаг 5: superapp layout (Яндекс Go) — если есть Session_id
+    # Шаг 5: получить Session_id из passport (если нет)
     sid = (target.get('session_id') or '').strip() or (target.get('cookies') or {}).get('Session_id', '').strip()
+    if not sid:
+        try:
+            if fetch_session_id(target):
+                sid = target.get('session_id') or ''
+                steps_done.append('fetch_sid')
+        except Exception:
+            pass
+
+    # Шаг 6: superapp layout (Яндекс Go) — если есть Session_id
     if sid:
         try:
             go_food_layout(target)
