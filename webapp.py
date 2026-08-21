@@ -1058,6 +1058,22 @@ def api_eda_fetch_sid():
     return jsonify(results)
 
 
+@app.route('/api/eda/test-sbp/<name>', methods=['GET'])
+def api_eda_test_sbp(name):
+    """Quick test: go_checkout via superapp for one account — does SBP appear?"""
+    acc = eda.get_eda_account(name)
+    if not acc:
+        return jsonify({'error': f'account {name} not found'}), 404
+    try:
+        d = eda.go_checkout(acc, None, acc.get('address') or {})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    avail = eda.web_available_payments(d)
+    avail_types = [a.get('type') for a in avail]
+    return jsonify({'ok': True, 'available_types': avail_types, 'available': avail,
+                    'raw_keys': list(d.keys()) if isinstance(d, dict) else str(type(d))})
+
+
 @app.route('/api/eda/sessions/<token>', methods=['DELETE'])
 def api_eda_sessions_revoke(token):
     eda.revoke_eda_session(token)
