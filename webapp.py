@@ -1128,7 +1128,29 @@ def api_eda_debug_sid(name):
     except Exception as e:
         log['create_error'] = str(e)
     return jsonify(log)
-def api_eda_test_sbp(name):
+
+@app.route('/api/eda/set-sid', methods=['POST'])
+def api_eda_set_sid():
+    data = request.get_json(silent=True) or {}
+    name = data.get('name', '')
+    sid = data.get('session_id', '').strip()
+    if not name or not sid:
+        return jsonify({'error': 'need name + session_id'}), 400
+    acc = eda.get_eda_account(name)
+    if not acc:
+        return jsonify({'error': f'not found: {name}'}), 404
+    with eda._store_lock():
+        store = eda._eda_read()
+        for a in store.get('accounts') or []:
+            if a.get('name') == name:
+                a['session_id'] = sid
+                break
+        eda._eda_write(store)
+    acc['session_id'] = sid
+    return jsonify({'ok': True, 'name': name, 'sid_prefix': sid[:30] + '...'})
+
+
+@app.route('/api/eda/test-sbp/<name>', methods=['GET'])
     """Quick test: go_checkout via superapp for one account — does SBP appear?"""
     acc = eda.get_eda_account(name)
     if not acc:
