@@ -2227,15 +2227,15 @@ def api_eda_web_checkout(token):
     payment_id = data.get('payment_id') or 'sbp_qr'
     payment_type = data.get('payment_type') or 'sbp'
     try:
-        d = eda.mob_checkout(s['account'], data.get('place_slug'),
-                             data.get('address', {}),
-                             lat=data.get('lat'), lon=data.get('lon'),
-                             payment_id=None, payment_type=None)
+        d = eda.go_checkout(s['account'], data.get('place_slug'),
+                            data.get('address', {}),
+                            lat=data.get('lat'), lon=data.get('lon'),
+                            payment_id=None, payment_type=None)
+        avail = eda.web_available_payments(d)
+        avail = [a for a in avail if a.get('type') != 'add_new_card']
         offer, pp = eda.web_offer(d, payment_id, payment_type)
         fallback = False
         if not offer or not pp:
-            avail = [a for a in eda.web_available_payments(d)
-                     if a.get('type') != 'add_new_card']
             if avail:
                 first = avail[0]
                 offer, pp = eda.web_offer(d, first.get('id') or first.get('type'),
@@ -2258,7 +2258,7 @@ def api_eda_web_checkout(token):
             }
         return jsonify({'ok': True, 'checkout': d, 'payment': payment,
                         'fallback': fallback,
-                        'available': eda.web_available_payments(d),
+                        'available': avail,
                         'promo_ready_in': eda.promo_ready_in(token)})
     except NotImplementedError as e:
         return jsonify({'error': str(e)}), 501
@@ -2287,7 +2287,7 @@ def api_eda_promocode(token):
     if not code:
         return jsonify({'error': 'code обязателен'}), 400
     try:
-        out = eda.mob_promo_apply_checkout(
+        out = eda.go_promo_apply_checkout(
             s['account'], slug, code, data.get('address') or {},
             lat=data.get('lat'), lon=data.get('lon'),
             payment_id=data.get('payment_id') or 'sbp_qr',
@@ -2386,6 +2386,10 @@ def api_eda_order_tracking(token, oid):
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 403
     try:
+        data = request.get_json(silent=True) or {}
+        ch = data.get('channel') or 'mob'
+        if ch == 'go':
+            return jsonify({'ok': True, 'tracking': eda.go_order_tracking(s['account'], oid)})
         return jsonify({'ok': True, 'tracking': eda.mob_order_tracking(s['account'], oid)})
     except NotImplementedError as e:
         return jsonify({'error': str(e)}), 501
@@ -2406,7 +2410,10 @@ def api_eda_order_qr(token, oid):
         return jsonify({'error': str(e)}), 403
     data = request.get_json(silent=True) or {}
     try:
-        if (data.get('channel') or 'mob') == 'web':
+        ch = data.get('channel') or 'mob'
+        if ch == 'go':
+            qr = eda.go_sbp_qr(s['account'], oid)
+        elif ch == 'web':
             qr = eda.web_sbp_qr(s['account'], oid)
         else:
             qr = eda.mob_sbp_qr(s['account'], oid)

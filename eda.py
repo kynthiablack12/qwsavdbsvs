@@ -2353,15 +2353,11 @@ def eda_order_create(account, slug, address, phone='',
                      payment_id='sbp_qr', payment_type='sbp',
                      lat=None, lon=None, recently_link_cards=False,
                      spend_plus=None):
-    """Создать заказ, выбирая канал: мобильный → (для СБП) веб.
+    """Создать заказ, выбирая канал: СБП → суперапп; остальное → мобильный.
 
-    Сначала пробуем мобильный флоу (mob_order_with_retry). Если СБП в нём
-    недоступно (нет оффера/конфига — бывает для некоторых аккаунтов на
-    старом клиенте Foodfox) или мобильный ловит постоянный code 59, а
-    способ СБП — повторяем через веб-флоу (оплата «на сайте»).
-    Возвращает (res, meta); res None — заказ не создан, meta['channel']
-    = 'mob'|'web', в meta диагностика для маршрута.
-    spend_plus — списать баллы Я.Плюс (cashback_participation, amount).
+    Для СБП используем суперапп-канал (tc.eats.yandex.ru, superapp_taxi_web) —
+    единственный, где СБП доступен. Для остальных способов — mob.
+    Возвращает (res, meta); meta['channel'] = 'go'|'mob'|'web'.
     """
     acc = get_eda_account(account) if isinstance(account, str) else account
     if not is_sbp_payment(payment_id, payment_type):
@@ -2371,7 +2367,7 @@ def eda_order_create(account, slug, address, phone='',
             lat=lat, lon=lon, recently_link_cards=recently_link_cards,
             spend_plus=spend_plus)
     try:
-        res, meta = mob_order_with_retry(
+        res, meta = go_order_with_retry(
             acc, slug, address, phone=phone,
             payment_id=payment_id, payment_type=payment_type,
             lat=lat, lon=lon, recently_link_cards=recently_link_cards,
@@ -2379,9 +2375,9 @@ def eda_order_create(account, slug, address, phone='',
     except RuntimeError as e:
         res, meta = None, {'last_error': str(e)[:300]}
     if res:
-        meta['channel'] = 'mob'
+        meta['channel'] = 'go'
         return res, meta
-    meta['channel'] = 'mob'
+    meta['channel'] = 'go'
     try:
         res, wmeta = web_order_with_retry(
             acc, slug, address, phone=phone,
@@ -2393,7 +2389,7 @@ def eda_order_create(account, slug, address, phone='',
         return None, meta
     if res:
         return res, wmeta
-    wmeta['mob_meta'] = meta
+    wmeta['go_meta'] = meta
     return None, wmeta
 
 
@@ -5021,6 +5017,62 @@ def go_create_order(account, slug, address, offer_identity, payment_info, phone=
     if code:
         body['code'] = code
     return _go_call(acc, 'POST', '/api/v1/orders', body)
+
+
+def go_order_with_retry(account, slug, address, phone='',
+                         payment_id='sbp_qr', payment_type='sbp',
+                         lat=None, lon=None, recently_link_cards=False,
+                         attempts=3, delays=(0.6, 2.5), spend_plus=None):
+    """Создать заказ супераппом (tc.eats.yandex.ru) с повторами при code 59.
+
+    go_checkout → order_payment_pick → go_create_order. Канал superapp_taxi_web
+    возвращает СБП в отличие от mob/android_app. Возвращает (res, meta).
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    meta = {}
+    last = None
+    for i in range(max(1, attempts)):
+        meta['attempts'] = i + 1
+        try:
+            d = go_checkout(acc, slug, address, lat=lat, lon=lon,
+                            payment_id=None, payment_type=None)
+            offer, pp, m = order_payment_pick(d, payment_id, payment_type)
+            meta.update({k: v for k, v in m.items() if k != '_d'})
+            if not offer or not pp:
+                meta['_d'] = d
+                return None, meta
+            meta['_d'] = d
+            meta['payment'] = {
+                'id': pp.get('id'), 'type': pp.get('type'),
+                'title': pp.get('title'),
+                'costForCustomer': pp.get('costForCustomer'),
+                'serviceFee': pp.get('serviceFee'),
+                'offer_identity': offer.get('offer_identity'),
+                'requestId': offer.get('requestId'),
+            }
+            res = go_create_order(
+                acc, slug, address, offer.get('offer_identity'), pp,
+                phone=phone, lat=lat, lon=lon,
+                request_id=offer.get('requestId') or None,
+                recently_link_cards=recently_link_cards,
+                spend_plus=spend_plus)
+            meta['created'] = True
+            return res, meta
+        except RuntimeError as e:
+            last = e
+            meta['last_error'] = str(e)[:300]
+            is59 = bool(re.search(r'"code"\s*:\s*59', str(e)))
+            if not is59:
+                raise
+            meta['code59'] = True
+            if i < attempts - 1:
+                dl = delays[i] if isinstance(delays, (list, tuple)) and i < len(delays) else delays
+                time.sleep(dl)
+                continue
+            return None, meta
+    if last:
+        raise last
+    return None, meta
 
 
 def go_order_tracking(account, order_id):
