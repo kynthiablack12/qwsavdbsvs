@@ -1066,7 +1066,68 @@ def api_eda_fetch_sid():
     return jsonify(results)
 
 
-@app.route('/api/eda/test-sbp/<name>', methods=['GET'])
+@app.route('/api/eda/debug-sid/<name>', methods=['GET'])
+def api_eda_debug_sid(name):
+    """Debug: show what passport returns for session/create."""
+    acc = eda.get_eda_account(name)
+    if not acc:
+        return jsonify({'error': f'not found: {name}'}), 404
+    bearer = eda._extract_bearer(acc)
+    if not bearer:
+        return jsonify({'error': 'no bearer'})
+    proxies = None
+    proxy_url = (acc.get('proxy') or '').strip()
+    if proxy_url:
+        proxies = {'http': proxy_url, 'https': proxy_url}
+    ua = eda._go_ua(acc)
+    s = requests.Session()
+    s.headers['User-Agent'] = ua
+    s.headers['Accept'] = '*/*'
+    log = {}
+    # 1) desk
+    try:
+        r = s.get('https://passport.yandex.ru/desk?retpath=https://tc.eats.yandex.ru',
+                   timeout=20, proxies=proxies, allow_redirects=True)
+        log['desk_status'] = r.status_code
+        log['desk_url'] = r.url
+        log['desk_cookies'] = [(c.name, c.value[:30]) for c in s.cookies]
+    except Exception as e:
+        return jsonify({'error': f'desk: {e}'})
+    csrf = ''
+    import re as _re
+    m = _re.search(r'__CSRF__\s*=\s*"([^"]+)"', r.text or '') if r.text else None
+    if m:
+        csrf = m.group(1)
+    else:
+        for c in s.cookies:
+            if c.name == '_csrf_token':
+                csrf = c.value
+                break
+    log['csrf'] = csrf[:20] + '...' if csrf else 'NONE'
+    if not csrf:
+        return jsonify(log)
+    # 2) session/create
+    try:
+        r2 = s.post('https://passport.yandex.ru/1/bundle/session/create/',
+                     headers={
+                         'Content-Type': 'application/x-www-form-urlencoded',
+                         'X-CSRF-Token': csrf,
+                         'Authorization': f'OAuth {bearer}',
+                     },
+                     data='retpath=https://tc.eats.yandex.ru',
+                     timeout=20, proxies=proxies, allow_redirects=False)
+        log['create_status'] = r2.status_code
+        log['create_location'] = r2.headers.get('Location', '')[:200]
+        log['create_set_cookie'] = r2.headers.get('Set-Cookie', '')[:300]
+        log['create_body'] = r2.text[:300]
+        log['create_cookies_after'] = [(c.name, c.value[:30]) for c in s.cookies]
+        sid_cookies = [c for c in s.cookies if c.name == 'Session_id']
+        log['session_id_cookies'] = len(sid_cookies)
+        if sid_cookies:
+            log['sid_preview'] = sid_cookies[0].value[:40]
+    except Exception as e:
+        log['create_error'] = str(e)
+    return jsonify(log)
 def api_eda_test_sbp(name):
     """Quick test: go_checkout via superapp for one account — does SBP appear?"""
     acc = eda.get_eda_account(name)
