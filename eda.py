@@ -4987,9 +4987,7 @@ def _go_call(acc, method, path, json_body=None, params=None, timeout=25):
     ck = _web_cookies(acc)
     hdrs = _go_hdrs(acc)
     bearer = _extract_bearer(acc)
-    if ck.get('Session_id'):
-        pass
-    elif bearer:
+    if bearer:
         hdrs['Authorization'] = f'OAuth {bearer}'
     url = GO_EATS_HOST + path
     proxies = None
