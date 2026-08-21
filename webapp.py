@@ -1044,7 +1044,15 @@ def api_eda_warmup_status(name):
 @app.route('/api/eda/fetch-sid', methods=['GET'])
 def api_eda_fetch_sid():
     import concurrent.futures
+    force = request.args.get('force', '0') == '1'
     accounts = eda.load_eda_accounts()
+    if force:
+        with eda._store_lock():
+            store = eda._eda_read()
+            for a in store.get('accounts') or []:
+                a.pop('session_id', None)
+            eda._eda_write(store)
+        accounts = eda.load_eda_accounts()
     results = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
         futures = {ex.submit(eda.fetch_session_id, a): a['name'] for a in accounts if a.get('token')}
