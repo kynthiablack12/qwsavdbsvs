@@ -770,7 +770,7 @@ def set_eda_session_proxy(token, proxy_url):
     sess = load_eda_sessions()
     if token not in sess:
         raise RuntimeError('сессия не найдена')
-    sess[token]['proxy'] = (proxy_url or '').strip() or None
+    sess[token]['proxy'] = normalize_proxy(proxy_url) or None
     save_eda_sessions(sess)
     return sess[token]['proxy']
 
@@ -793,13 +793,33 @@ def save_proxies(proxies):
         json.dump({'proxies': proxies}, f, ensure_ascii=False, indent=2)
 
 
+def normalize_proxy(raw):
+    """Нормализовать строку прокси в http://login:password@host:port.
+
+    Принимает форматы:
+      191.96.254.138:6185:oytswfwy:9gmlvpbek57j   →  http://oytswfwy:9gmlvpbek57j@191.96.254.138:6185
+      http://login:pass@host:port                   →  http://login:pass@host:port  (без изменений)
+      host:port                                     →  http://host:port  (без аутентификации)
+    """
+    raw = (raw or '').strip()
+    if not raw:
+        return ''
+    if re.match(r'^https?://', raw):
+        return raw
+    parts = raw.split(':')
+    if len(parts) == 4:
+        host, port, login, pwd = parts
+        return f'http://{login}:{pwd}@{host}:{port}'
+    if len(parts) == 2:
+        return f'http://{raw}'
+    return raw
+
+
 def add_proxy(name, url):
     """Добавить прокси в общий пул. Возвращает обновлённый список."""
-    url = (url or '').strip()
+    url = normalize_proxy(url)
     if not url:
         raise RuntimeError('url required')
-    if not re.match(r'^https?://', url):
-        url = 'http://' + url
     proxies = load_proxies()
     for p in proxies:
         if p['url'] == url:

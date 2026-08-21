@@ -863,6 +863,13 @@ $('modalCard').addEventListener('click', (e) => { if (e.target === $('modalCard'
 // ================= Прокси для сессий =================
 let _proxyToken = null;
 
+function proxyToShort(url) {
+  if (!url) return '';
+  const m = url.match(/^https?:\/\/([^@]+)@([^:]+):(\d+)$/);
+  if (m) return `${m[2]}:${m[3]}:${m[1]}`;
+  return url.replace(/^https?:\/\//, '');
+}
+
 function openProxyModal(token, sessData) {
   _proxyToken = token;
   const name = sessData ? sessData.name : token;
@@ -959,12 +966,14 @@ async function loadProxyList() {
       el.innerHTML = '<div class="proxy-empty">Нет сохранённых прокси</div>';
       return;
     }
-    el.innerHTML = proxies.map(p => `
-      <div class="proxy-item" data-use-proxy="${esc(p.url)}">
+    el.innerHTML = proxies.map(p => {
+      const short = proxyToShort(p.url);
+      return `<div class="proxy-item" data-use-proxy="${esc(p.url)}">
         <span class="proxy-name">${esc(p.name)}</span>
-        <span class="proxy-url">${esc(p.url)}</span>
+        <span class="proxy-url">${esc(short)}</span>
         <button class="proxy-del" data-del-proxy="${esc(p.url)}" title="Удалить">&times;</button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     el.querySelectorAll('[data-use-proxy]').forEach(item => {
       item.addEventListener('click', (e) => {
         if (e.target.closest('.proxy-del')) return;
@@ -1209,7 +1218,7 @@ async function loadEdaSessions() {
     const tb = $('edaSessTable').querySelector('tbody');
     tb.innerHTML = entries.map(([token, s]) => {
       const proxy = s.proxy || '';
-      const proxyShort = proxy ? proxy.replace(/^https?:\/\//, '').replace(/@.*/, '@***') : '';
+      const proxyShort = proxy ? proxyToShort(proxy) : '';
       const ipCell = proxy
         ? `<span class="proxy-ip-cell" id="pip-${token}">⏳</span>`
         : `<span class="proxy-ip-cell none">—</span>`;
