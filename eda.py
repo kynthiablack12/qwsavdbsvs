@@ -4859,21 +4859,30 @@ def _go_hdrs(acc, lat=None, lon=None):
 
 
 def _go_call(acc, method, path, json_body=None, params=None, timeout=25):
-    """Запрос к суперапп-бэкенду (tc.eats.yandex.ru/4.0/eda-superapp)."""
+    """Запрос к суперапп-бэкенду (tc.eats.yandex.ru/4.0/eda-superapp).
+
+    Авторизация: cookie Session_id (если есть) или Bearer token (fallback).
+    Superapp WebView реального приложения шлёт Session_id cookie, но наши
+    аккаунты могут быть добавлены только через Bearer — пробуем оба варианта.
+    """
     ck = _web_cookies(acc)
+    hdrs = _go_hdrs(acc)
+    bearer = _extract_bearer(acc)
+    if not ck.get('Session_id') and bearer:
+        hdrs['Authorization'] = f'OAuth {bearer}'
     url = GO_EATS_HOST + path
     proxies = None
     proxy_url = (acc.get('proxy') or '').strip()
     if proxy_url:
         proxies = {'http': proxy_url, 'https': proxy_url}
     try:
-        r = requests.request(method, url, headers=_go_hdrs(acc), cookies=ck,
+        r = requests.request(method, url, headers=hdrs, cookies=ck,
                              json=json_body, params=params, timeout=timeout,
                              proxies=proxies)
     except requests.RequestException as e:
         raise RuntimeError(f'Я.Еда (суперапп): сеть ({method} {path}): {e}')
     if r.status_code in (401, 403):
-        raise RuntimeError(f'Я.Еда (суперапп): авторизация отклонена ({r.status_code}): Session_id невалиден')
+        raise RuntimeError(f'Я.Еда (суперапп): авторизация отклонена ({r.status_code}): {r.text[:200]}')
     if r.status_code >= 400:
         raise RuntimeError(f'Я.Еда (суперапп): HTTP {r.status_code} на {method} {path}: {r.text[:300]}')
     try:
