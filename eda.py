@@ -355,7 +355,7 @@ def fetch_session_id(acc):
     s.headers['User-Agent'] = _go_ua(acc)
     s.headers['Accept'] = '*/*'
     try:
-        r = s.get('https://passport.yandex.ru/desk?retpath=https://eda.yandex.ru',
+        r = s.get('https://passport.yandex.ru/desk?retpath=https://tc.eats.yandex.ru',
                    timeout=20, proxies=proxies, allow_redirects=True)
     except requests.RequestException:
         return False
@@ -394,7 +394,7 @@ def fetch_session_id(acc):
                          'X-CSRF-Token': csrf,
                          'Authorization': f'OAuth {bearer}',
                      },
-                     data='retpath=https://eda.yandex.ru',
+                     data='retpath=https://tc.eats.yandex.ru',
                      timeout=20, proxies=proxies, allow_redirects=False)
         for c in s.cookies:
             if c.name == 'Session_id':

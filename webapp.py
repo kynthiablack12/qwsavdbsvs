@@ -1064,14 +1064,27 @@ def api_eda_test_sbp(name):
     acc = eda.get_eda_account(name)
     if not acc:
         return jsonify({'error': f'account {name} not found'}), 404
+    sid = (acc.get('session_id') or '').strip() or (acc.get('cookies') or {}).get('Session_id', '').strip()
+    yuid = (acc.get('yandexuid') or '').strip()
+    bearer = eda._extract_bearer(acc)
+    info = {
+        'has_session_id': bool(sid),
+        'session_id_prefix': sid[:20] + '...' if sid else '',
+        'has_yandexuid': bool(yuid),
+        'yandexuid': yuid[:20] + '...' if yuid else '',
+        'has_bearer': bool(bearer),
+        'bearer_prefix': bearer[:10] + '...' if bearer else '',
+    }
     try:
         d = eda.go_checkout(acc, None, acc.get('address') or {})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        info['error'] = str(e)
+        return jsonify(info), 500
     avail = eda.web_available_payments(d)
     avail_types = [a.get('type') for a in avail]
-    return jsonify({'ok': True, 'available_types': avail_types, 'available': avail,
-                    'raw_keys': list(d.keys()) if isinstance(d, dict) else str(type(d))})
+    info['ok'] = True
+    info['available_types'] = avail_types
+    return jsonify(info)
 
 
 @app.route('/api/eda/sessions/<token>', methods=['DELETE'])
