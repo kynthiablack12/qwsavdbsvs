@@ -385,7 +385,7 @@ def fetch_session_id(acc):
                          'Referer': 'https://passport.yandex.ru/auth/welcome',
                          'X-Requested-With': 'XMLHttpRequest',
                      },
-                     data='retpath=https://tc.eats.yandex.ru',
+                     data='retpath=https://eda.yandex.ru',
                      timeout=20, proxies=proxies, allow_redirects=False)
         sid = None
         for c in s.cookies:

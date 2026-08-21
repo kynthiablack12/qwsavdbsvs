@@ -1117,7 +1117,7 @@ def api_eda_debug_sid(name):
                          'Referer': 'https://passport.yandex.ru/auth/welcome',
                          'X-Requested-With': 'XMLHttpRequest',
                      },
-                     data='retpath=https://tc.eats.yandex.ru',
+                     data='retpath=https://eda.yandex.ru',
                      timeout=20, proxies=proxies, allow_redirects=False)
         log['create_status'] = r2.status_code
         log['create_location'] = r2.headers.get('Location', '')[:200]
