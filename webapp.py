@@ -1047,12 +1047,12 @@ def api_eda_fetch_sid():
     accounts = eda.get_accounts()
     results = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
-        futures = {ex.submit(eda.fetch_session_id, a['token'], a.get('bearer', a.get('token'))): a['name'] for a in accounts if a.get('token')}
+        futures = {ex.submit(eda.fetch_session_id, a): a['name'] for a in accounts if a.get('token')}
         for f in concurrent.futures.as_completed(futures, timeout=60):
             name = futures[f]
             try:
-                sid = f.result(timeout=15)
-                results[name] = sid[:30] + '...' if sid and len(sid) > 30 else (sid or 'FAIL')
+                ok = f.result(timeout=15)
+                results[name] = 'OK' if ok else 'FAIL'
             except Exception as e:
                 results[name] = f'ERR: {str(e)[:80]}'
     return jsonify(results)
