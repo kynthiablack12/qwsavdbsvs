@@ -15,6 +15,7 @@ import requests
 
 EDA_ACCOUNTS_FILE = os.path.join(core.DATA_DIR, 'eda_accounts.json')
 EDA_SESSIONS_FILE = os.path.join(core.DATA_DIR, 'eda_sessions.json')
+EDA_PROXIES_FILE = os.path.join(core.DATA_DIR, 'eda_proxies.json')
 
 # «Свои Плюсы»: ежедневные подарки (sp.yandex.ru/daily).
 SP_GIFTS_FILE = os.path.join(core.DATA_DIR, 'sp_gifts.json')
@@ -728,6 +729,7 @@ def create_eda_session(name, account, hours=24):
         'last_seen': None,
         'active': True,
         'address': None,
+        'proxy': None,
         # каждая сессия — свежее «устройство» (свои device_id/модель),
         # поэтому таймер 22 мин считаем с момента создания сессии.
         'device': device,
@@ -759,6 +761,75 @@ def set_eda_session_address(token, address):
     sess[token]['address'] = address or None
     save_eda_sessions(sess)
     return sess[token]['address']
+
+
+def set_eda_session_proxy(token, proxy_url):
+    """Установить прокси для сессии."""
+    if not token:
+        raise RuntimeError('token required')
+    sess = load_eda_sessions()
+    if token not in sess:
+        raise RuntimeError('сессия не найдена')
+    sess[token]['proxy'] = (proxy_url or '').strip() or None
+    save_eda_sessions(sess)
+    return sess[token]['proxy']
+
+
+# ------------------------------------------------------------
+#  Хранилище прокси (общий пул).
+# ------------------------------------------------------------
+
+def load_proxies():
+    """Загрузить список сохранённых прокси."""
+    try:
+        with open(EDA_PROXIES_FILE, encoding='utf-8') as f:
+            return json.load(f).get('proxies', [])
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def save_proxies(proxies):
+    with open(EDA_PROXIES_FILE, 'w', encoding='utf-8') as f:
+        json.dump({'proxies': proxies}, f, ensure_ascii=False, indent=2)
+
+
+def add_proxy(name, url):
+    """Добавить прокси в общий пул. Возвращает обновлённый список."""
+    url = (url or '').strip()
+    if not url:
+        raise RuntimeError('url required')
+    if not re.match(r'^https?://', url):
+        url = 'http://' + url
+    proxies = load_proxies()
+    for p in proxies:
+        if p['url'] == url:
+            p['name'] = (name or '').strip() or p['name']
+            save_proxies(proxies)
+            return proxies
+    proxies.append({'name': (name or '').strip() or url, 'url': url})
+    save_proxies(proxies)
+    return proxies
+
+
+def delete_proxy(url):
+    """Удалить прокси из общего пула."""
+    proxies = [p for p in load_proxies() if p['url'] != url]
+    save_proxies(proxies)
+    return proxies
+
+
+def check_proxy_ip(url):
+    """Проверить IP прокси (через httpbin). Возвращает dict {ip, ok, error}."""
+    url = (url or '').strip()
+    if not url:
+        return {'ok': False, 'error': 'пустой URL'}
+    proxies = {'http': url, 'https': url}
+    try:
+        r = requests.get('https://httpbin.org/ip', proxies=proxies, timeout=10)
+        data = r.json()
+        return {'ok': True, 'ip': data.get('origin', '?')}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)[:100]}
 
 
 # ------------------------------------------------------------
@@ -845,16 +916,19 @@ def activate_sale_key(key, base_url='', user_id=None):
 
 
 def get_eda_session_account(token):
-    """Сессия + аккаунт, у которого device подменён на device сессии."""
+    """Сессия + аккаунт, у которого device и proxy подменены на данные сессии."""
     s = get_eda_session(token)
     if not s:
         return None, None
     acc = get_eda_account(s.get('account') or '')
     if not acc:
         return s, None
-    if s.get('device'):
+    if s.get('device') or s.get('proxy'):
         acc = dict(acc)
-        acc['device'] = dict(s['device'])
+        if s.get('device'):
+            acc['device'] = dict(s['device'])
+        if s.get('proxy'):
+            acc['proxy'] = s['proxy']
     return s, acc
 
 

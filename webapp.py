@@ -1047,6 +1047,77 @@ def api_eda_sessions_revoke(token):
     return jsonify({'ok': True})
 
 
+@app.route('/api/eda/sessions/<token>/proxy', methods=['GET'])
+def api_eda_session_proxy_get(token):
+    """Получить прокси сессии."""
+    try:
+        s, acc = eda.get_eda_session_account(token)
+    except Exception:
+        s = None
+    if not s:
+        return jsonify({'error': 'сессия не найдена'}), 404
+    proxy = s.get('proxy') or ''
+    ip = None
+    if proxy:
+        try:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as ex:
+                ip = ex.submit(eda.check_proxy_ip, proxy).result(timeout=12)
+        except Exception:
+            ip = {'ok': False, 'error': 'timeout'}
+    return jsonify({'proxy': proxy, 'ip': ip})
+
+
+@app.route('/api/eda/sessions/<token>/proxy', methods=['POST'])
+def api_eda_session_proxy_set(token):
+    """Установить прокси для сессии."""
+    data = request.get_json(silent=True) or {}
+    proxy = data.get('proxy', '')
+    try:
+        eda.set_eda_session_proxy(token, proxy)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'proxy': proxy})
+
+
+@app.route('/api/eda/proxies', methods=['GET'])
+def api_eda_proxies_list():
+    """Список сохранённых прокси."""
+    return jsonify(eda.load_proxies())
+
+
+@app.route('/api/eda/proxies', methods=['POST'])
+def api_eda_proxies_add():
+    """Добавить прокси в общий пул."""
+    data = request.get_json(silent=True) or {}
+    try:
+        proxies = eda.add_proxy(data.get('name', ''), data.get('url', ''))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'proxies': proxies})
+
+
+@app.route('/api/eda/proxies/<path:url>', methods=['DELETE'])
+def api_eda_proxies_delete(url):
+    """Удалить прокси из пула."""
+    proxies = eda.delete_proxy(url)
+    return jsonify({'ok': True, 'proxies': proxies})
+
+
+@app.route('/api/eda/proxies/check', methods=['POST'])
+def api_eda_proxies_check():
+    """Проверить IP прокси."""
+    data = request.get_json(silent=True) or {}
+    url = data.get('url', '')
+    try:
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as ex:
+            result = ex.submit(eda.check_proxy_ip, url).result(timeout=12)
+    except Exception as e:
+        result = {'ok': False, 'error': str(e)[:100]}
+    return jsonify(result)
+
+
 @app.route('/api/prizes')
 def api_prizes():
     account = request.args.get('account')

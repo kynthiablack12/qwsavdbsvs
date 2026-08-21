@@ -860,6 +860,145 @@ $('cardCvc').addEventListener('input', () => {
 $('cardClose').addEventListener('click', () => $('modalCard').classList.add('hidden'));
 $('modalCard').addEventListener('click', (e) => { if (e.target === $('modalCard')) $('modalCard').classList.add('hidden'); });
 
+// ================= Прокси для сессий =================
+let _proxyToken = null;
+
+function openProxyModal(token, sessData) {
+  _proxyToken = token;
+  const name = sessData ? sessData.name : token;
+  $('proxySessName').textContent = 'Сессия: ' + name;
+  $('proxyUrl').value = sessData ? (sessData.proxy || '') : '';
+  $('proxyIp').textContent = '';
+  $('proxyIp').className = 'proxy-ip';
+  $('proxyError').classList.add('hidden');
+  $('modalProxy').classList.remove('hidden');
+  loadProxyList();
+  if (sessData && sessData.proxy) fetchProxyIp(token);
+}
+
+$('proxyClose').addEventListener('click', () => $('modalProxy').classList.add('hidden'));
+$('modalProxy').addEventListener('click', (e) => { if (e.target === $('modalProxy')) $('modalProxy').classList.add('hidden'); });
+
+async function fetchProxyIp(token) {
+  const el = $(`pip-${token}`);
+  if (el) el.textContent = '⏳';
+  try {
+    const r = await api(`/api/eda/sessions/${token}/proxy`);
+    if (el) {
+      if (r.ip && r.ip.ok) {
+        el.textContent = r.ip.ip;
+      } else {
+        el.textContent = '❌';
+        el.title = r.ip ? r.ip.error : 'ошибка';
+      }
+    }
+  } catch (e) {
+    if (el) el.textContent = '❌';
+  }
+}
+
+$('proxyCheck').addEventListener('click', async () => {
+  const url = $('proxyUrl').value.trim();
+  if (!url) { $('proxyIp').textContent = ''; return; }
+  $('proxyIp').textContent = '⏳ проверяю…';
+  $('proxyIp').className = 'proxy-ip';
+  try {
+    const r = await api('/api/eda/proxies/check', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (r.ok) {
+      $('proxyIp').textContent = 'IP: ' + r.ip;
+      $('proxyIp').className = 'proxy-ip';
+    } else {
+      $('proxyIp').textContent = '❌ ' + (r.error || 'недоступен');
+      $('proxyIp').className = 'proxy-ip err';
+    }
+  } catch (e) {
+    $('proxyIp').textContent = '❌ ошибка';
+    $('proxyIp').className = 'proxy-ip err';
+  }
+});
+
+$('proxySave').addEventListener('click', async () => {
+  if (!_proxyToken) return;
+  const url = $('proxyUrl').value.trim();
+  try {
+    await api(`/api/eda/sessions/${_proxyToken}/proxy`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proxy: url }),
+    });
+    $('modalProxy').classList.add('hidden');
+    loadEdaSessions();
+  } catch (e) {
+    $('proxyError').textContent = e.message;
+    $('proxyError').classList.remove('hidden');
+  }
+});
+
+$('proxyClear').addEventListener('click', async () => {
+  if (!_proxyToken) return;
+  try {
+    await api(`/api/eda/sessions/${_proxyToken}/proxy`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proxy: '' }),
+    });
+    $('modalProxy').classList.add('hidden');
+    loadEdaSessions();
+  } catch (e) {
+    $('proxyError').textContent = e.message;
+    $('proxyError').classList.remove('hidden');
+  }
+});
+
+async function loadProxyList() {
+  try {
+    const proxies = await api('/api/eda/proxies');
+    const el = $('proxyList');
+    if (!proxies.length) {
+      el.innerHTML = '<div class="proxy-empty">Нет сохранённых прокси</div>';
+      return;
+    }
+    el.innerHTML = proxies.map(p => `
+      <div class="proxy-item" data-use-proxy="${esc(p.url)}">
+        <span class="proxy-name">${esc(p.name)}</span>
+        <span class="proxy-url">${esc(p.url)}</span>
+        <button class="proxy-del" data-del-proxy="${esc(p.url)}" title="Удалить">&times;</button>
+      </div>`).join('');
+    el.querySelectorAll('[data-use-proxy]').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.proxy-del')) return;
+        $('proxyUrl').value = item.dataset.useProxy;
+      });
+    });
+    el.querySelectorAll('[data-del-proxy]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await api(`/api/eda/proxies/${encodeURIComponent(btn.dataset.delProxy)}`, { method: 'DELETE' });
+        loadProxyList();
+      });
+    });
+  } catch (e) {}
+}
+
+$('proxyAdd').addEventListener('click', async () => {
+  const name = $('proxyNewName').value.trim();
+  const url = $('proxyNewUrl').value.trim();
+  if (!url) return;
+  try {
+    await api('/api/eda/proxies', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, url }),
+    });
+    $('proxyNewName').value = '';
+    $('proxyNewUrl').value = '';
+    loadProxyList();
+  } catch (e) {
+    $('proxyError').textContent = e.message;
+    $('proxyError').classList.remove('hidden');
+  }
+});
+
 function showCardError(msg) {
   const el = $('cardError');
   el.textContent = msg;
@@ -1068,21 +1207,29 @@ async function loadEdaSessions() {
     const sess = await api('/api/eda/sessions');
     const entries = Object.entries(sess).filter(([, v]) => v.active);
     const tb = $('edaSessTable').querySelector('tbody');
-    tb.innerHTML = entries.map(([token, s]) => `
-      <tr>
+    tb.innerHTML = entries.map(([token, s]) => {
+      const proxy = s.proxy || '';
+      const proxyShort = proxy ? proxy.replace(/^https?:\/\//, '').replace(/@.*/, '@***') : '';
+      const ipCell = proxy
+        ? `<span class="proxy-ip-cell" id="pip-${token}">⏳</span>`
+        : `<span class="proxy-ip-cell none">—</span>`;
+      return `<tr>
         <td><b>${esc(s.name)}</b></td>
         <td><b>${esc(s.account)}</b></td>
         <td><span class="mono db-mut">${esc(location.origin + '/d/' + token)}</span></td>
         <td><span class="mono db-mut" id="sk-${token}">${esc(s.sale_key || '—')}</span></td>
+        <td>${ipCell}</td>
         <td class="num">${esc(s.expires_at || '—')}</td>
         <td class="col-actions">
           <div class="row-actions">
+            <button class="btn btn-ghost btn-sm" data-proxy="${token}">🌐 Прокси</button>
             <button class="btn btn-ghost btn-sm" data-copy="${esc(location.origin + '/d/' + token)}">Ссылка</button>
             <button class="btn btn-ghost btn-sm" data-key="${token}">🔑 Ключ</button>
             <button class="btn btn-danger btn-sm" data-revoke="${token}">Отозвать</button>
           </div>
         </td>
-      </tr>`).join('') || '<tr><td colspan="6" class="db-empty">Активных сессий Еды нет</td></tr>';
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" class="db-empty">Активных сессий Еды нет</td></tr>';
     tb.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy, b)));
     tb.querySelectorAll('[data-key]').forEach(b => b.addEventListener('click', async () => {
       const btn = b;
@@ -1102,8 +1249,12 @@ async function loadEdaSessions() {
       await api(`/api/eda/sessions/${b.dataset.revoke}`, { method: 'DELETE' });
       loadEdaSessions();
     }));
+    tb.querySelectorAll('[data-proxy]').forEach(b => b.addEventListener('click', () => openProxyModal(b.dataset.proxy, sess[b.dataset.proxy])));
+    entries.forEach(([token, s]) => {
+      if (s.proxy) fetchProxyIp(token);
+    });
   } catch (e) {
-    $('edaSessTable').querySelector('tbody').innerHTML = `<tr><td colspan="6" class="db-empty">${esc(e.message)}</td></tr>`;
+    $('edaSessTable').querySelector('tbody').innerHTML = `<tr><td colspan="7" class="db-empty">${esc(e.message)}</td></tr>`;
   }
 }
 

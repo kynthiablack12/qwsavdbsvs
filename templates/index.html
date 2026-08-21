@@ -305,7 +305,7 @@
       </div>
       <div class="table-wrap" style="margin-top:16px">
         <table class="data-table" id="edaSessTable">
-          <thead><tr><th>Имя</th><th>Аккаунт</th><th>Ссылка</th><th>Ключ продажи</th><th>Истекает</th><th class="col-actions">Действия</th></tr></thead>
+          <thead><tr><th>Имя</th><th>Аккаунт</th><th>Ссылка</th><th>Ключ продажи</th><th>Прокси</th><th>Истекает</th><th class="col-actions">Действия</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -634,6 +634,38 @@
       <button class="btn btn-primary btn-block" id="cardSave">Сохранить и подключить</button>
     </div>
     <div class="modal-error hidden" id="cardError"></div>
+  </div>
+</div>
+
+<!-- Прокси для сессии -->
+<div class="modal-overlay hidden" id="modalProxy">
+  <div class="modal">
+    <button class="modal-close" id="proxyClose">×</button>
+    <h2>🌐 Прокси для сессии</h2>
+    <p class="muted" id="proxySessName"></p>
+
+    <div class="proxy-current">
+      <label>Текущий прокси
+        <input type="text" id="proxyUrl" placeholder="http://user:pass@host:port" autocomplete="off">
+      </label>
+      <div class="proxy-row">
+        <button class="btn btn-primary btn-sm" id="proxyCheck">Проверить IP</button>
+        <button class="btn btn-primary btn-sm" id="proxySave">Сохранить</button>
+        <button class="btn btn-ghost btn-sm" id="proxyClear">Без прокси</button>
+      </div>
+      <div class="proxy-ip" id="proxyIp"></div>
+    </div>
+
+    <div class="proxy-saved">
+      <h3>Сохранённые прокси</h3>
+      <div class="proxy-list" id="proxyList"></div>
+      <div class="proxy-add">
+        <input type="text" id="proxyNewName" placeholder="Название (необязательно)" autocomplete="off">
+        <input type="text" id="proxyNewUrl" placeholder="http://user:pass@host:port" autocomplete="off">
+        <button class="btn btn-ghost btn-sm" id="proxyAdd">Добавить в список</button>
+      </div>
+    </div>
+    <div class="modal-error hidden" id="proxyError"></div>
   </div>
 </div>
 
