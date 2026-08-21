@@ -356,14 +356,14 @@ def fetch_session_id(acc):
     s.headers['User-Agent'] = ua
     s.headers['Accept'] = '*/*'
 
-    # --- Method 1: passport /1/bundle/session/create with target_host ---
+    # 1) passport desk page → CSRF
     try:
-        r0 = s.get('https://passport.yandex.ru/desk?retpath=https://tc.eats.yandex.ru',
-                    timeout=20, proxies=proxies, allow_redirects=True)
+        r = s.get('https://passport.yandex.ru/desk?retpath=https://tc.eats.yandex.ru',
+                   timeout=20, proxies=proxies, allow_redirects=True)
     except requests.RequestException:
         return False
     csrf = ''
-    m = re.search(r'__CSRF__\s*=\s*"([^"]+)"', r0.text or '') if r0.text else None
+    m = re.search(r'__CSRF__\s*=\s*"([^"]+)"', r.text or '') if r.text else None
     if m:
         csrf = m.group(1)
     else:
@@ -371,67 +371,58 @@ def fetch_session_id(acc):
             if c.name == '_csrf_token':
                 csrf = c.value
                 break
-    if csrf:
-        try:
-            r2 = s.post('https://passport.yandex.ru/1/bundle/session/create/',
-                        headers={
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                            'X-CSRF-Token': csrf,
-                            'Authorization': f'OAuth {bearer}',
-                        },
-                        data='retpath=https://tc.eats.yandex.ru'
-                             '&target_host=tc.eats.yandex.ru',
-                        timeout=20, proxies=proxies, allow_redirects=False)
-            if r2.status_code in (302, 303):
-                loc = r2.headers.get('Location', '')
-                m2 = re.search(r'Session_id=([^;&]+)', loc)
-                if m2:
-                    sid = m2.group(1)
-                    _save_sid(acc, sid, s.cookies)
-                    return True
-            for c in s.cookies:
-                if c.name == 'Session_id' and c.value:
-                    _save_sid(acc, c.value, s.cookies)
-                    return True
-            # Also check Set-Cookie in response
+    if not csrf:
+        return False
+
+    # 2) session/create with OAuth
+    try:
+        r2 = s.post('https://passport.yandex.ru/1/bundle/session/create/',
+                     headers={
+                         'Content-Type': 'application/x-www-form-urlencoded',
+                         'X-CSRF-Token': csrf,
+                         'Authorization': f'OAuth {bearer}',
+                     },
+                     data='retpath=https://tc.eats.yandex.ru',
+                     timeout=20, proxies=proxies, allow_redirects=False)
+        sid = None
+        for c in s.cookies:
+            if c.name == 'Session_id' and c.value:
+                sid = c.value
+                break
+        if not sid and r2.status_code in (302, 303):
+            loc = r2.headers.get('Location', '')
+            m2 = re.search(r'Session_id=([^;&]+)', loc)
+            if m2:
+                sid = m2.group(1)
+        if not sid:
             sc = r2.headers.get('Set-Cookie', '')
             m3 = re.search(r'Session_id=([^;&\s]+)', sc)
             if m3:
-                _save_sid(acc, m3.group(1), s.cookies)
-                return True
-        except requests.RequestException:
-            pass
-
-    # --- Method 2: OAuth token login via passport web ---
-    try:
-        s2 = requests.Session()
-        s2.headers['User-Agent'] = ua
-        r3 = s2.get(f'https://passport.yandex.ru/auth?retpath=https://tc.eats.yandex.ru'
-                     f'&.oauth_token={bearer}',
-                     timeout=20, proxies=proxies, allow_redirects=True)
-        ck2 = {c.name: c.value for c in s2.cookies}
-        if ck2.get('Session_id'):
-            _save_sid(acc, ck2['Session_id'], s2.cookies)
+                sid = m3.group(1)
+        if sid:
+            # 3) Warmup: hit tc.eats.yandex.ru to get extra cookies
+            s.headers.pop('Authorization', None)
+            try:
+                s.get('https://tc.eats.yandex.ru/4.0/eda-superapp/',
+                       timeout=15, proxies=proxies, allow_redirects=True)
+            except requests.RequestException:
+                pass
+            _save_sid(acc, sid, s.cookies)
             return True
-        # Check URL fragments
-        if 'Session_id=' in r3.url:
-            m4 = re.search(r'Session_id=([^;&]+)', r3.url)
-            if m4:
-                _save_sid(acc, m4.group(1), s2.cookies)
-                return True
     except requests.RequestException:
         pass
-
     return False
 
 
 def _save_sid(acc, sid, jar=None):
     yuid = ''
+    all_cookies = {}
     if jar:
         for c in jar:
-            if c.name == 'yandexuid' and c.value:
-                yuid = c.value
-                break
+            if c.value:
+                all_cookies[c.name] = c.value
+                if c.name == 'yandexuid' and not yuid:
+                    yuid = c.value
     with _store_lock():
         store = _eda_read()
         accs = store.get('accounts') or []
@@ -440,11 +431,13 @@ def _save_sid(acc, sid, jar=None):
             target['session_id'] = sid
             if yuid and not target.get('yandexuid'):
                 target['yandexuid'] = yuid
+            target['cookies'] = all_cookies
             store['accounts'] = accs
             _eda_write(store)
         acc['session_id'] = sid
         if yuid:
             acc['yandexuid'] = yuid
+        acc['cookies'] = all_cookies
 
 
 # ---------- QR-вход (passport magic link) ----------
@@ -1711,6 +1704,10 @@ def _web_cookies(acc):
     yuid = (acc.get('yandexuid') or '').strip()
     if yuid:
         ck['yandexuid'] = yuid
+    stored = acc.get('cookies') or {}
+    for k, v in stored.items():
+        if k not in ck and v:
+            ck[k] = v
     return ck
 
 
