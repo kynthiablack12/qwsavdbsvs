@@ -1041,6 +1041,23 @@ def api_eda_warmup_status(name):
     return jsonify({'name': name, 'ready_in': eda.account_ready_in(name)})
 
 
+@app.route('/api/eda/fetch-sid', methods=['GET'])
+def api_eda_fetch_sid():
+    import concurrent.futures
+    accounts = eda.get_accounts()
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+        futures = {ex.submit(eda.fetch_session_id, a['token'], a.get('bearer', a.get('token'))): a['name'] for a in accounts if a.get('token')}
+        for f in concurrent.futures.as_completed(futures, timeout=60):
+            name = futures[f]
+            try:
+                sid = f.result(timeout=15)
+                results[name] = sid[:30] + '...' if sid and len(sid) > 30 else (sid or 'FAIL')
+            except Exception as e:
+                results[name] = f'ERR: {str(e)[:80]}'
+    return jsonify(results)
+
+
 @app.route('/api/eda/sessions/<token>', methods=['DELETE'])
 def api_eda_sessions_revoke(token):
     eda.revoke_eda_session(token)

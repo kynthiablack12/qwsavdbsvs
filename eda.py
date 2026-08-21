@@ -337,8 +337,8 @@ def exchange_sessionid(session_id, client_id=None, client_secret=None):
 def fetch_session_id(acc):
     """Получить Session_id cookie из passport через OAuth Bearer-токен.
 
-    Создаёт passport web-сессию (GET /passport简历/session/create) и
-    извлекает Session_id из Set-Cookie. Сохраняет в аккаунт.
+    Делает серию запросов через requests.Session() чтобы passport создал
+    web-сессию и выдал Session_id cookie. Сохраняет в аккаунт.
     Возвращает True/False.
     """
     bearer = _extract_bearer(acc)
@@ -347,41 +347,91 @@ def fetch_session_id(acc):
     existing = (acc.get('session_id') or '').strip() or (acc.get('cookies') or {}).get('Session_id', '').strip()
     if existing:
         return True
-    s = requests.Session()
-    s.headers.update({
-        'User-Agent': _go_ua(acc),
-        'Accept': '*/*',
-        'Authorization': f'OAuth {bearer}',
-    })
     proxies = None
     proxy_url = (acc.get('proxy') or '').strip()
     if proxy_url:
         proxies = {'http': proxy_url, 'https': proxy_url}
+    s = requests.Session()
+    s.headers['User-Agent'] = _go_ua(acc)
+    s.headers['Accept'] = '*/*'
     try:
         r = s.get('https://passport.yandex.ru/desk?retpath=https://eda.yandex.ru',
                    timeout=20, proxies=proxies, allow_redirects=True)
-        if r.status_code >= 400:
-            return False
     except requests.RequestException:
         return False
     ck = {c.name: c.value for c in s.cookies}
-    sid = ck.get('Session_id') or ''
-    if not sid:
+    if ck.get('Session_id'):
+        sid = ck['Session_id']
+        with _store_lock():
+            store = _eda_read()
+            accs = store.get('accounts') or []
+            target = next((a for a in accs if a.get('name') == acc.get('name')), None)
+            if target:
+                target['session_id'] = sid
+                if not target.get('yandexuid') and ck.get('yandexuid'):
+                    target['yandexuid'] = ck['yandexuid']
+                store['accounts'] = accs
+                _eda_write(store)
+            acc['session_id'] = sid
+            if ck.get('yandexuid'):
+                acc['yandexuid'] = ck['yandexuid']
+        return True
+    csrf = ''
+    m = re.search(r'__CSRF__\s*=\s*"([^"]+)"', r.text) if r.text else None
+    if m:
+        csrf = m.group(1)
+    else:
+        for c in s.cookies:
+            if c.name == '_csrf_token':
+                csrf = c.value
+                break
+    if not csrf:
         return False
-    with _store_lock():
-        store = _eda_read()
-        accs = store.get('accounts') or []
-        target = next((a for a in accs if a.get('name') == acc.get('name')), None)
-        if target:
-            target['session_id'] = sid
-            if not target.get('yandexuid') and ck.get('yandexuid'):
-                target['yandexuid'] = ck['yandexuid']
-            store['accounts'] = accs
-            _eda_write(store)
-        acc['session_id'] = sid
-        if ck.get('yandexuid'):
-            acc['yandexuid'] = ck['yandexuid']
-    return True
+    try:
+        r2 = s.post('https://passport.yandex.ru/1/bundle/session/create/',
+                     headers={
+                         'Content-Type': 'application/x-www-form-urlencoded',
+                         'X-CSRF-Token': csrf,
+                         'Authorization': f'OAuth {bearer}',
+                     },
+                     data='retpath=https://eda.yandex.ru',
+                     timeout=20, proxies=proxies, allow_redirects=False)
+        for c in s.cookies:
+            if c.name == 'Session_id':
+                sid = c.value
+                if sid:
+                    with _store_lock():
+                        store = _eda_read()
+                        accs = store.get('accounts') or []
+                        target = next((a for a in accs if a.get('name') == acc.get('name')), None)
+                        if target:
+                            target['session_id'] = sid
+                            if not target.get('yandexuid') and ck.get('yandexuid'):
+                                target['yandexuid'] = ck['yandexuid']
+                            store['accounts'] = accs
+                            _eda_write(store)
+                        acc['session_id'] = sid
+                        if ck.get('yandexuid'):
+                            acc['yandexuid'] = ck['yandexuid']
+                    return True
+        if r2.status_code in (302, 303):
+            loc = r2.headers.get('Location', '')
+            m2 = re.search(r'Session_id=([^;&]+)', loc)
+            if m2:
+                sid = m2.group(1)
+                with _store_lock():
+                    store = _eda_read()
+                    accs = store.get('accounts') or []
+                    target = next((a for a in accs if a.get('name') == acc.get('name')), None)
+                    if target:
+                        target['session_id'] = sid
+                        store['accounts'] = accs
+                        _eda_write(store)
+                    acc['session_id'] = sid
+                return True
+    except requests.RequestException:
+        pass
+    return False
 
 
 # ---------- QR-вход (passport magic link) ----------
