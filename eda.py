@@ -381,6 +381,9 @@ def fetch_session_id(acc):
                          'Content-Type': 'application/x-www-form-urlencoded',
                          'X-CSRF-Token': csrf,
                          'Authorization': f'OAuth {bearer}',
+                         'Origin': 'https://passport.yandex.ru',
+                         'Referer': 'https://passport.yandex.ru/auth/welcome',
+                         'X-Requested-With': 'XMLHttpRequest',
                      },
                      data='retpath=https://tc.eats.yandex.ru',
                      timeout=20, proxies=proxies, allow_redirects=False)
