@@ -466,8 +466,12 @@ def _qr_headers(csrf):
     }
 
 
-def qr_start():
-    """Создать QR-сессию входа. Возвращает (qr_id, link)."""
+def qr_start(account_name=''):
+    """Создать QR-сессию входа. Возвращает (qr_id, link).
+
+    Если account_name передан — при успешном входе Session_id автоматически
+    сохранится в аккаунт (для go_checkout с SBP).
+    """
     s = requests.Session()
     try:
         r = s.get(PASSPORT_PWL, headers=_qr_headers(''), timeout=25)
@@ -500,6 +504,7 @@ def qr_start():
         QR_STATE[qr_id] = {
             'session': s, 'csrf': csrf, 'magic_track_id': track_id,
             'csrf_token': csrf_token, 'link': link, 'created_at': time.time(),
+            'account_name': account_name,
         }
     return qr_id, link
 
@@ -541,9 +546,24 @@ def qr_status(qr_id):
         session_id = ck.get('Session_id') or ''
         if not session_id:
             return {'state': 'error', 'message': f'нет Session_id в cookies: {ck}'}
+        account_name = st.get('account_name', '')
+        if account_name:
+            try:
+                accounts = load_eda_accounts()
+                for a in accounts:
+                    if a.get('name') == account_name:
+                        a['session_id'] = session_id
+                        if ck.get('yandexuid'):
+                            a['yandexuid'] = ck['yandexuid']
+                        a['cookies'] = ck
+                        save_eda_accounts(accounts)
+                        break
+            except Exception:
+                pass
         with QR_LOCK:
             QR_STATE.pop(qr_id, None)
-        return {'state': 'ok', 'session_id': session_id, 'yandexuid': ck.get('yandexuid', '')}
+        return {'state': 'ok', 'session_id': session_id, 'yandexuid': ck.get('yandexuid', ''),
+                'account_name': account_name}
     if state == 'auth_challenge':
         return {'state': 'waiting', 'hint': 'нужно доп. подтверждение в Яндекс-приложении'}
     return {'state': 'waiting', 'hint': f'state={state}'}
@@ -4980,15 +5000,19 @@ def _go_hdrs(acc, lat=None, lon=None):
 def _go_call(acc, method, path, json_body=None, params=None, timeout=25):
     """Запрос к суперапп-бэкенду (tc.eats.yandex.ru/4.0/eda-superapp).
 
-    Авторизация: cookie Session_id (если есть) или Bearer token (fallback).
-    Superapp WebView реального приложения шлёт Session_id cookie, но наши
-    аккаунты могут быть добавлены только через Bearer — пробуем оба варианта.
+    Авторизация: cookie Session_id (если есть) —.tc.eats не принимает
+    Bearer token. Если Session_id нет — fallback на Bearer (обертка
+    whirlpool не вернёт SBP, но хотя бы сработает).
     """
     ck = _web_cookies(acc)
     hdrs = _go_hdrs(acc)
-    bearer = _extract_bearer(acc)
-    if bearer:
-        hdrs['Authorization'] = f'OAuth {bearer}'
+    has_sid = bool(ck.get('Session_id'))
+    if has_sid:
+        pass  # tc.eats: ТОЛЬКО Session_id cookie, НЕ Bearer
+    else:
+        bearer = _extract_bearer(acc)
+        if bearer:
+            hdrs['Authorization'] = f'OAuth {bearer}'
     url = GO_EATS_HOST + path
     proxies = None
     proxy_url = (acc.get('proxy') or '').strip()
@@ -5047,6 +5071,30 @@ def _addr_superapp(addr):
         {'type': 'floor', 'text': (a.get('floor') or '')},
     ]
     return {'base_info': base, 'details': details}
+
+
+def go_add_to_cart(account, slug, item_id, qty=1, lat=None, lon=None):
+    """Добавить товар в корзину супераппа: POST /api/v1/cart.
+
+    Использует tc.eats.yandex.ru (Session_id cookie), как реальное
+    приложение Яндекс Go.  Возвращает ответ cart API (items/total).
+    """
+    acc = get_eda_account(account) if isinstance(account, str) else account
+    lat, lon = _coords(acc, lat, lon)
+    body = {
+        'item_id': str(item_id),
+        'quantity': int(qty or 1),
+        'item_options': [],
+        'place_business': 'restaurant',
+        'place_slug': slug,
+        'shipping_type': 'delivery',
+    }
+    params = {
+        'latitude': lat, 'longitude': lon,
+        'screen': 'menu', 'shippingType': 'delivery',
+        'soft_multi': 'true',
+    }
+    return _go_call(acc, 'POST', '/api/v1/cart', body, params=params)
 
 
 def go_checkout(account, slug, address, lat=None, lon=None,

@@ -476,8 +476,10 @@ def api_eda_cards_delete(cid):
 
 @app.route('/api/eda/qr/start', methods=['POST'])
 def api_eda_qr_start():
+    data = request.get_json(silent=True) or {}
+    account_name = data.get('account', '')
     try:
-        qr_id, link = eda.qr_start()
+        qr_id, link = eda.qr_start(account_name)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     return jsonify({'ok': True, 'qr_id': qr_id, 'link': link})
